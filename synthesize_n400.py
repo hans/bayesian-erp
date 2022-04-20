@@ -169,7 +169,7 @@ def sample_dataset_with_phons(size, n_word_range=(10, 25), **item_kwargs):
         ret_y.append(y)
         
     X_word = pd.concat(ret_X_word, names=["item", "word_idx"], keys=np.arange(len(ret_X_word)))
-    X_phon = pd.concat(ret_X_phon, names=["item", "phon_idx"], keys=np.arange(len(ret_X_phon)))
+    X_phon = pd.concat(ret_X_phon, names=["item", "word_idx", "phon_idx"], keys=np.arange(len(ret_X_phon)))
     y = pd.concat(ret_y, names=["item", "sample_idx"], keys=np.arange(len(ret_y)))
     return X_word, X_phon, y
 
