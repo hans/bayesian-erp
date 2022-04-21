@@ -174,6 +174,33 @@ def sample_dataset_with_phons(size, n_word_range=(10, 25), **item_kwargs):
     return X_word, X_phon, y
 
 
+def dataset_to_epochs(X, y, epoch_window=(-0.1, 0.9), test_window=(0.3, 0.5)):
+    assert X.index.names[0] == y.index.names[0]
+    
+    epoch_data = []
+    epoch_left, epoch_right = epoch_window
+    test_left, test_right = test_window
+    
+    for index, x in tqdm(X.iterrows(), total=len(X)):
+        y_df = y.loc[index[0]]
+        
+        epoch_window = y_df[(y_df.time >= x.time + epoch_left) & (y_df.time <= x.time + epoch_right)]
+        baseline_window = epoch_window[epoch_window.time <= x.time]
+        test_window = epoch_window[(epoch_window.time >= x.time + test_left) & (epoch_window.time <= x.time + test_right)]
+
+        # take means over temporal window
+        baseline_window = baseline_window.signal.mean(axis=0)
+        test_window = test_window.signal.mean(axis=0)
+
+        if not isinstance(index, tuple):
+            index = (index,)
+        epoch_data.append(index + (baseline_window, test_window))
+        
+    epoch_df = pd.DataFrame(epoch_data, columns=X.index.names + ["baseline_N400", "value_N400"]) \
+        .set_index(X.index.names)
+    return epoch_df
+
+
 def main(args):
     kwargs = dict(sample_rate=args.sample_rate,
                   n400_surprisal_coef=args.n400_coef)
