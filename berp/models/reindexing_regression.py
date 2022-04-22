@@ -10,26 +10,40 @@ from pyro.ops.indexing import Vindex
 import torch
 
 
-@config_enumerate
-def model(X, y):
-    # print("!!", X.shape, y.shape)
-    coef = pyro.sample("coef", dist.Normal(0., 2.))
+def build_model_guide(bayesian=True):
+    def model(X, y):
+        coef = pyro.sample("coef", dist.Normal(0., 2.))
 
-    with pyro.plate("data", X.shape[0]):
-        weights = pyro.param("weights", dist.Dirichlet(torch.ones(y.shape[1])))
-        index = pyro.sample("index", dist.Categorical(weights))
-        y_hat = X * coef
-        y_target = Vindex(y)[..., index]
+        with pyro.plate("data", X.shape[0]):
+            prior = torch.ones(y.shape[1])
+            if bayesian:
+                weights = pyro.param("weights", dist.Dirichlet(prior))
+            else:
+                weights = prior
+            index = pyro.sample("index", dist.Categorical(weights))
+            y_hat = X * coef
+            y_target = Vindex(y)[..., index]
 
-        obs = pyro.sample("obs", dist.Normal(y_hat, 1.),
-                          obs=y_target)
+            obs = pyro.sample("obs", dist.Normal(y_hat, 1.),
+                              obs=y_target)
+
+    def guide(X, y):
+        coef = pyro.sample("coef", dist.Normal(0., 2.))
+        with pyro.plate("data", X.shape[0]):
+            prior = torch.ones(y.shape[1])
+            if bayesian:
+                weights = pyro.param("weights", dist.Dirichlet(prior))
+            else:
+                weights = prior
+            index = pyro.sample("index", dist.Categorical(weights))
+
+    if not bayesian:
+        model = config_enumerate(model)
+
+    return model, guide
 
 
-def guide(X, y):
-    coef = pyro.sample("coef", dist.Normal(0., 2.))
-    with pyro.plate("data", X.shape[0]):
-        weights = pyro.param("weights", dist.Dirichlet(torch.ones(y.shape[1])))
-        index = pyro.sample("index", dist.Categorical(weights))
+
         # index = pyro.sample("index", dist.Categorical(torch.ones(y.shape[1])))
 #
 # class ReindexingRegressionModel(PyroModule):

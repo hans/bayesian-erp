@@ -68,18 +68,20 @@ def init_loc_fn(site):
     if site["name"] == "coef":
         return torch.tensor(0.)
     elif site["name"] == "weights":
-        return torch.ones(5)) / 5.
+        return torch.ones(5) / 5.
     raise ValueError(site["name"])
 
 
-def main(args):
+def eval(args):
     # test_window = (args.test_window_left, args.test_window_right)
     # X, y = synthesize_dataset(args.size, test_window=test_window)
 
     # DEV: try this with fake data first.
     N, d = 50, 5
     import numpy as np
-    y = np.random.normal(0., 10., size=(N, d))
+    import time
+    np.random.seed(int(time.time()))
+    y = np.random.uniform(-10., 10., size=(N, d))
     # shuffled = np.arange(n)
     # np.random.shuffle(shuffled)
     # y = -0.5 * np.diag(X)[:, shuffled]
@@ -88,7 +90,7 @@ def main(args):
     X = torch.tensor(X).float()
     y = torch.tensor(y).float()
 
-    model = reindexing_regression.model
+    model, guide = reindexing_regression.build_model_guide(args.bayesian)
     # guide = AutoDiagonalNormal(poutine.block(model, hide=["index"]))
     # guide = AutoDelta(poutine.block(model, expose=["coef"]))
     # guide = reindexing_regression.guide
@@ -123,9 +125,21 @@ def main(args):
 
     index_hat = do_discrete_inference(model, guide, X, y)
 
-    print(idxs)
-    print(index_hat)
+    # print(idxs)
+    # print(index_hat)
     print((idxs == index_hat).mean())
+
+    return idxs, index_hat
+
+
+def main(args):
+    accs = []
+    for _ in range(100):
+        pyro.clear_param_store()
+        idxs, index_hat = eval(args)
+        accs.append((idxs == index_hat).mean())
+    print(accs)
+    print(np.mean(accs))
 
 
 if __name__ == "__main__":
@@ -136,6 +150,8 @@ if __name__ == "__main__":
 
     p.add_argument("--size", type=int, default=10)
     p.add_argument("--level", choices=["word", "phoneme"], default="word")
+
+    p.add_argument("--bayesian", default=False, action="store_true")
 
     p.add_argument("--n_iter", type=int, default=200)
 
