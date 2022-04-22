@@ -14,7 +14,7 @@ from torch.distributions import constraints
 
 def build_model_guide(bayesian=True):
     def model(X, y):
-        coef = 1.0 # pyro.sample("coef", dist.Normal(0., 2.))
+        coef = pyro.sample("coef", dist.Normal(1., 1))
 
         prior = pyro.param("prior", dist.Dirichlet(torch.ones(y.shape[1]).unsqueeze(0)),
                            constraint=constraints.positive)
@@ -29,8 +29,7 @@ def build_model_guide(bayesian=True):
                               obs=y_target)
 
     def guide(X, y):
-        pass
-        # coef = pyro.sample("coef", dist.Normal(0., 2.))
+        coef = pyro.sample("coef", dist.Normal(1., 1))
         # with pyro.plate("data", X.shape[0]):
         #     index = pyro.sample("index", dist.Categorical(weights))
 
