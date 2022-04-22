@@ -3,6 +3,7 @@ Defines a Bayesian model which samples different response columns per sample.
 """
 
 import pyro
+from pyro import poutine
 import pyro.distributions as dist
 from pyro.infer import config_enumerate
 from pyro.nn import PyroModule, PyroSample
@@ -14,16 +15,9 @@ from torch.distributions import constraints
 def build_model_guide(bayesian=True):
     def model(X, y):
         coef = pyro.sample("coef", dist.Normal(0., 2.))
-        weights = pyro.param("weights", dist.Dirichlet(torch.ones(y.shape[1])),
-                             constraint=constraints.positive)
 
         with pyro.plate("data", X.shape[0]):
-            # prior = torch.ones(y.shape[1])
-            # if bayesian:
-            #     weights = pyro.param("weights", dist.Dirichlet(prior))
-            # else:
-            #     weights = prior
-            index = pyro.sample("index", dist.Categorical(weights))
+            index = pyro.sample("index", dist.Categorical(torch.ones(y.shape[1])))
             y_hat = X * coef
             y_target = Vindex(y)[..., index]
 
@@ -32,19 +26,26 @@ def build_model_guide(bayesian=True):
 
     def guide(X, y):
         coef = pyro.sample("coef", dist.Normal(0., 2.))
-        weights = pyro.param("weights", dist.Dirichlet(torch.ones(y.shape[1])))
+        # with pyro.plate("data", X.shape[0]):
+        #     index = pyro.sample("index", dist.Categorical(weights))
+
+    def discrete_guide(X, y):
+        # Don't let inner guide handle params.
+        with poutine.block(hide_types=["param"]):
+            guide(X, y)
+
+        prior = pyro.param("prior", dist.Dirichlet(torch.ones(y.shape[1]).unsqueeze(0)),
+                           constraint=constraints.positive)
         with pyro.plate("data", X.shape[0]):
-            # prior = torch.ones(y.shape[1])
-            # if bayesian:
-            #     weights = pyro.param("weights", dist.Dirichlet(prior))
-            # else:
-            #     weights = prior
-            index = pyro.sample("index", dist.Categorical(weights))
+            index_probs = pyro.param("index_probs", prior.expand(y.shape),
+                                     constraint=constraints.unit_interval)
+            pyro.sample("index", dist.Categorical(index_probs))
 
     if not bayesian:
         model = config_enumerate(model)
+        full_guide = config_enumerate(discrete_guide)
 
-    return model, guide
+    return model, full_guide
 
 
 

@@ -86,7 +86,7 @@ def eval(args):
     # np.random.shuffle(shuffled)
     # y = -0.5 * np.diag(X)[:, shuffled]
     # idxs = np.random.randint(d, size=N)
-    idxs = np.ones(N).astype(np.int)
+    idxs = np.ones(N).astype(int)
     X = y[np.arange(N), idxs]
     X = torch.tensor(X).float()
     y = torch.tensor(y).float()
@@ -99,19 +99,19 @@ def eval(args):
     elbo = TraceEnum_ELBO(max_plate_nesting=1)
     adam = Adam({"lr": 0.1})
 
-    def initialize(X, y, seed, optim, elbo):
-        global guide, svi
+    def initialize(X, y, seed, model, guide, optim, elbo):
+        global svi
         pyro.set_rng_seed(seed)
         pyro.clear_param_store()
-        guide = AutoNormal(poutine.block(model, expose=["coef", "weights"]),
-                           init_loc_fn=init_loc_fn)
+        # guide = AutoNormal(poutine.block(model, expose=["coef", "weights"]),
+        #                    init_loc_fn=init_loc_fn)
         svi = SVI(model, guide, optim, loss=elbo)
         return svi.loss(model, guide, X, y), seed
 
-    loss, seed = min(initialize(X, y, seed, adam, elbo)
+    loss, seed = min(initialize(X, y, seed, model, guide, adam, elbo)
                      for seed in range(100))
     print(f"seed = {seed}, initial_loss = {loss}")
-    initialize(X, y, seed, adam, elbo)
+    initialize(X, y, seed, model, guide, adam, elbo)
 
     train(svi, X, y, num_iterations=args.n_iter)
 
