@@ -14,18 +14,23 @@ from torch.distributions import constraints
 
 def build_model_guide(bayesian=True):
     def model(X, y):
-        coef = pyro.sample("coef", dist.Normal(0., 2.))
+        coef = 1.0 # pyro.sample("coef", dist.Normal(0., 2.))
 
+        prior = pyro.param("prior", dist.Dirichlet(torch.ones(y.shape[1]).unsqueeze(0)),
+                           constraint=constraints.positive)
         with pyro.plate("data", X.shape[0]):
-            index = pyro.sample("index", dist.Categorical(torch.ones(y.shape[1])))
+            index_probs = pyro.sample("index_probs", dist.Dirichlet(prior.expand(y.shape)))
+            index = pyro.sample("index", dist.Categorical(index_probs))
+
             y_hat = X * coef
             y_target = Vindex(y)[..., index]
 
-            obs = pyro.sample("obs", dist.Normal(y_hat, 1.),
+            obs = pyro.sample("obs", dist.Normal(y_hat, 5.),
                               obs=y_target)
 
     def guide(X, y):
-        coef = pyro.sample("coef", dist.Normal(0., 2.))
+        pass
+        # coef = pyro.sample("coef", dist.Normal(0., 2.))
         # with pyro.plate("data", X.shape[0]):
         #     index = pyro.sample("index", dist.Categorical(weights))
 
@@ -37,8 +42,7 @@ def build_model_guide(bayesian=True):
         prior = pyro.param("prior", dist.Dirichlet(torch.ones(y.shape[1]).unsqueeze(0)),
                            constraint=constraints.positive)
         with pyro.plate("data", X.shape[0]):
-            index_probs = pyro.param("index_probs", prior.expand(y.shape),
-                                     constraint=constraints.unit_interval)
+            index_probs = pyro.sample("index_probs", dist.Dirichlet(prior.expand(y.shape)))
             pyro.sample("index", dist.Categorical(index_probs))
 
     if not bayesian:
