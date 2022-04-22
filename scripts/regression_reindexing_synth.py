@@ -85,7 +85,8 @@ def eval(args):
     # shuffled = np.arange(n)
     # np.random.shuffle(shuffled)
     # y = -0.5 * np.diag(X)[:, shuffled]
-    idxs = np.random.randint(d, size=N)
+    # idxs = np.random.randint(d, size=N)
+    idxs = np.ones(N).astype(np.int)
     X = y[np.arange(N), idxs]
     X = torch.tensor(X).float()
     y = torch.tensor(y).float()
@@ -96,7 +97,7 @@ def eval(args):
     # guide = reindexing_regression.guide
 
     elbo = TraceEnum_ELBO(max_plate_nesting=1)
-    adam = Adam({"lr": 0.01})
+    adam = Adam({"lr": 0.1})
 
     def initialize(X, y, seed, optim, elbo):
         global guide, svi
@@ -125,8 +126,8 @@ def eval(args):
 
     index_hat = do_discrete_inference(model, guide, X, y)
 
-    # print(idxs)
-    # print(index_hat)
+    print(idxs)
+    print(index_hat)
     print((idxs == index_hat).mean())
 
     return idxs, index_hat

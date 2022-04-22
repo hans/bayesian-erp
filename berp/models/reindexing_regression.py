@@ -8,18 +8,21 @@ from pyro.infer import config_enumerate
 from pyro.nn import PyroModule, PyroSample
 from pyro.ops.indexing import Vindex
 import torch
+from torch.distributions import constraints
 
 
 def build_model_guide(bayesian=True):
     def model(X, y):
         coef = pyro.sample("coef", dist.Normal(0., 2.))
+        weights = pyro.param("weights", dist.Dirichlet(torch.ones(y.shape[1])),
+                             constraint=constraints.positive)
 
         with pyro.plate("data", X.shape[0]):
-            prior = torch.ones(y.shape[1])
-            if bayesian:
-                weights = pyro.param("weights", dist.Dirichlet(prior))
-            else:
-                weights = prior
+            # prior = torch.ones(y.shape[1])
+            # if bayesian:
+            #     weights = pyro.param("weights", dist.Dirichlet(prior))
+            # else:
+            #     weights = prior
             index = pyro.sample("index", dist.Categorical(weights))
             y_hat = X * coef
             y_target = Vindex(y)[..., index]
@@ -29,12 +32,13 @@ def build_model_guide(bayesian=True):
 
     def guide(X, y):
         coef = pyro.sample("coef", dist.Normal(0., 2.))
+        weights = pyro.param("weights", dist.Dirichlet(torch.ones(y.shape[1])))
         with pyro.plate("data", X.shape[0]):
-            prior = torch.ones(y.shape[1])
-            if bayesian:
-                weights = pyro.param("weights", dist.Dirichlet(prior))
-            else:
-                weights = prior
+            # prior = torch.ones(y.shape[1])
+            # if bayesian:
+            #     weights = pyro.param("weights", dist.Dirichlet(prior))
+            # else:
+            #     weights = prior
             index = pyro.sample("index", dist.Categorical(weights))
 
     if not bayesian:
