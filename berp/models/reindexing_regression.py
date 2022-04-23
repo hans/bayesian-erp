@@ -16,13 +16,12 @@ def build_model_guide(bayesian=True):
     def model(X, y):
         coef = pyro.sample("coef", dist.Normal(1., 0.1))
 
-        prior = pyro.param("prior", dist.Normal(0.5, 0.2),
-                           constraint=constraints.interval(0., 1.))
+        # prior = pyro.sample("prior", dist.Uniform(0., 1.))
         # geom_ps = pyro.param("geom", dist.Normal(prior.expand(y.shape[0]), 0.1),
         #                      constraint=constraints.unit_interval)
         # geom_ps = prior.expand(y.shape[0])
-        samps = pyro.param("samps", dist.Normal(prior.expand(y.shape[0]), 0.2),
-                           constraint=constraints.interval(0., 1.))
+        samps = pyro.sample("samps", dist.Uniform(0., 1.).expand([y.shape[0]]))
+                            # constraint=constraints.interval(0., 1.))
         with pyro.plate("data", X.shape[0]):
             # Compute weights over each Y index.
             eval_pts = torch.arange(y.shape[1]).expand(y.shape).T / (y.shape[1] - 1)

@@ -100,6 +100,19 @@ def eval(args):
     # guide = AutoDelta(poutine.block(model, expose=["coef"]))
     # guide = reindexing_regression.guide
 
+    from pyro.infer import MCMC, NUTS
+    mcmc = MCMC(
+        NUTS(model),
+        num_samples=500,
+        warmup_steps=250,
+        num_chains=4,
+    )
+    mcmc.run(X, y)
+    mcmc.summary(prob=0.5)
+
+    print(idxs); print(idxs / (d - 1))
+    import sys; sys.exit(0)
+
     elbo = Trace_ELBO(max_plate_nesting=1)
     adam = Adam({"lr": 0.001})
 
