@@ -9,7 +9,7 @@ import pandas as pd
 import pyro
 from pyro import poutine
 from pyro.optim import Adam
-from pyro.infer import SVI, TraceEnum_ELBO, infer_discrete, config_enumerate
+from pyro.infer import SVI, TraceEnum_ELBO, Trace_ELBO, infer_discrete, config_enumerate
 from pyro.infer.autoguide import AutoDiagonalNormal, AutoDelta, AutoNormal
 import torch
 
@@ -86,7 +86,11 @@ def eval(args):
     # np.random.shuffle(shuffled)
     # y = -0.5 * np.diag(X)[:, shuffled]
     # idxs = np.random.randint(d, size=N)
+    # idxs: fixed
     idxs = np.ones(N).astype(int)
+    # # idxs: random geometric
+    # p = 0.5
+    # idxs = np.minimum(d, np.random.geometric(p, size=N)) - 1
     X = y[np.arange(N), idxs]
     X = torch.tensor(X).float()
     y = torch.tensor(y).float()
@@ -96,8 +100,8 @@ def eval(args):
     # guide = AutoDelta(poutine.block(model, expose=["coef"]))
     # guide = reindexing_regression.guide
 
-    elbo = TraceEnum_ELBO(max_plate_nesting=1)
-    adam = Adam({"lr": 0.1})
+    elbo = Trace_ELBO(max_plate_nesting=1)
+    adam = Adam({"lr": 0.001})
 
     def initialize(X, y, seed, model, guide, optim, elbo):
         global svi
@@ -124,7 +128,8 @@ def eval(args):
     # as I understand it, I established the "weights" parameter under a plate,
     # so that should mean I have N weight vectors.
 
-    index_hat = do_discrete_inference(model, guide, X, y)
+    # index_hat = do_discrete_inference(model, guide, X, y)
+    index_hat = torch.round(pyro.get_param_store()["samps"] * d).detach().numpy()
 
     print(idxs)
     print(index_hat)

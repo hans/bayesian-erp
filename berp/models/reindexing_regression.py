@@ -14,22 +14,31 @@ from torch.distributions import constraints
 
 def build_model_guide(bayesian=True):
     def model(X, y):
-        coef = pyro.sample("coef", dist.Normal(1., 1))
+        coef = pyro.sample("coef", dist.Normal(1., 0.1))
 
-        prior = pyro.param("prior", dist.Dirichlet(torch.ones(y.shape[1]).unsqueeze(0)),
-                           constraint=constraints.positive)
+        prior = pyro.param("prior", dist.Normal(0.5, 0.2),
+                           constraint=constraints.interval(0., 1.))
+        # geom_ps = pyro.param("geom", dist.Normal(prior.expand(y.shape[0]), 0.1),
+        #                      constraint=constraints.unit_interval)
+        # geom_ps = prior.expand(y.shape[0])
+        samps = pyro.param("samps", dist.Normal(prior.expand(y.shape[0]), 0.2),
+                           constraint=constraints.interval(0., 1.))
         with pyro.plate("data", X.shape[0]):
-            index_probs = pyro.sample("index_probs", dist.Dirichlet(prior.expand(y.shape)))
-            index = pyro.sample("index", dist.Categorical(index_probs))
+            # Compute weights over each Y index.
+            eval_pts = torch.arange(y.shape[1]).expand(y.shape).T / (y.shape[1] - 1)
+            assert eval_pts.shape == (y.shape[1], y.shape[0]), eval_pts.shape
+            weights = dist.Normal(samps, 0.05).log_prob(eval_pts).exp().T
+            weights = weights / weights.sum(axis=1, keepdim=True)
+
+            y_target = (y * weights).sum(axis=1)
 
             y_hat = X * coef
-            y_target = Vindex(y)[..., index]
 
-            obs = pyro.sample("obs", dist.Normal(y_hat, 5.),
+            obs = pyro.sample("obs", dist.Normal(y_hat, 1.),
                               obs=y_target)
 
     def guide(X, y):
-        coef = pyro.sample("coef", dist.Normal(1., 1))
+        coef = pyro.sample("coef", dist.Normal(1., 0.1))
         # with pyro.plate("data", X.shape[0]):
         #     index = pyro.sample("index", dist.Categorical(weights))
 
@@ -38,15 +47,17 @@ def build_model_guide(bayesian=True):
         with poutine.block(hide_types=["param"]):
             guide(X, y)
 
-        prior = pyro.param("prior", dist.Dirichlet(torch.ones(y.shape[1]).unsqueeze(0)),
-                           constraint=constraints.positive)
-        with pyro.plate("data", X.shape[0]):
-            index_probs = pyro.sample("index_probs", dist.Dirichlet(prior.expand(y.shape)))
-            pyro.sample("index", dist.Categorical(index_probs))
+        prior = pyro.param("prior", dist.Normal(0.5, 0.2),
+                           constraint=constraints.interval(0., 1.))
+        # geom_ps = pyro.param("geom", dist.Normal(prior.expand(y.shape[0]), 0.1),
+        #                      constraint=constraints.unit_interval)
+        # geom_ps = prior.expand(y.shape[0])
+        samps = pyro.param("samps", dist.Normal(prior.expand(y.shape[0]), 0.2),
+                           constraint=constraints.interval(0., 1.))
 
     if not bayesian:
-        model = config_enumerate(model)
-        full_guide = config_enumerate(discrete_guide)
+        model = model#config_enumerate(model)
+        full_guide = discrete_guide#config_enumerate(discrete_guide)
 
     return model, full_guide
 
