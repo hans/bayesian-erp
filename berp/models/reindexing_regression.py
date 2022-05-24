@@ -77,12 +77,20 @@ def predictive_model(p_word: TensorType[B, N_C],
 
 def onset_model(p_word: TensorType[B, N_C],
                 phonemes: TensorType[B, N_C, N_P, int],
+                confusion: TensorType[V_P, V_P, is_probability],
+                lambda_: TensorType[float],
                 threshold: Probability
                 ) -> TensorType[B, int]:
     """
     Computes the latent onset / recognition point for each example.
     """
-    pass
+    bayes_p_word = predictive_model(p_word, phonemes, confusion, lambda_)
+    passes_threshold = bayes_p_word >= threshold
+
+    # Find first phoneme index for which predictive distribution passes
+    # threshold.
+    rec_point = passes_threshold.int().argmax(axis=1)
+    return rec_point
 
 
 def epoched_response_model(p_word: TensorType[B, is_log_probability],
@@ -114,5 +122,7 @@ if __name__ == "__main__":
     phonemes = torch.randint(0, v_p, (b, n_c, n_p))
 
     lambda_ = torch.tensor(1.)
+    threshold = torch.tensor(0.15)
 
-    predictive_model(p_word, phonemes, confusion, lambda_)
+    ret = onset_model(p_word, phonemes, confusion, lambda_, threshold)
+    print(ret)
