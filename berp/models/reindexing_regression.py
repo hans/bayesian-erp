@@ -4,6 +4,7 @@ are a deterministic function of data and these three parameters.
 """
 
 
+from icecream import ic
 import numpy as np
 import pyro
 import torch
@@ -28,7 +29,7 @@ def predictive_model(p_word: TensorType[B, N_C],
                      confusion: TensorType[V_P, V_P, is_probability],
                      lambda_: TensorType[float],
                      ground_truth_word_idx=0
-                     ) -> TensorType[B, N_P, is_log_probability]:
+                     ) -> TensorType[B, N_P, is_probability]:
     """
     Computes the next-word distribution
 
@@ -48,6 +49,8 @@ def predictive_model(p_word: TensorType[B, N_C],
         phonemes: Phoneme sequence for all examples and all candidate words.
             Each element is an index into a row/column of `confusion`.
         confusion: Confusion parameter matrix used to define likelihood.
+            Each column is a proper probability distribution, defining
+            probability of observing phone j given ground truth phone i.
         lambda_: Temperature parameter for likelihood.
         ground_truth_word_idx: Specifies an index into second axis of `p_word`
             and `phonemes` that corresponds to the ground truth word.
@@ -56,8 +59,20 @@ def predictive_model(p_word: TensorType[B, N_C],
         `batch * n_phonemes` log-probability matrix, defining the next-word
         distribution evaluated for each example at each conditioning point.
     """
-    ret = torch.zeros(phonemes.shape[0], phonemes.shape[2])
-    return ret
+
+    # Compute likelihood for each candidate and each phoneme position.
+    ground_truth_phonemes = phonemes[:, ground_truth_word_idx, :].unsqueeze(1)
+    phoneme_likelihoods: TensorType[B, N_C, N_P, is_log_probability] = \
+        confusion[phonemes, ground_truth_phonemes].log()
+    incremental_word_likelihoods: TensorType[B, N_C, N_P, is_log_probability] = \
+        phoneme_likelihoods.cumsum(axis=2)
+
+    # Combine with prior and normalize.
+    bayes_p_word = (p_word.unsqueeze(-1) + phoneme_likelihoods).exp()
+    bayes_p_word /= bayes_p_word.sum(axis=1, keepdim=True)
+
+    p_ground_truth = bayes_p_word[:, ground_truth_word_idx, :]
+    return p_ground_truth
 
 
 def onset_model(p_word: TensorType[B, N_C],
@@ -90,7 +105,7 @@ if __name__ == "__main__":
     n_p = 4
     v_p = 7
 
-    confusion = torch.rand(n_p, n_p)
+    confusion = torch.rand(v_p, v_p)
     confusion /= confusion.sum(axis=1)
 
     p_word = torch.rand(b, n_c)
