@@ -127,7 +127,7 @@ def sample_item_with_phons(n_words=20, word_delay_range=(0.3, 1),
         X_word_row = (time_acc + rec_onset, rec_point, rec_surprisal)
         
         acc_X_word.append(X_word_row)
-        acc_X_phon = X if acc_X_phon is None else acc_X_phon.append(X)
+        acc_X_phon = X if acc_X_phon is None else pd.concat([acc_X_phon, X])
 
         # acc_y may have overlapping samples. merge-add them
         y = y.set_index("time")
