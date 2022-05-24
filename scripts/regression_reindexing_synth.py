@@ -13,7 +13,7 @@ from pyro.infer import SVI, TraceEnum_ELBO, Trace_ELBO, infer_discrete, config_e
 from pyro.infer.autoguide import AutoDiagonalNormal, AutoDelta, AutoNormal
 import torch
 
-from berp.models import reindexing_regression
+from berp.models import reindexing_regression_latents
 import berp.synthesize_n400 as syn
 
 
@@ -95,10 +95,10 @@ def eval(args):
     X = torch.tensor(X).float()
     y = torch.tensor(y).float()
 
-    model, guide = reindexing_regression.build_model_guide(args.bayesian)
+    model, guide = reindexing_regression_latents.build_model_guide(args.bayesian)
     # guide = AutoDiagonalNormal(poutine.block(model, hide=["index"]))
     # guide = AutoDelta(poutine.block(model, expose=["coef"]))
-    # guide = reindexing_regression.guide
+    # guide = reindexing_regression_latents.guide
 
     from pyro.infer import MCMC, NUTS
     mcmc = MCMC(

@@ -1,5 +1,9 @@
 """
 Defines a Bayesian model which samples different response columns per sample.
+Per-example indices are discrete latent RVs.
+
+Compare with berp.models.reindexing_regression, for which per-example indices
+are a deterministic function of data + model-wide parameters.
 """
 
 import pyro
