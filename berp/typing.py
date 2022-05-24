@@ -1,11 +1,13 @@
 import torch
 from torch.distributions import constraints
-from torchtyping import TensorType, TensorDetail
+from torchtyping import TensorType, TensorDetail, patch_typeguard
+
+patch_typeguard()
 
 
 class ProbabilityDetail(TensorDetail):
     def check(self, t: torch.Tensor) -> bool:
-        return constraints.unit_interval.check(t)
+        return constraints.unit_interval.check(t).all()
 
     def __repr__(self) -> str:
         return "ProbabilityDetail"
@@ -16,7 +18,7 @@ class ProbabilityDetail(TensorDetail):
 
 class LogProbabilityDetail(TensorDetail):
     def check(self, t: torch.Tensor) -> bool:
-        return t <= 0
+        return (t <= 0).all()
 
     def __repr__(self) -> str:
         return "LogProbabilityDetail"

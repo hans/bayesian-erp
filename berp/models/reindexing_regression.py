@@ -4,9 +4,11 @@ are a deterministic function of data and these three parameters.
 """
 
 
+import numpy as np
 import pyro
 import torch
 from torchtyping import TensorType
+from typeguard import typechecked
 
 from berp.typing import Probability, is_probability, is_log_probability
 
@@ -20,6 +22,7 @@ T = "n_times"  # number of EEG samples
 S = "n_sensors"  # number of EEG sensors
 
 
+@typechecked
 def predictive_model(p_word: TensorType[B, N_C],
                      phonemes: TensorType[B, N_C, N_P, int],
                      confusion: TensorType[V_P, V_P, is_probability],
@@ -53,7 +56,8 @@ def predictive_model(p_word: TensorType[B, N_C],
         `batch * n_phonemes` log-probability matrix, defining the next-word
         distribution evaluated for each example at each conditioning point.
     """
-    pass
+    ret = torch.zeros(phonemes.shape[0], phonemes.shape[2])
+    return ret
 
 
 def onset_model(p_word: TensorType[B, N_C],
@@ -78,3 +82,22 @@ def epoched_response_model(p_word: TensorType[B, is_log_probability],
         $$P(Y_j \mid k_j, w_j)$$
     """
     pass
+
+
+if __name__ == "__main__":
+    b = 5
+    n_c = 10
+    n_p = 4
+    v_p = 7
+
+    confusion = torch.rand(n_p, n_p)
+    confusion /= confusion.sum(axis=1)
+
+    p_word = torch.rand(b, n_c)
+    p_word /= p_word.sum(axis=1, keepdim=True)
+
+    phonemes = torch.randint(0, v_p, (b, n_c, n_p))
+
+    lambda_ = torch.tensor(1.)
+
+    predictive_model(p_word, phonemes, confusion, lambda_)
