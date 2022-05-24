@@ -11,11 +11,21 @@ from torchtyping import TensorType
 from berp.typing import Probability, is_probability, is_log_probability
 
 
-def predictive_model(p_word: TensorType["batch"],
-                     phonemes: TensorType["batch", "n_phonemes", int],
-                     confusion: TensorType["v_phonemes", "v_phonemes", is_probability],
-                     lambda_: TensorType[float]
-                     ) -> TensorType["batch", "n_phonemes"]:
+# Define TensorType axis labels
+B = "batch"
+N_C = "n_candidate_words"
+N_P = "n_phonemes"  # maximum length of observed word, in phonemes
+V_P = "v_phonemes"  # size of phoneme vocabulary
+T = "n_times"  # number of EEG samples
+S = "n_sensors"  # number of EEG sensors
+
+
+def predictive_model(p_word: TensorType[B, N_C],
+                     phonemes: TensorType[B, N_C, N_P, int],
+                     confusion: TensorType[V_P, V_P, is_probability],
+                     lambda_: TensorType[float],
+                     ground_truth_word_idx=0
+                     ) -> TensorType[B, N_P, is_log_probability]:
     """
     Computes the next-word distribution
 
@@ -27,26 +37,41 @@ def predictive_model(p_word: TensorType["batch"],
     model probabilities, and a phoneme likelihood
 
         $$P(I_{\le k} \mid w = w_j)$$
+
+    Args:
+        p_word: Next-word predictive distribution from a language model for a
+            limited set of top-k candidates `n_candidate_words`. Column axis
+            should be a proper distribution.
+        phonemes: Phoneme sequence for all examples and all candidate words.
+            Each element is an index into a row/column of `confusion`.
+        confusion: Confusion parameter matrix used to define likelihood.
+        lambda_: Temperature parameter for likelihood.
+        ground_truth_word_idx: Specifies an index into second axis of `p_word`
+            and `phonemes` that corresponds to the ground truth word.
+
+    Returns:
+        `batch * n_phonemes` log-probability matrix, defining the next-word
+        distribution evaluated for each example at each conditioning point.
     """
     pass
 
 
-def onset_model(p_word: TensorType["batch"],
-                phonemes: TensorType["batch", "n_phonemes", int],
+def onset_model(p_word: TensorType[B, N_C],
+                phonemes: TensorType[B, N_C, N_P, int],
                 threshold: Probability
-                ) -> TensorType["batch", int]:
+                ) -> TensorType[B, int]:
     """
     Computes the latent onset / recognition point for each example.
     """
     pass
 
 
-def epoched_response_model(p_word: TensorType["batch", is_log_probability],
-                           onsets: TensorType["batch", int],
-                           Y: TensorType["batch", "n_times", "n_sensors", float],
+def epoched_response_model(p_word: TensorType[B, is_log_probability],
+                           onsets: TensorType[B, int],
+                           Y: TensorType[B, T, S, float],
                            a: TensorType[float],
                            b: TensorType[float]
-                           ) -> TensorType["batch", float]:
+                           ) -> TensorType[B, float]:
     """
     Computes the distribution over observable response to word $w_j$
 
