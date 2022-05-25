@@ -20,6 +20,7 @@ from berp.util import sample_to_time, time_to_sample
 B = "batch"
 N_C = "n_candidate_words"
 N_P = "n_phonemes"  # maximum length of observed word, in phonemes
+N_F = "n_features"  # number of features in epoched regression
 V_P = "v_phonemes"  # size of phoneme vocabulary
 T = "n_times"  # number of EEG samples
 S = "n_sensors"  # number of EEG sensors
@@ -95,7 +96,9 @@ def recognition_point_model(p_word_posterior: TensorType[B, N_P, is_probability]
 
 
 @typechecked
-def epoched_response_model(recognition_points: TensorType[B, int],
+def epoched_response_model(X: TensorType[B, N_F, float],
+                           coef: TensorType[N_F, float],
+                           recognition_points: TensorType[B, int],
                            phoneme_onsets: TensorType[B, N_P, float],
                            Y: TensorType[B, T, S, float],
                            a: TensorType[float],
@@ -111,6 +114,8 @@ def epoched_response_model(recognition_points: TensorType[B, int],
         $$q ~ P(Y_j \mid k_j, w_j)$$
 
     Args:
+        X: word-level features describing each word
+        coef: Linear regression coefficients for each feature
         recognition_points:
         phoneme_onsets: Onset (in seconds, relative to t = sample = 0 in `Y`)
             of each phoneme of each example.
@@ -139,12 +144,14 @@ def epoched_response_model(recognition_points: TensorType[B, int],
     Y_sliced = torch.gather(Y, 1, slice_idxs)
     assert Y_sliced[2, 0, 1] == Y[2, slice_idxs[2, 0, 1], 1]
 
+    # Compute observed q.
     q = time_reduction_fn(Y_sliced, axis=1, keepdim=True)
     q = sensor_reduction_fn(q, axis=2, keepdim=True)
     q = q.squeeze()
-    ic(q.shape)
 
-    return pyro.sample("q", dist.Normal(q, sigma))
+    q_pred = torch.matmul(X, coef)
+    return pyro.sample("q", dist.Normal(q_pred, sigma),
+                       obs=q)
 
 
 if __name__ == "__main__":
