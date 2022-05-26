@@ -5,7 +5,7 @@ thresholded reindexing regression model.
 
 from argparse import ArgumentParser
 import re
-from typing import List
+from typing import List, Tuple
 
 from icecream import ic
 import numpy as np
@@ -17,6 +17,8 @@ from typeguard import typechecked
 import transformers
 import torch
 from torchtyping import TensorType
+
+from berp.typing import is_probability, is_log_probability
 
 
 model_ref = "gpt2"  # "hf-internal-testing/tiny-xlm-roberta"
@@ -37,102 +39,141 @@ def simple_peak(x, scale=5, b=0.05):
     """Function which rapidly peaks and returns to baseline"""
     ret = st.gamma.pdf(x * scale, 2.8, b)
     ret /= ret.max()
-    return ret
+    return torch.tensor(ret)
 
 
 def rate_irf(x):
     return 0.1 * simple_peak(x, scale=20, b=0)
 
 
-def compute_recognition_point(word, p_word_prior, threshold,
-                              n_candidates=10):
-    alpha = re.compile(r"[^a-zA-Z]")
+def clean_word_str(word):
+    return re.sub(r"[^a-z]", "", word.lower())
 
-    gt_word = word
-    gt_word_id = tokenizer.convert_tokens_to_ids(gt_word)
-    word = alpha.sub("", word)
+
+# Type variables
+TT = TensorType
+N_C = "n_candidates"
+N_P = "n_phonemes"
+V = "vocab"
+
+
+@typechecked
+def compute_candidate_phoneme_likelihoods(
+    word: str, word_id: torch.LongTensor,
+    p_word_prior: TT[V, is_log_probability],
+    n_candidates=10
+    ) -> Tuple[TT[N_C, int], List[str], TT[N_C, N_P, is_log_probability]]:
+
+    word = clean_word_str(word)
 
     # Draw small set of candidate alternate words
-    candidate_ids = p_word_prior.argsort(axis=0, descending=False)[:n_candidates]
-    candidate_ids[0] = gt_word_id
+    candidate_ids = p_word_prior.argsort(axis=0, descending=True)[:n_candidates]
+    candidate_ids[0] = word_id
     # if gt_word_id not in candidate_ids:
     #     candidate_ids[-1] = gt_word_id
     gt_word_candidate_pos = 0  # (candidate_ids == gt_word_id).int().argmax()
     # Clean candidate tokens, prep for phoneme processing
     candidate_tokens = tokenizer.convert_ids_to_tokens(candidate_ids)
-    candidate_pairs = [(i, alpha.sub("", tok)) for i, tok in zip(candidate_ids, candidate_tokens)]
+    candidate_pairs = [(i, clean_word_str(tok)) for i, tok in zip(candidate_ids, candidate_tokens)]
     candidate_pairs = [(i, tok) for i, tok in candidate_pairs if tok]
     candidate_ids = torch.tensor([i for i, _ in candidate_pairs])
     candidate_tokens = [tok for _, tok in candidate_pairs]
     max_tok_length = max(len(tok) for tok in candidate_tokens)
     candidate_tokens = [tok + ("_" * (max_tok_length - len(tok)))
                         for tok in candidate_tokens]
+
     # Now convert to padded phoneme seqs
     candidate_phoneme_seqs = torch.tensor([[phoneme2idx[p] for p in tok]
                                            for tok in candidate_tokens])
     gt_phoneme_seq = candidate_phoneme_seqs[gt_word_candidate_pos]
-    # Get likelihood of each phoneme seq under GT word
+
     candidate_phoneme_likelihoods = \
-        phoneme_confusion[candidate_phoneme_seqs, gt_phoneme_seq]
-    incremental_word_likelihoods = candidate_phoneme_likelihoods.log().cumsum(axis=1)
-    # Combine with priors and normalize.
-    p_word_prior = p_word_prior[candidate_ids].exp()
-    p_word_prior /= p_word_prior.sum()
-    bayes_p_word = (p_word_prior.unsqueeze(-1).log() + incremental_word_likelihoods).exp()
-    bayes_p_word /= bayes_p_word.sum(axis=0, keepdim=True)
-    # Compute recognition point.
-    recognition_point = (bayes_p_word[gt_word_candidate_pos, :] >= threshold).int().argmax()
+        phoneme_confusion[candidate_phoneme_seqs, gt_phoneme_seq].log()
+    return (candidate_ids, candidate_tokens,
+            candidate_phoneme_likelihoods)
 
 
 @typechecked
-def sample_word(word: str,
-                p_word_prior: TensorType["vocab"],
+def compute_recognition_point(candidate_ids: TT[N_C, torch.long],
+                              p_word_prior: TT[V, is_log_probability],
+                              candidate_phoneme_likelihoods: TT[N_C, N_P, is_log_probability],
+                              threshold: TT[is_probability],
+                              gt_word_candidate_pos=0
+                              ) -> torch.LongTensor:
+    # Get likelihood of each phoneme subsequence under GT word
+    incremental_phoneme_likelihoods = candidate_phoneme_likelihoods.cumsum(axis=1)
+
+    # Combine with priors (renormalized over candidate space) and normalize.
+    p_word_prior = p_word_prior[candidate_ids].exp()
+    p_word_prior /= p_word_prior.sum()
+    bayes_p_word = (p_word_prior.unsqueeze(-1).log() + incremental_phoneme_likelihoods).exp()
+    bayes_p_word /= bayes_p_word.sum(axis=0, keepdim=True)
+
+    # Compute recognition point.
+    recognition_point = (bayes_p_word[gt_word_candidate_pos, :] >= threshold).int().argmax()
+
+    return recognition_point
+
+
+@typechecked
+def sample_word(word: str, word_id: torch.LongTensor,
+                p_word_prior: TT[V, is_log_probability],
                 phon_delay_range=(0.1, 0.35),
                 response_window=(0.0, 2),
                 sample_rate=128,
                 n400_surprisal_coef=-1,
                 irf=simple_peak, rate_irf=rate_irf,
                 n_candidates=10,
-                recognition_threshold=0.2):
+                recognition_threshold=torch.tensor(0.2)):
     """
     For the given word, sample a phoneme onset trajectory and compute
     corresponding phoneme surprisals.
     """
-    recognition_point = compute_recognition_point(word, p_word_prior,
-                                                  n_candidates=n_candidates,
+    candidate_ids, candidate_tokens, candidate_phoneme_likelihoods = \
+        compute_candidate_phoneme_likelihoods(word, word_id, p_word_prior,
+                                              n_candidates=n_candidates)
+    print(word, [tok.rstrip("_") for tok in candidate_tokens])
+    recognition_point = compute_recognition_point(candidate_ids,
+                                                  p_word_prior,
+                                                  candidate_phoneme_likelihoods,
                                                   threshold=recognition_threshold)
 
+    # Phoneme surprisal (forward model)
+    gt_word_candidate_pos = 0
+    cleaned_word = candidate_tokens[gt_word_candidate_pos].rstrip("_")
+    n_phons = len(cleaned_word)
+    phoneme_surprisals = p_word_prior[word_id] + \
+        candidate_phoneme_likelihoods[gt_word_candidate_pos, :]
+    phoneme_surprisals = -phoneme_surprisals / np.log(2)
+    phoneme_surprisals = phoneme_surprisals[:n_phons]
+
     # sample unitary response
-    peak_xs = np.linspace(*response_window, num=int(response_window[1] * sample_rate), endpoint=False)
+    peak_xs = torch.tensor(np.linspace(*response_window, num=int(response_window[1] * sample_rate), endpoint=False))
     peak_ys = n400_surprisal_coef * irf(peak_xs)
 
     # sample word rate response
-    rate_xs = peak_xs.copy()
+    rate_xs = peak_xs[:]
     rate_ys = rate_irf(rate_xs)
 
     # sample stimulus times+surprisals
-    n_phons = len(word)
     stim_delays = np.random.uniform(*phon_delay_range, size=n_phons)
     stim_onsets = np.cumsum(stim_delays)
     # hack: align times to sample rate to make this easier
     stim_onsets = np.round(stim_onsets * sample_rate) / sample_rate
-    # TODO shouldn't be random
-    surprisal_mean = 2.
-    surprisal_sigma = 0.2
-    surprisals = np.random.lognormal(surprisal_mean, surprisal_sigma, size=n_phons)
 
     max_time = stim_onsets.max() + response_window[1]
-    all_times = np.linspace(0, max_time, num=int(np.ceil(max_time * sample_rate)), endpoint=False)
+    all_times = torch.tensor(np.linspace(0, max_time, num=int(np.ceil(max_time * sample_rate)), endpoint=False))
 
-    signal = np.zeros_like(all_times)
-    for onset, surprisal in zip(stim_onsets, surprisals):
+    signal = torch.zeros_like(all_times)
+    for onset, surprisal in zip(stim_onsets, phoneme_surprisals):
         sample_idx = int(onset * sample_rate)  # guaranteed to be round because of hack.
         signal[sample_idx:sample_idx + len(peak_xs)] += peak_ys * surprisal + rate_ys
 
     # build return X, y dataframes.
-    X = pd.DataFrame({"time": stim_onsets, "surprisal": surprisals})
+    X = pd.DataFrame({"time": stim_onsets, "phoneme": list(cleaned_word),
+                      "surprisal": phoneme_surprisals})
     y = pd.DataFrame({"time": all_times, "signal": signal})
-    return X, y
+    return X, y, cleaned_word, recognition_point
 
 
 def sample_item(sentence: str,
@@ -142,12 +183,14 @@ def sample_item(sentence: str,
                 irf=simple_peak, rate_irf=rate_irf,
                 sample_rate=128,
                 n400_surprisal_coef=-1,
-                word_surprisal_mean=2., word_surprisal_sigma=0.2,
+                recognition_threshold=torch.tensor(0.2),
                 **kwargs):
     """
     Sample an item combining phoneme-level surprisal with a distinct
     word recognition point.
     """
+    sentence = re.sub(r"[^a-z\s]", "", sentence.lower())
+    print(sentence)
 
     acc_X_word, acc_X_phon, acc_y = [], None, None
     time_acc = 0
@@ -164,34 +207,37 @@ def sample_item(sentence: str,
     tokenized = tokenizer(sentence, return_tensors="pt",
                           padding=True)
     with torch.no_grad():
-        model_outputs = model(tokenized["input_ids"])[0]
-    model_outputs = -model_outputs.log_softmax(dim=2) / np.log(2)
+        model_outputs = model(tokenized["input_ids"])[0].log_softmax(dim=2)
     model_outputs = model_outputs.squeeze(0)
     # Draw tokens and corresponding predictive distributions
     gt_tokens = tokenized.tokens(0)[1:]
     gt_token_ids = tokenized["input_ids"][0, 1:]
     predictive_dists = model_outputs[torch.arange(gt_token_ids.shape[0])]
 
-    for i, (word, p_word_prior) in enumerate(zip(gt_tokens,
-                                                 predictive_dists)):
-        X, y = sample_word(word,
-                           p_word_prior,
-                           response_window=response_window,
-                           sample_rate=sample_rate,
-                           irf=irf,
-                           n400_surprisal_coef=n400_surprisal_coef,
-                           **kwargs)
+    for i, (word, word_id, p_word_prior) in enumerate(zip(gt_tokens,
+                                                          gt_token_ids,
+                                                          predictive_dists)):
+        X, y, cleaned_word, recognition_point = sample_word(
+            word, word_id, p_word_prior,
+            response_window=response_window,
+            sample_rate=sample_rate,
+            irf=irf,
+            n400_surprisal_coef=n400_surprisal_coef,
+            recognition_threshold=recognition_threshold,
+            **kwargs)
+        recognition_point = int(recognition_point)
+
         X["token_idx"] = i
         X.index.name = "phon_idx"
         X = X.reset_index().set_index(["token_idx", "phon_idx"])
         y = y.set_index("time")
 
-        # Sample a word recognition point.
-        # TODO should not be random; do thresholded
-        p_word_recognition = 0.9
-        rec_point = min(len(X) - 1, np.random.geometric(p_word_recognition))
-        rec_onset = X.iloc[rec_point].time
-        rec_surprisal = np.random.lognormal(word_surprisal_mean, word_surprisal_sigma)
+        if recognition_point >= len(cleaned_word):
+            # HACK just place at made-up word offset
+            rec_onset = X.iloc[-1].time + 3 / sample_rate
+        else:
+            rec_onset = X.iloc[recognition_point].time
+        rec_surprisal = float(-p_word_prior[word_id] / np.log(2))
 
         # Produce word signal df
         rec_times = peak_xs + rec_onset
@@ -204,7 +250,7 @@ def sample_item(sentence: str,
         final_word_onset = X.time.max()
         X.time += time_acc
         y.time += time_acc
-        X_word_row = (time_acc + rec_onset, rec_point, rec_surprisal)
+        X_word_row = (cleaned_word, time_acc + rec_onset, recognition_point, rec_surprisal)
 
         acc_X_word.append(X_word_row)
         acc_X_phon = X if acc_X_phon is None else pd.concat([acc_X_phon, X])
@@ -221,7 +267,8 @@ def sample_item(sentence: str,
         delay = np.round(delay * sample_rate) / sample_rate
         time_acc += final_word_onset + delay
 
-    acc_X_word = pd.DataFrame(acc_X_word, columns=["time", "recognition_point", "surprisal"])
+    acc_X_word = pd.DataFrame(acc_X_word, columns=["token", "time", "recognition_point", "surprisal"])
+    acc_X_word.index.name = "token_idx"
 
     return acc_X_word, acc_X_phon, acc_y.reset_index()
 
