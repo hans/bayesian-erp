@@ -204,6 +204,16 @@ def sample_word(word: str, word_id: torch.LongTensor,
     )
 
 
+class ItemObservation(NamedTuple):
+    X_word: pd.DataFrame
+    X_phon: pd.DataFrame
+    y: pd.DataFrame
+
+    candidate_ids: TensorType["n_words", "n_candidates", torch.int64]
+    candidate_tokens: List[List[str]]
+    p_word: TT["n_words", "n_candidates", is_log_probability]
+
+
 @typechecked
 def sample_item(sentence: str,
                 word_delay_range=(0.3, 1),
@@ -223,7 +233,8 @@ def sample_item(sentence: str,
     sentence = re.sub(r"[^a-z\s]", "", sentence.lower()).strip()
     print(sentence)
 
-    acc_X_word, acc_X_phon, acc_y, acc_p_word = [], None, None, []
+    acc_X_word, acc_X_phon, acc_y = [], None, None
+    acc_candidate_ids, acc_candidate_tokens, acc_p_word = [], [], []
     time_acc = 0
 
     # sample unitary response
@@ -295,6 +306,9 @@ def sample_item(sentence: str,
         else:
             acc_y = acc_y.add(y, fill_value=0.0)
 
+        acc_candidate_ids.append(word_obs.candidate_ids)
+        acc_candidate_tokens.append(word_obs.candidate_tokens)
+
         # store renormalized prior over top-k candidate words
         p_word_prior = p_word_prior[word_obs.candidate_ids].exp()
         p_word_prior /= p_word_prior.sum()
@@ -308,6 +322,7 @@ def sample_item(sentence: str,
     acc_X_word = pd.DataFrame(acc_X_word, columns=["token", "time", "recognition_point", "surprisal"])
     acc_X_word.index.name = "token_idx"
 
+    acc_candidate_ids = torch.tensor(acc_candidate_ids)
     acc_p_word = torch.stack(acc_p_word)
     return acc_X_word, acc_X_phon, acc_y.reset_index(), acc_p_word
 
