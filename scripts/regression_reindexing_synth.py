@@ -12,6 +12,9 @@ from icecream import ic
 
 import torch
 from torchtyping import TensorType
+import pyro
+import pyro.distributions as dist
+from pyro.infer import MCMC, NUTS
 
 from berp.generators import thresholded_recognition as generator
 from berp.models import reindexing_regression as rr
@@ -44,7 +47,7 @@ Alice had no idea what Latitude was, or Longitude either, but thought they were 
     return sentences[:2]
 
 
-def build_model(dataset: generator.RRDataset):
+def preprocess_dataset(dataset: generator.RRDataset):
     # DEV: Just work with first item.
     X_phon = dataset.X_phon.loc[0]
     p_word = dataset.p_word[0]
@@ -70,12 +73,20 @@ def build_model(dataset: generator.RRDataset):
                values="signal")
     Y = torch.tensor(Y.values)[..., np.newaxis].float()
 
+    return p_word, candidate_phonemes, phoneme_onsets, X, Y
+
+
+def build_model(p_word, candidate_phonemes, phoneme_onsets, X, Y, sample_rate):
     # Parameters
     lambda_ = torch.tensor(1.0)
-    threshold = torch.tensor(0.15)
-    a = torch.tensor(0.1)
+    threshold = pyro.sample("threshold",
+                            dist.Beta(5, 5))
+    a = torch.tensor(0.4)
     b = torch.tensor(0.2)
-    coef = torch.tensor([-1.])
+    coef_mean = torch.tensor([-1.])
+    coef = pyro.sample("coef", dist.Normal(coef_mean, 0.1))
+
+    # TODO check that masking is handled correctly
 
     p_word_posterior = rr.predictive_model(p_word,
                                            candidate_phonemes,
@@ -91,14 +102,23 @@ def build_model(dataset: generator.RRDataset):
                                          recognition_points=rec,
                                          phoneme_onsets=phoneme_onsets,
                                          Y=Y, a=a, b=b,
-                                         sample_rate=dataset.sample_rate)
+                                         sample_rate=sample_rate)
 
 
 def main(args):
     sentences = generate_sentences()
     dataset = generator.sample_dataset(sentences)
 
-    build_model(dataset)
+    input_data = preprocess_dataset(dataset)
+
+    nuts_kernel = NUTS(build_model)
+    mcmc = MCMC(nuts_kernel,
+                num_samples=400,
+                warmup_steps=100,
+                num_chains=4)
+    mcmc.run(*input_data, sample_rate=dataset.sample_rate)
+
+    mcmc.summary(prob=0.8)
 
 
 if __name__ == "__main__":

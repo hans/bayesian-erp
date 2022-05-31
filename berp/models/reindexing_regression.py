@@ -131,6 +131,13 @@ def epoched_response_model(X: TensorType[B, N_F, float],
                                             sample_rate)
 
     slice_width = time_to_sample(b, sample_rate)
+    # TODO: need to fix slicing to support variable windows if we are at right
+    # edge of epoch. for now, just to make this not crash..
+    recognition_onset_samp = torch.minimum(
+        recognition_onset_samp,
+        Y.shape[1] - slice_width
+    )
+
     # TODO there must be a cleaner way to do this with slicing?
     # Generate sample index range for each example.
     slice_idxs = torch.arange(slice_width).tile((recognition_onset.shape[0], 1)) \
