@@ -8,22 +8,17 @@ import pandas as pd
 import scipy.stats as st
 import seaborn as sns
 from tqdm.notebook import tqdm
+from icecream import ic
 
 import torch
 from torchtyping import TensorType
 
-from berp.generators import thresholded_recognition
+from berp.generators import thresholded_recognition as generator
 from berp.models import reindexing_regression as rr
 from berp.typing import is_log_probability
 
 
-class RRDataset(NamedTuple):
-    X_word: pd.DataFrame
-    X_phon: pd.DataFrame
-    y: pd.DataFrame
-
-    candidate_words = List[TensorType["n_words", "n_candidate_words", torch.int64]]
-    p_word: List[TensorType["n_words", "n_candidate_words", is_log_probability]]
+TT = TensorType
 
 
 def generate_sentences() -> List[str]:
@@ -46,27 +41,34 @@ Alice had no idea what Latitude was, or Longitude either, but thought they were 
 """.strip()
     sentences = [s.strip().replace("\n", "") for s in re.split(r"[.?!]", text)]
     sentences = [s for s in sentences if s]
-    return sentences
+    return sentences[:2]
 
 
-def generate_dataset(sentences: List[str]) -> RRDataset:
-    ret = thresholded_recognition.sample_dataset(sentences)
-    return RRDataset(*ret)
-
-
-def build_model(dataset: RRDataset):
+def build_model(dataset: generator.RRDataset):
     # DEV: Just work with first item.
-    X_phon = X_phon.loc[0]
-    p_word = p_word[0]
+    X_phon = dataset.X_phon.loc[0]
+    p_word = dataset.p_word[0]
 
-    phonemes = ...
+    candidate_tokens = dataset.candidate_tokens[0]
+    n_words, n_candidate_words = dataset.candidate_ids[0].shape
+    ic(dataset.X_phon.index.get_level_values("phon_idx").max())
+    n_phonemes = dataset.X_phon.index.get_level_values("phon_idx").max() + 1
+    phoneme_padding = generator.phoneme2idx["_"]
+    candidate_phonemes: TT["n_words", "n_candidate_words", "n_phonemes", torch.int64] = \
+        torch.ones(n_words, n_candidate_words, n_phonemes) * phoneme_padding
+    ic(candidate_phonemes.shape)
+    for i, word_row in enumerate(candidate_tokens):
+        for j, candidate in enumerate(word_row):
+            for k, phoneme in enumerate(candidate):
+                candidate_phonemes[i, j, k] = generator.phoneme2idx[phoneme]
 
+    ic(candidate_phonemes)
     p_word_posterior = rr.predictive_model(p_word)
 
 
 def main(args):
     sentences = generate_sentences()
-    dataset = generate_dataset(sentences)
+    dataset = generator.sample_dataset(sentences)
 
     build_model(dataset)
 

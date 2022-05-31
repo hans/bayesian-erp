@@ -22,8 +22,8 @@ from berp.typing import is_probability, is_log_probability, \
                         ProperProbabilityDetail, ProperLogProbabilityDetail
 
 
-model_ref = "gpt2"
-# model_ref = "hf-internal-testing/tiny-xlm-roberta"
+# model_ref = "gpt2"
+model_ref = "hf-internal-testing/tiny-xlm-roberta"
 model = transformers.AutoModelForCausalLM.from_pretrained(model_ref, is_decoder=True)
 model.eval()
 tokenizer = transformers.AutoTokenizer.from_pretrained(model_ref)
@@ -65,14 +65,16 @@ def compute_candidate_phoneme_likelihoods(
     word: str, word_id: torch.LongTensor,
     p_word_prior: TT[V, is_log_probability],
     n_candidates=10
-    ) -> Tuple[TT[N_C, int], List[str], TT[N_C, N_P, is_log_probability]]:
+    ) -> Tuple[TT[N_C, int], List[str],
+                TT[N_C, N_P, torch.int64],
+                TT[N_C, N_P, is_log_probability]]:
 
     word = clean_word_str(word)
 
     # Draw small set of candidate alternate words
     # NB drawing more than `n_candidates` because some will be filtered out.
     # Ideally wouldn't have this magic-number setup.
-    candidate_ids = p_word_prior.argsort(axis=0, descending=True)[:n_candidates * 3]
+    candidate_ids = p_word_prior.argsort(axis=0, descending=True)[:n_candidates * 4]
     candidate_ids[0] = word_id
     # if gt_word_id not in candidate_ids:
     #     candidate_ids[-1] = gt_word_id
@@ -95,7 +97,7 @@ def compute_candidate_phoneme_likelihoods(
 
     candidate_phoneme_likelihoods = \
         phoneme_confusion[candidate_phoneme_seqs, gt_phoneme_seq].log()
-    return (candidate_ids, candidate_tokens,
+    return (candidate_ids, candidate_tokens, candidate_phoneme_seqs,
             candidate_phoneme_likelihoods)
 
 
@@ -125,6 +127,7 @@ class WordObservation(NamedTuple):
     cleaned_word: str
     candidate_tokens: List[str]
     candidate_ids: List[int]
+    candidate_phonemes: TensorType[N_C, N_P, torch.int64]
 
     recognition_point: int
 
@@ -147,7 +150,7 @@ def sample_word(word: str, word_id: torch.LongTensor,
     For the given word, sample a phoneme onset trajectory and compute
     corresponding phoneme surprisals.
     """
-    candidate_ids, candidate_tokens, candidate_phoneme_likelihoods = \
+    candidate_ids, candidate_tokens, candidate_phonemes, candidate_phoneme_likelihoods = \
         compute_candidate_phoneme_likelihoods(word, word_id, p_word_prior,
                                               n_candidates=n_candidates)
     # print(word, [tok.rstrip("_") for tok in candidate_tokens])
@@ -196,6 +199,7 @@ def sample_word(word: str, word_id: torch.LongTensor,
         cleaned_word=cleaned_word,
         candidate_tokens=candidate_tokens,
         candidate_ids=candidate_ids.tolist(),
+        candidate_phonemes=candidate_phonemes,
 
         recognition_point=int(recognition_point),
 
@@ -209,9 +213,10 @@ class ItemObservation(NamedTuple):
     X_phon: pd.DataFrame
     y: pd.DataFrame
 
-    candidate_ids: TensorType["n_words", "n_candidates", torch.int64]
+    candidate_ids: TensorType[N_W, N_C, torch.int64]
     candidate_tokens: List[List[str]]
-    p_word: TT["n_words", "n_candidates", is_log_probability]
+    candidate_phonemes: TensorType[N_W, N_C, N_P, torch.int64]
+    p_word: TT[N_W, N_C, is_log_probability]
 
 
 @typechecked
@@ -224,8 +229,7 @@ def sample_item(sentence: str,
                 n400_surprisal_coef=-1,
                 recognition_threshold=torch.tensor(0.2),
                 **kwargs
-                ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame,
-                           TT["n_words", "n_candidates", is_log_probability]]:
+                ) -> ItemObservation:
     """
     Sample an item combining phoneme-level surprisal with a distinct
     word recognition point.
@@ -234,7 +238,7 @@ def sample_item(sentence: str,
     print(sentence)
 
     acc_X_word, acc_X_phon, acc_y = [], None, None
-    acc_candidate_ids, acc_candidate_tokens, acc_p_word = [], [], []
+    acc_candidate_ids, acc_candidate_tokens, acc_candidate_phonemes, acc_p_word = [], [], [], []
     time_acc = 0
 
     # sample unitary response
@@ -247,7 +251,8 @@ def sample_item(sentence: str,
 
     # Compute word-level predictive distributions
     tokenized = tokenizer(sentence, return_tensors="pt",
-                          padding=True)
+                          padding=True, truncation=True,
+                          max_length=model.config.max_length)
     with torch.no_grad():
         model_outputs = model(tokenized["input_ids"])[0].log_softmax(dim=2)
     model_outputs = model_outputs.squeeze(0)
@@ -308,6 +313,7 @@ def sample_item(sentence: str,
 
         acc_candidate_ids.append(word_obs.candidate_ids)
         acc_candidate_tokens.append(word_obs.candidate_tokens)
+        acc_candidate_phonemes.append(word_obs.candidate_phonemes.unbind())
 
         # store renormalized prior over top-k candidate words
         p_word_prior = p_word_prior[word_obs.candidate_ids].exp()
@@ -323,23 +329,51 @@ def sample_item(sentence: str,
     acc_X_word.index.name = "token_idx"
 
     acc_candidate_ids = torch.tensor(acc_candidate_ids)
+
+    # Pad candidate phoneme sequences.
+    ic(acc_candidate_phonemes)
+    acc_candidate_phonemes = torch.nn.utils.rnn.pad_sequence(
+        acc_candidate_phonemes, batch_first=True,
+        padding_value=phoneme2idx["_"])
+
     acc_p_word = torch.stack(acc_p_word)
-    return acc_X_word, acc_X_phon, acc_y.reset_index(), acc_p_word
+    return ItemObservation(
+        acc_X_word, acc_X_phon, acc_y.reset_index(),
+        acc_candidate_ids, acc_candidate_tokens, acc_candidate_phonemes,
+        acc_p_word)
 
 
-def sample_dataset(sentences: List[str], **item_kwargs):
-    ret_X_word, ret_X_phon, ret_y, ret_p_word = [], [], [], []
+class RRDataset(NamedTuple):
+    X_word: pd.DataFrame
+    X_phon: pd.DataFrame
+    y: pd.DataFrame
+
+    candidate_ids: List[TensorType[N_W, N_C, torch.int64]]
+    candidate_tokens: List[List[str]]
+    candidate_phonemes: List[TensorType[N_W, N_C, N_P, torch.int64]]
+    p_word: List[TensorType[N_W, N_C, is_log_probability]]
+
+
+def sample_dataset(sentences: List[str], **item_kwargs) -> RRDataset:
+    ret_X_word, ret_X_phon, ret_y = [], [], []
+    ret_candidate_tokens, ret_candidate_ids, ret_candidate_phonemes, ret_p_word = [], [], [], []
     for sentence in tqdm(sentences):
-        X_word, X_phon, y, p_word = sample_item(sentence, **item_kwargs)
-        ret_X_word.append(X_word)
-        ret_X_phon.append(X_phon)
-        ret_y.append(y)
-        ret_p_word.append(p_word)
+        item = sample_item(sentence, **item_kwargs)
+        ret_X_word.append(item.X_word)
+        ret_X_phon.append(item.X_phon)
+        ret_y.append(item.y)
+
+        ret_candidate_tokens.append(item.candidate_tokens)
+        ret_candidate_ids.append(item.candidate_ids)
+        ret_candidate_phonemes.append(item.candidate_phonemes)
+        ret_p_word.append(item.p_word)
 
     X_word = pd.concat(ret_X_word, names=["item", "token_idx"], keys=np.arange(len(ret_X_word)))
     X_phon = pd.concat(ret_X_phon, names=["item", "token_idx", "phon_idx"], keys=np.arange(len(ret_X_phon)))
     y = pd.concat(ret_y, names=["item", "sample_idx"], keys=np.arange(len(ret_y)))
-    return X_word, X_phon, y, ret_p_word
+    return RRDataset(
+        X_word, X_phon, y,
+        ret_candidate_ids, ret_candidate_tokens, ret_candidate_phonemes, ret_p_word)
 
 
 def dataset_to_epochs(X, y, epoch_window=(-0.1, 0.9), test_window=(0.3, 0.5)):
