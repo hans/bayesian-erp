@@ -128,6 +128,7 @@ class WordObservation(NamedTuple):
     candidate_tokens: List[str]
     candidate_ids: List[int]
     candidate_phonemes: TensorType[N_C, N_P, torch.int64]
+    phoneme_onsets: List[float]
 
     recognition_point: int
 
@@ -200,6 +201,7 @@ def sample_word(word: str, word_id: torch.LongTensor,
         candidate_tokens=candidate_tokens,
         candidate_ids=candidate_ids.tolist(),
         candidate_phonemes=candidate_phonemes,
+        phoneme_onsets=stim_onsets.tolist(),
 
         recognition_point=int(recognition_point),
 
@@ -215,11 +217,12 @@ class ItemObservation(NamedTuple):
 
     candidate_ids: TensorType[N_W, N_C, torch.int64]
     candidate_tokens: List[List[str]]
+    # DEV N_P will vary in between calls .. oops
     candidate_phonemes: TensorType[N_W, N_C, N_P, torch.int64]
+    phoneme_onsets: TT[N_W, N_P, float]
     p_word: TT[N_W, N_C, is_log_probability]
 
 
-@typechecked
 def sample_item(sentence: str,
                 word_delay_range=(0.3, 1),
                 response_window=(0.0, 2),  # time window over which word triggers signal response
@@ -238,7 +241,9 @@ def sample_item(sentence: str,
     print(sentence)
 
     acc_X_word, acc_X_phon, acc_y = [], None, None
-    acc_candidate_ids, acc_candidate_tokens, acc_candidate_phonemes, acc_p_word = [], [], [], []
+    acc_candidate_ids, acc_candidate_tokens, acc_candidate_phonemes = [], [], []
+    acc_phoneme_onsets, acc_p_word = [], []
+
     time_acc = 0
 
     # sample unitary response
@@ -315,6 +320,8 @@ def sample_item(sentence: str,
         acc_candidate_tokens.append(word_obs.candidate_tokens)
         acc_candidate_phonemes.append(word_obs.candidate_phonemes.unbind())
 
+        acc_phoneme_onsets.append(word_obs.phoneme_onsets)
+
         # store renormalized prior over top-k candidate words
         p_word_prior = p_word_prior[word_obs.candidate_ids].exp()
         p_word_prior /= p_word_prior.sum()
@@ -331,15 +338,24 @@ def sample_item(sentence: str,
     acc_candidate_ids = torch.tensor(acc_candidate_ids)
 
     # Pad candidate phoneme sequences.
-    ic(acc_candidate_phonemes)
-    acc_candidate_phonemes = torch.nn.utils.rnn.pad_sequence(
-        acc_candidate_phonemes, batch_first=True,
-        padding_value=phoneme2idx["_"])
+    max_length = max(len(candidate_phonemes[0]) for candidate_phonemes
+                     in acc_candidate_phonemes)
+    acc_candidate_phonemes = torch.stack([
+        torch.nn.functional.pad(torch.stack(candidate_phonemes),
+                                (0, max_length - len(candidate_phonemes[0])),
+                                value=phoneme2idx["_"])
+        for candidate_phonemes in acc_candidate_phonemes
+    ])
+
+    acc_phoneme_onsets = torch.nn.utils.rnn.pad_sequence(
+        list(map(torch.tensor, acc_phoneme_onsets)), batch_first=True,
+        padding_value=0.)
 
     acc_p_word = torch.stack(acc_p_word)
     return ItemObservation(
         acc_X_word, acc_X_phon, acc_y.reset_index(),
         acc_candidate_ids, acc_candidate_tokens, acc_candidate_phonemes,
+        acc_phoneme_onsets,
         acc_p_word)
 
 
@@ -351,14 +367,20 @@ class RRDataset(NamedTuple):
     candidate_ids: List[TensorType[N_W, N_C, torch.int64]]
     candidate_tokens: List[List[str]]
     candidate_phonemes: List[TensorType[N_W, N_C, N_P, torch.int64]]
+    phoneme_onsets: List[TensorType[N_W, N_P, float]]
     p_word: List[TensorType[N_W, N_C, is_log_probability]]
 
+    sample_rate: int
 
-def sample_dataset(sentences: List[str], **item_kwargs) -> RRDataset:
+
+def sample_dataset(sentences: List[str],
+                   sample_rate=128,
+                   **item_kwargs) -> RRDataset:
     ret_X_word, ret_X_phon, ret_y = [], [], []
-    ret_candidate_tokens, ret_candidate_ids, ret_candidate_phonemes, ret_p_word = [], [], [], []
+    ret_candidate_tokens, ret_candidate_ids, ret_candidate_phonemes = [], [], []
+    ret_phoneme_onsets, ret_p_word = [], []
     for sentence in tqdm(sentences):
-        item = sample_item(sentence, **item_kwargs)
+        item = sample_item(sentence, sample_rate=sample_rate, **item_kwargs)
         ret_X_word.append(item.X_word)
         ret_X_phon.append(item.X_phon)
         ret_y.append(item.y)
@@ -366,6 +388,7 @@ def sample_dataset(sentences: List[str], **item_kwargs) -> RRDataset:
         ret_candidate_tokens.append(item.candidate_tokens)
         ret_candidate_ids.append(item.candidate_ids)
         ret_candidate_phonemes.append(item.candidate_phonemes)
+        ret_phoneme_onsets.append(item.phoneme_onsets)
         ret_p_word.append(item.p_word)
 
     X_word = pd.concat(ret_X_word, names=["item", "token_idx"], keys=np.arange(len(ret_X_word)))
@@ -373,33 +396,29 @@ def sample_dataset(sentences: List[str], **item_kwargs) -> RRDataset:
     y = pd.concat(ret_y, names=["item", "sample_idx"], keys=np.arange(len(ret_y)))
     return RRDataset(
         X_word, X_phon, y,
-        ret_candidate_ids, ret_candidate_tokens, ret_candidate_phonemes, ret_p_word)
+        ret_candidate_ids, ret_candidate_tokens,
+        ret_candidate_phonemes, ret_phoneme_onsets,
+        ret_p_word,
+        sample_rate=sample_rate)
 
 
-def dataset_to_epochs(X, y, epoch_window=(-0.1, 0.9), test_window=(0.3, 0.5)):
+def dataset_to_epochs(X, y, epoch_window=(-0.1, 0.9)):
+    """
+    Resample dataset as epochs. Unlike other `dataset_to_epochs` impls in this
+    codebase, this simply returns the epoch data without averaging.
+    """
+
     assert X.index.names[0] == y.index.names[0]
 
-    epoch_data = []
+    epoch_data = {}
     epoch_left, epoch_right = epoch_window
-    test_left, test_right = test_window
-
     for index, x in tqdm(X.iterrows(), total=len(X)):
         y_df = y.loc[index[0]]
 
         epoch_window = y_df[(y_df.time >= x.time + epoch_left) & (y_df.time <= x.time + epoch_right)]
-        baseline_window = epoch_window[epoch_window.time <= x.time]
-        test_window = epoch_window[(epoch_window.time >= x.time + test_left) & (epoch_window.time <= x.time + test_right)]
+        epoch_data[index] = epoch_window
 
-        # take means over temporal window
-        baseline_window = baseline_window.signal.mean(axis=0)
-        test_window = test_window.signal.mean(axis=0)
-
-        if not isinstance(index, tuple):
-            index = (index,)
-        epoch_data.append(index + (baseline_window, test_window))
-
-    epoch_df = pd.DataFrame(epoch_data, columns=X.index.names + ["baseline_N400", "value_N400"]) \
-        .set_index(X.index.names)
+    epoch_df = pd.concat(epoch_data, names=tuple(X.index.names) + tuple(y.index.names[1:]))
     return epoch_df
 
 

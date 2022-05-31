@@ -51,19 +51,47 @@ def build_model(dataset: generator.RRDataset):
 
     candidate_tokens = dataset.candidate_tokens[0]
     n_words, n_candidate_words = dataset.candidate_ids[0].shape
-    ic(dataset.X_phon.index.get_level_values("phon_idx").max())
-    n_phonemes = dataset.X_phon.index.get_level_values("phon_idx").max() + 1
-    phoneme_padding = generator.phoneme2idx["_"]
-    candidate_phonemes: TT["n_words", "n_candidate_words", "n_phonemes", torch.int64] = \
-        torch.ones(n_words, n_candidate_words, n_phonemes) * phoneme_padding
-    ic(candidate_phonemes.shape)
-    for i, word_row in enumerate(candidate_tokens):
-        for j, candidate in enumerate(word_row):
-            for k, phoneme in enumerate(candidate):
-                candidate_phonemes[i, j, k] = generator.phoneme2idx[phoneme]
+    candidate_phonemes = dataset.candidate_phonemes[0]
+    phoneme_onsets = dataset.phoneme_onsets[0]
 
-    ic(candidate_phonemes)
-    p_word_posterior = rr.predictive_model(p_word)
+    # compute surprisal data
+    X = torch.tensor(dataset.p_word[0][:, 0]).view(-1, 1)
+    X = -X / np.log(2)
+
+    # prepare epoched response
+    epochs_df = generator.dataset_to_epochs(
+        dataset.X_word.xs(0, drop_level=False),
+        dataset.y.xs(0, drop_level=False))
+    assert len(set(epochs_df.groupby("token_idx").size())) == 1
+    epochs_df["epoch_sample_idx"] = epochs_df.groupby(["item", "token_idx"]).cumcount()
+    # DEV: jst first item.
+    Y = epochs_df.droplevel(["item", "sample_idx"]) \
+        .pivot(columns="epoch_sample_idx",
+               values="signal")
+    Y = torch.tensor(Y.values)[..., np.newaxis].float()
+
+    # Parameters
+    lambda_ = torch.tensor(1.0)
+    threshold = torch.tensor(0.15)
+    a = torch.tensor(0.1)
+    b = torch.tensor(0.2)
+    coef = torch.tensor([-1.])
+
+    p_word_posterior = rr.predictive_model(p_word,
+                                           candidate_phonemes,
+                                           generator.phoneme_confusion,
+                                           lambda_)
+    rec = rr.recognition_point_model(p_word_posterior,
+                                     candidate_phonemes,
+                                     generator.phoneme_confusion,
+                                     lambda_,
+                                     threshold)
+    response = rr.epoched_response_model(X=X,
+                                         coef=coef,
+                                         recognition_points=rec,
+                                         phoneme_onsets=phoneme_onsets,
+                                         Y=Y, a=a, b=b,
+                                         sample_rate=dataset.sample_rate)
 
 
 def main(args):

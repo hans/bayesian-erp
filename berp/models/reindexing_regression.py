@@ -103,7 +103,7 @@ def epoched_response_model(X: TensorType[B, N_F, float],
                            Y: TensorType[B, T, S, float],
                            a: TensorType[float],
                            b: TensorType[float],
-                           sample_rate: TensorType[int],
+                           sample_rate: int,
                            sigma: TensorType[float] = torch.tensor(1.),
                            time_reduction_fn=torch.mean,
                            sensor_reduction_fn=torch.mean
@@ -142,7 +142,8 @@ def epoched_response_model(X: TensorType[B, N_F, float],
 
     # Gather.
     Y_sliced = torch.gather(Y, 1, slice_idxs)
-    assert Y_sliced[2, 0, 1] == Y[2, slice_idxs[2, 0, 1], 1]
+    assert_sensor_idx = min(1, n_sensors - 1)
+    assert Y_sliced[2, 0, assert_sensor_idx] == Y[2, slice_idxs[2, 0, assert_sensor_idx], assert_sensor_idx]
 
     # Compute observed q.
     q = time_reduction_fn(Y_sliced, axis=1, keepdim=True)
