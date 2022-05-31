@@ -415,7 +415,9 @@ def dataset_to_epochs(X, y, epoch_window=(-0.1, 0.9)):
     for index, x in tqdm(X.iterrows(), total=len(X)):
         y_df = y.loc[index[0]]
 
-        epoch_window = y_df[(y_df.time >= x.time + epoch_left) & (y_df.time <= x.time + epoch_right)]
+        epoch_window = y_df[(y_df.time >= x.time + epoch_left) & (y_df.time <= x.time + epoch_right)] \
+            .copy()
+        epoch_window["epoch_time"] = epoch_window.time - x.time
         epoch_data[index] = epoch_window
 
     epoch_df = pd.concat(epoch_data, names=tuple(X.index.names) + tuple(y.index.names[1:]))

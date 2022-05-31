@@ -57,10 +57,6 @@ def preprocess_dataset(dataset: generator.RRDataset):
     candidate_phonemes = dataset.candidate_phonemes[0]
     phoneme_onsets = dataset.phoneme_onsets[0]
 
-    # compute surprisal data
-    X = torch.tensor(dataset.p_word[0][:, 0]).view(-1, 1)
-    X = -X / np.log(2)
-
     # prepare epoched response
     epochs_df = generator.dataset_to_epochs(
         dataset.X_word.xs(0, drop_level=False),
@@ -73,6 +69,13 @@ def preprocess_dataset(dataset: generator.RRDataset):
                values="signal")
     Y = torch.tensor(Y.values)[..., np.newaxis].float()
 
+    # compute predictors: surprisal, baseline
+    X = torch.tensor(dataset.p_word[0][:, 0])
+    X = -X / np.log(2)
+    baseline = epochs_df[epochs_df.epoch_time <= 0].groupby(["item", "token_idx"]).signal.mean()
+    baseline = torch.tensor(baseline.values)
+    X = torch.stack([baseline, X], dim=1).float()
+
     return p_word, candidate_phonemes, phoneme_onsets, X, Y
 
 
@@ -80,10 +83,10 @@ def build_model(p_word, candidate_phonemes, phoneme_onsets, X, Y, sample_rate):
     # Parameters
     lambda_ = torch.tensor(1.0)
     threshold = pyro.sample("threshold",
-                            dist.Beta(5, 5))
+                            dist.Beta(1.2, 1.2))
     a = torch.tensor(0.4)
     b = torch.tensor(0.2)
-    coef_mean = torch.tensor([-1.])
+    coef_mean = torch.tensor([1., -1.])
     coef = pyro.sample("coef", dist.Normal(coef_mean, 0.1))
 
     # TODO check that masking is handled correctly
