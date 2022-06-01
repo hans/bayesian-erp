@@ -12,6 +12,7 @@ from icecream import ic
 from typeguard import typechecked
 
 import torch
+from torch.nn.functional import pad
 from torchtyping import TensorType
 import pyro
 import pyro.distributions as dist
@@ -45,35 +46,64 @@ Alice had no idea what Latitude was, or Longitude either, but thought they were 
 """.strip()
     sentences = [s.strip().replace("\n", "") for s in re.split(r"[.?!]", text)]
     sentences = [s for s in sentences if s]
-    return sentences[:2]
+    return sentences[:5]  # DEV
+
+
+def pad_phoneme_data(dataset) -> Tuple[TT[DIMS.B, DIMS.N_C, DIMS.N_P], ...]:
+    # we will pass flattened data representations, where each word in each
+    # item is an independent sample. to do this, we have to pad N_P to be
+    # equivalent across items.
+    max_n_p = max(cand.shape[2] for cand in dataset.candidate_phonemes)
+
+    candidate_phonemes = torch.cat([
+        pad(cand, (max_n_p - cand.shape[2], 0, 0, 0, 0, 0),
+            value=generator.phoneme2idx["_"])
+        for cand in dataset.candidate_phonemes
+    ])
+
+    # NB there are often longer representations (more phonemes necessary) in
+    # candidate_phonemes, because the candidate words are longer than the ground
+    # truth word. phoneme_onsets is just as long as the ground truth longest word.
+    max_n_gt_p = max(onsets.shape[1] for onsets in dataset.phoneme_onsets)
+    phoneme_onsets = torch.cat([
+        pad(onsets, (max_n_gt_p - onsets.shape[1], 0, 0, 0), value=0.)
+        for onsets in dataset.phoneme_onsets
+    ])
+
+    phoneme_mask = ...
+
+    return candidate_phonemes, phoneme_onsets, phoneme_mask
 
 
 def preprocess_dataset(dataset: generator.RRDataset):
     # DEV: Just work with first item.
     X_phon = dataset.X_phon.loc[0]
-    p_word = dataset.p_word[0]
+    p_word = torch.cat(dataset.p_word)
+
 
     candidate_tokens = dataset.candidate_tokens[0]
     n_words, n_candidate_words = dataset.candidate_ids[0].shape
-    candidate_phonemes = dataset.candidate_phonemes[0]
-    phoneme_onsets = dataset.phoneme_onsets[0]
+
+    candidate_phonemes, phoneme_onsets, phoneme_mask = pad_phoneme_data(dataset)
 
     # prepare epoched response
-    epochs_df = generator.dataset_to_epochs(
-        dataset.X_word.xs(0, drop_level=False),
-        dataset.y.xs(0, drop_level=False))
-    assert len(set(epochs_df.groupby("token_idx").size())) == 1
+    epochs_df = generator.dataset_to_epochs(dataset.X_word, dataset.y)
     epochs_df["epoch_sample_idx"] = epochs_df.groupby(["item", "token_idx"]).cumcount()
-    # DEV: jst first item.
-    Y = epochs_df.droplevel(["item", "sample_idx"]) \
+
+    # this yields a df with two index levels (item and sample_idx).
+    # sorting is retained. the
+    # underlying ndarray is flattened in a rep where sample_idx varies within
+    # item. so it's safe to just steal this flattened matrix and use it
+    Y = epochs_df.droplevel("sample_idx") \
         .pivot(columns="epoch_sample_idx",
                values="signal")
     Y = torch.tensor(Y.values)[..., np.newaxis].float()
 
     # compute predictors: surprisal, baseline
-    X = torch.tensor(dataset.p_word[0][:, 0])
+    X = torch.tensor(p_word[:, 0])
     X = -X / np.log(2)
-    baseline = epochs_df[epochs_df.epoch_time <= 0].groupby(["item", "token_idx"]).signal.mean()
+    baseline = epochs_df[epochs_df.epoch_time <= 0] \
+        .groupby(["item", "token_idx"]).signal.mean()
     baseline = torch.tensor(baseline.values)
     X = torch.stack([baseline, X], dim=1).float()
 

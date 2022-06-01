@@ -85,6 +85,9 @@ def recognition_point_model(p_word_posterior: TensorType[B, N_P, is_probability]
     """
     passes_threshold = p_word_posterior >= threshold
 
+    # TODO: need to incorporate ground-truth word length here and set per-item
+    # maximum. otherwise indexing error when we look for onset data later
+
     # Find first phoneme index for which predictive distribution passes
     # threshold.
     rec_point = passes_threshold.int().argmax(axis=1)
