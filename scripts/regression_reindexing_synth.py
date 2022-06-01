@@ -9,6 +9,7 @@ import scipy.stats as st
 import seaborn as sns
 from tqdm.notebook import tqdm
 from icecream import ic
+from typeguard import typechecked
 
 import torch
 from torchtyping import TensorType
@@ -89,6 +90,7 @@ class ModelParameters(NamedTuple):
     coef: TT[DIMS.N_F, float]
 
 
+@typechecked
 def model(params: ModelParameters,
           p_word, candidate_phonemes, phoneme_onsets, X, Y, sample_rate):
     # TODO check that masking is handled correctly
