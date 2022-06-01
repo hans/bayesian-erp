@@ -19,7 +19,8 @@ import torch
 from torchtyping import TensorType
 
 from berp.typing import is_probability, is_log_probability, \
-                        ProperProbabilityDetail, ProperLogProbabilityDetail
+                        ProperProbabilityDetail, ProperLogProbabilityDetail, \
+                        DIMS
 
 
 # model_ref = "gpt2"
@@ -54,16 +55,13 @@ def clean_word_str(word):
 
 # Type variables
 TT = TensorType
-N_W = "n_words"
-N_C = "n_candidates"
-N_P = "n_phonemes"
-V = "vocab"
+B, N_W, N_C, N_F, N_P, V_W = DIMS.B, DIMS.N_W, DIMS.N_C, DIMS.N_F, DIMS.N_P, DIMS.V_W
 
 
 @typechecked
 def compute_candidate_phoneme_likelihoods(
     word: str, word_id: torch.LongTensor,
-    p_word_prior: TT[V, is_log_probability],
+    p_word_prior: TT[V_W, is_log_probability],
     n_candidates=10
     ) -> Tuple[TT[N_C, int], List[str],
                 TT[N_C, N_P, torch.int64],
@@ -103,7 +101,7 @@ def compute_candidate_phoneme_likelihoods(
 
 @typechecked
 def compute_recognition_point(candidate_ids: TT[N_C, torch.long],
-                              p_word_prior: TT[V, is_log_probability],
+                              p_word_prior: TT[V_W, is_log_probability],
                               candidate_phoneme_likelihoods: TT[N_C, N_P, is_log_probability],
                               threshold: TT[is_probability],
                               gt_word_candidate_pos=0
@@ -138,7 +136,7 @@ class WordObservation(NamedTuple):
 
 @typechecked
 def sample_word(word: str, word_id: torch.LongTensor,
-                p_word_prior: TT[V, is_log_probability],
+                p_word_prior: TT[V_W, is_log_probability],
                 phon_delay_range=(0.1, 0.35),
                 response_window=(0.0, 2),
                 sample_rate=128,

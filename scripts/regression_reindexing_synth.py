@@ -18,7 +18,7 @@ from pyro.infer import MCMC, NUTS
 
 from berp.generators import thresholded_recognition as generator
 from berp.models import reindexing_regression as rr
-from berp.typing import is_log_probability
+from berp.typing import is_log_probability, DIMS
 
 
 TT = TensorType
@@ -79,33 +79,50 @@ def preprocess_dataset(dataset: generator.RRDataset):
     return p_word, candidate_phonemes, phoneme_onsets, X, Y
 
 
-def build_model(p_word, candidate_phonemes, phoneme_onsets, X, Y, sample_rate):
-    # Parameters
-    lambda_ = torch.tensor(1.0)
-    threshold = pyro.sample("threshold",
-                            dist.Beta(1.2, 1.2))
-    a = torch.tensor(0.4)
-    b = torch.tensor(0.2)
-    coef_mean = torch.tensor([1., -1.])
-    coef = pyro.sample("coef", dist.Normal(coef_mean, 0.1))
+class ModelParameters(NamedTuple):
+    lambda_: TT[float]
+    confusion: TT[DIMS.V_P, DIMS.V_P, float]
+    threshold: TT[float]
 
+    a: TT[float]
+    b: TT[float]
+    coef: TT[DIMS.N_F, float]
+
+
+def model(params: ModelParameters,
+          p_word, candidate_phonemes, phoneme_onsets, X, Y, sample_rate):
     # TODO check that masking is handled correctly
 
     p_word_posterior = rr.predictive_model(p_word,
                                            candidate_phonemes,
-                                           generator.phoneme_confusion,
-                                           lambda_)
+                                           params.confusion,
+                                           params.lambda_)
     rec = rr.recognition_point_model(p_word_posterior,
                                      candidate_phonemes,
-                                     generator.phoneme_confusion,
-                                     lambda_,
-                                     threshold)
+                                     params.confusion,
+                                     params.lambda_,
+                                     params.threshold)
     response = rr.epoched_response_model(X=X,
-                                         coef=coef,
+                                         coef=params.coef,
                                          recognition_points=rec,
                                          phoneme_onsets=phoneme_onsets,
-                                         Y=Y, a=a, b=b,
+                                         Y=Y, a=params.a, b=params.b,
                                          sample_rate=sample_rate)
+
+
+def build_model(*args, **kwargs):
+    # Sample model parameters.
+    coef_mean = torch.tensor([1., -1.])
+    params = ModelParameters(
+        lambda_=torch.tensor(1.0),
+        confusion=generator.phoneme_confusion,
+        threshold=pyro.sample("threshold",
+                              dist.Beta(1.2, 1.2)),
+        a=torch.tensor(0.4),
+        b=torch.tensor(0.2),
+        coef=pyro.sample("coef", dist.Normal(coef_mean, 0.1)),
+    )
+    return model(params, *args, **kwargs)
 
 
 def main(args):

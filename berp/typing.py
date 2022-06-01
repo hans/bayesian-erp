@@ -1,8 +1,59 @@
+from typing import NamedTuple
 import torch
 from torch.distributions import constraints
 from torchtyping import TensorType, TensorDetail, patch_typeguard
 
 patch_typeguard()
+
+
+class DIMS(NamedTuple):
+    """
+    Defines standard names for tensor dimensions used across model types and
+    scripts.
+    """
+
+    B = batch_size = "batch_size"
+
+    N_W = n_words = "n_words"
+    """
+    Number of words in a given item.
+    """
+
+    N_C = n_candidates = "n_candidates"
+    """
+    The number of live candidate words represented in a given context.
+    """
+
+    N_F = n_features = "n_features"
+    """
+    Number of features (IVs) used to predict response values (DVs).
+    """
+
+    N_P = n_phonemes = "n_phonemes"
+    """
+    Maximum length of observed word, in phonemes
+    """
+
+    V_W = v_words = "v_words"
+    """
+    Size of word vocabulary
+    """
+
+    V_P = v_phonemes = "v_phonemes"
+    """
+    Size of phoneme vocabulary
+    """
+
+    # EEG dimensions
+    T = n_times = "n_times"
+    """
+    Number of EEG samples
+    """
+
+    S = n_sensors = "n_sensors"
+    """
+    Number of EEG sensors
+    """
 
 
 class ProbabilityDetail(TensorDetail):

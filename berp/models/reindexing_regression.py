@@ -12,18 +12,14 @@ import torch
 from torchtyping import TensorType
 from typeguard import typechecked
 
-from berp.typing import Probability, is_probability, is_log_probability
+from berp.typing import Probability, is_probability, is_log_probability, DIMS
 from berp.util import sample_to_time, time_to_sample
 
 
 # Define TensorType axis labels
-B = "batch"
-N_C = "n_candidate_words"
-N_P = "n_phonemes"  # maximum length of observed word, in phonemes
-N_F = "n_features"  # number of features in epoched regression
-V_P = "v_phonemes"  # size of phoneme vocabulary
-T = "n_times"  # number of EEG samples
-S = "n_sensors"  # number of EEG sensors
+TT = TensorType
+B, N_C, N_P, N_F, V_P, T, S = \
+    DIMS.B, DIMS.N_C, DIMS.N_P, DIMS.N_F, DIMS.V_P, DIMS.T, DIMS.S
 
 
 @typechecked
