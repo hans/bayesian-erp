@@ -5,7 +5,7 @@ thresholded reindexing regression model.
 
 from argparse import ArgumentParser
 import re
-from typing import List, Tuple, NamedTuple
+from typing import List, Tuple, NamedTuple, Optional
 
 from icecream import ic
 import numpy as np
@@ -18,6 +18,7 @@ import transformers
 import torch
 from torchtyping import TensorType
 
+from berp.models.reindexing_regression import ModelParameters
 from berp.typing import is_probability, is_log_probability, \
                         ProperProbabilityDetail, ProperLogProbabilityDetail, \
                         DIMS
@@ -368,6 +369,8 @@ def sample_item(sentence: str,
 
 
 class RRDataset(NamedTuple):
+    params: ModelParameters
+
     X_word: pd.DataFrame
     X_phon: pd.DataFrame
     y: pd.DataFrame
@@ -383,13 +386,31 @@ class RRDataset(NamedTuple):
 
 
 def sample_dataset(sentences: List[str],
+                   params: Optional[ModelParameters] = None,
                    sample_rate=128,
                    **item_kwargs) -> RRDataset:
+    if params is None:
+        params = ModelParameters(
+            lambda_=torch.tensor(1.),
+            confusion=phoneme_confusion,
+            threshold=torch.tensor(0.2),
+
+            # TODO we don't actually control generative process to determine
+            # these response parameters. Best guesses at ideal model.
+            a=torch.tensor(0.4),
+            b=torch.tensor(0.2),
+            coef=torch.tensor([1., -1.])
+        )
+
     ret_X_word, ret_X_phon, ret_y = [], [], []
     ret_candidate_tokens, ret_candidate_ids, ret_candidate_phonemes = [], [], []
     ret_word_lengths, ret_phoneme_onsets, ret_p_word = [], [], []
     for sentence in tqdm(sentences):
-        item = sample_item(sentence, sample_rate=sample_rate, **item_kwargs)
+        item = sample_item(sentence,
+                           n400_surprisal_coef=params.coef[1],
+                           recognition_threshold=params.threshold,
+                           sample_rate=sample_rate,
+                           **item_kwargs)
         ret_X_word.append(item.X_word)
         ret_X_phon.append(item.X_phon)
         ret_y.append(item.y)
@@ -405,6 +426,7 @@ def sample_dataset(sentences: List[str],
     X_phon = pd.concat(ret_X_phon, names=["item", "token_idx", "phon_idx"], keys=np.arange(len(ret_X_phon)))
     y = pd.concat(ret_y, names=["item", "sample_idx"], keys=np.arange(len(ret_y)))
     return RRDataset(
+        params,
         X_word, X_phon, y,
         ret_candidate_ids, ret_candidate_tokens,
         ret_candidate_phonemes, ret_word_lengths, ret_phoneme_onsets,

@@ -109,18 +109,8 @@ def preprocess_dataset(dataset: generator.RRDataset):
     return p_word, word_lengths, candidate_phonemes, phoneme_onsets, X, Y
 
 
-class ModelParameters(NamedTuple):
-    lambda_: TT[float]
-    confusion: TT[DIMS.V_P, DIMS.V_P, float]
-    threshold: TT[float]
-
-    a: TT[float]
-    b: TT[float]
-    coef: TT[DIMS.N_F, float]
-
-
 @typechecked
-def model(params: ModelParameters,
+def model(params: rr.ModelParameters,
           p_word, word_lengths,
           candidate_phonemes, phoneme_onsets,
           X, Y, sample_rate):
@@ -147,7 +137,7 @@ def model(params: ModelParameters,
 def build_model(*args, **kwargs):
     # Sample model parameters.
     coef_mean = torch.tensor([1., -1.])
-    params = ModelParameters(
+    params = rr.ModelParameters(
         lambda_=torch.tensor(1.0),
         confusion=generator.phoneme_confusion,
         threshold=pyro.sample("threshold",

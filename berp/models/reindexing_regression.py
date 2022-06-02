@@ -3,6 +3,7 @@ Defines a simple three-parameter latent-onset model. Latent onset indices
 are a deterministic function of data and these three parameters.
 """
 
+from typing import NamedTuple
 
 from icecream import ic
 import numpy as np
@@ -20,6 +21,16 @@ from berp.util import sample_to_time, time_to_sample, variable_position_slice
 TT = TensorType
 B, N_C, N_P, N_F, V_P, T, S = \
     DIMS.B, DIMS.N_C, DIMS.N_P, DIMS.N_F, DIMS.V_P, DIMS.T, DIMS.S
+
+
+class ModelParameters(NamedTuple):
+    lambda_: TT[float]
+    confusion: TT[V_P, V_P, float]
+    threshold: TT[float]
+
+    a: TT[float]
+    b: TT[float]
+    coef: TT[N_F, float]
 
 
 @typechecked
