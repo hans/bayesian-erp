@@ -17,6 +17,7 @@ from torchtyping import TensorType
 import pyro
 import pyro.distributions as dist
 from pyro.infer import MCMC, NUTS
+import pyro.poutine as poutine
 
 from berp.generators import thresholded_recognition as generator
 from berp.models import reindexing_regression as rr
@@ -46,7 +47,7 @@ Alice had no idea what Latitude was, or Longitude either, but thought they were 
 """.strip()
     sentences = [s.strip().replace("\n", "") for s in re.split(r"[.?!]", text)]
     sentences = [s for s in sentences if s]
-    return sentences[:5]  # DEV
+    return sentences[:2]  # DEV
 
 
 def pad_phoneme_data(dataset) -> Tuple[TT[DIMS.B, DIMS.N_C, DIMS.N_P], ...]:
@@ -149,11 +150,9 @@ def build_model(*args, **kwargs):
     return model(params, *args, **kwargs)
 
 
-def main(args):
-    sentences = generate_sentences()
-    dataset = generator.sample_dataset(sentences)
-
+def fit(dataset, args):
     input_data = preprocess_dataset(dataset)
+
     # build_model(*input_data, sample_rate=dataset.sample_rate)
 
     nuts_kernel = NUTS(build_model)
@@ -166,7 +165,51 @@ def main(args):
     mcmc.summary(prob=0.8)
 
 
+def soundness_check(dataset, args):
+    """
+    Verify that the probability of the ground truth data is greatest under the
+    generating parameters (compared to perturbations thereof).
+    """
+    input_data = preprocess_dataset(dataset)
+
+    # from pyro.infer.autoguide.initialization import InitMessenger, init_to_uniform
+    # prototype_model = poutine.trace(InitMessenger(init_to_uniform)(build_model))
+    # model_trace = prototype_model.get_trace(*input_data, sample_rate=dataset.sample_rate)
+    # from pprint import pprint
+    # pprint(dict(model_trace.iter_stochastic_nodes()))
+
+    # from pyro.infer.mcmc.util import TraceEinsumEvaluator
+    gt_condition = {"threshold": dataset.params.threshold}
+    alt_conditions = [{"threshold": np.exp(np.log(dataset.params.threshold / x))}
+                      for x in [2, 0.5]]
+    all_conditions = [gt_condition] + alt_conditions
+
+    condition_logprobs = []
+    for condition in all_conditions:
+        conditioned_model = poutine.condition(build_model, condition)
+        model_trace = poutine.trace(conditioned_model).get_trace(
+            *input_data, sample_rate=dataset.sample_rate
+        )
+
+        log_joint = model_trace.log_prob_sum()
+        condition_logprobs.append(log_joint)
+    from pprint import pprint
+    pprint(list(zip(all_conditions, condition_logprobs)))
+
+def main(args):
+    sentences = generate_sentences()
+    dataset = generator.sample_dataset(sentences)
+
+    if args.mode == "fit":
+        fit(dataset, args)
+    elif args.mode == "soundness_check":
+        soundness_check(dataset, args)
+
+
 if __name__ == "__main__":
     p = ArgumentParser()
+
+    p.add_argument("-m", "--mode", choices=["fit", "soundness_check"],
+                   default="fit")
 
     main(p.parse_args())
