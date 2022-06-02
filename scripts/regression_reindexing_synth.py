@@ -104,8 +104,7 @@ def preprocess_dataset(dataset: generator.RRDataset, epoch_window=(-0.1, 0.9)):
     Y = torch.tensor(Y.values)[..., np.newaxis].float()
 
     # compute predictors: surprisal, baseline
-    X = torch.tensor(p_word[:, 0])
-    X = -X / np.log(2)
+    X = -p_word[:, 0] / np.log(2)
     baseline = epochs_df[epochs_df.epoch_time <= 0] \
         .groupby(["item", "token_idx"]).signal.mean()
     baseline = torch.tensor(baseline.values)
