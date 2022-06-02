@@ -192,6 +192,8 @@ def soundness_check(dataset, args, **preprocess_args):
     # pprint(dict(model_trace.iter_stochastic_nodes()))
 
     # from pyro.infer.mcmc.util import TraceEinsumEvaluator
+    background_condition = {"coef": torch.tensor([1., -1])}
+
     gt_condition = {"threshold": dataset.params.threshold}
     alt_conditions = [{"threshold": x}
                       for x in torch.rand(10)]
@@ -199,6 +201,7 @@ def soundness_check(dataset, args, **preprocess_args):
 
     condition_logprobs = []
     for condition in all_conditions:
+        condition.update(background_condition)
         log_joint = model_logprob(dataset, condition, **preprocess_args)
 
         if log_joint.isinf():
