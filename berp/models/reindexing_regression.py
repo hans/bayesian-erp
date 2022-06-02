@@ -157,7 +157,7 @@ def epoched_response_model(X: TensorType[B, N_F, float],
     # Average over time, accounting for possibly variable length sequences.
     sample_counts = Y_mask.sum(axis=1)
     # print("sample_counts", sample_counts)
-    q = Y_sliced.sum(axis=1, keepdim=True) / sample_counts
+    q = Y_sliced.sum(axis=1, keepdim=True) / torch.maximum(sample_counts, torch.tensor(1))
     # Average over sensors.
     q = sensor_reduction_fn(q, axis=2, keepdim=True)
     q = q.squeeze()
