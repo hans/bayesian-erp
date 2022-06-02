@@ -170,7 +170,7 @@ def epoched_response_model(X: TensorType[B, N_F, float],
 
 
 if __name__ == "__main__":
-    b = 5
+    batch = 5
     n_c = 10
     n_p = 4
     v_p = 7
@@ -181,12 +181,12 @@ if __name__ == "__main__":
     confusion = torch.rand(v_p, v_p)
     confusion /= confusion.sum(dim=1)
 
-    p_word = torch.rand(b, n_c)
+    p_word = torch.rand(batch, n_c)
     p_word /= p_word.sum(dim=1, keepdim=True)
     p_word_ground_truth = p_word[:, 0]
 
-    phonemes = torch.randint(0, v_p, (b, n_c, n_p))
-    phoneme_onsets = torch.rand(b, n_p).cumsum(dim=1)
+    phonemes = torch.randint(0, v_p, batch, n_c, n_p)
+    phoneme_onsets = torch.rand(batch, n_p).cumsum(dim=1)
 
     lambda_ = torch.tensor(1.)
     threshold = torch.tensor(0.15)

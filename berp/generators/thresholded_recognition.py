@@ -376,7 +376,7 @@ class RRDataset(NamedTuple):
     y: pd.DataFrame
 
     candidate_ids: List[TensorType[N_W, N_C, torch.int64]]
-    candidate_tokens: List[List[str]]
+    candidate_tokens: List[List[List[str]]]
     candidate_phonemes: List[TensorType[N_W, N_C, N_P, torch.int64]]
     word_lengths: List[List[int]]
     phoneme_onsets: List[TensorType[N_W, N_P, float]]
