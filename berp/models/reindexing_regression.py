@@ -72,7 +72,7 @@ def predictive_model(p_word: TensorType[B, N_C, is_log_probability],
 
     # Temperature adjustment
     confusion = confusion.pow(1 / lambda_)
-    confusion /= confusion.sum(axis=0, keepdim=True)
+    confusion /= confusion.sum(dim=0, keepdim=True)
 
     # Compute likelihood for each candidate and each phoneme position.
     ground_truth_phonemes = phonemes[:, ground_truth_word_idx, :].unsqueeze(1)
@@ -83,7 +83,7 @@ def predictive_model(p_word: TensorType[B, N_C, is_log_probability],
 
     # Combine with prior and normalize.
     bayes_p_word = (p_word.unsqueeze(-1) + phoneme_likelihoods).exp()
-    bayes_p_word /= bayes_p_word.sum(axis=1, keepdim=True)
+    bayes_p_word /= bayes_p_word.sum(dim=1, keepdim=True)
 
     p_ground_truth = bayes_p_word[:, ground_truth_word_idx, :]
     return p_ground_truth
@@ -105,7 +105,7 @@ def recognition_point_model(p_word_posterior: TensorType[B, N_P, is_probability]
 
     # Find first phoneme index for which predictive distribution passes
     # threshold.
-    rec_point = passes_threshold.int().argmax(axis=1)
+    rec_point = passes_threshold.int().argmax(dim=1)
 
     # Don't allow recognition point to go past final ground-truth phoneme.
     rec_point = torch.minimum(rec_point, word_lengths - 1)
@@ -155,11 +155,11 @@ def epoched_response_model(X: TensorType[B, N_F, float],
 
     # Compute observed q.
     # Average over time, accounting for possibly variable length sequences.
-    sample_counts = Y_mask.sum(axis=1)
+    sample_counts = Y_mask.sum(dim=1)
     # print("sample_counts", sample_counts)
-    q = Y_sliced.sum(axis=1, keepdim=True) / torch.maximum(sample_counts, torch.tensor(1))
+    q = Y_sliced.sum(dim=1, keepdim=True) / torch.maximum(sample_counts, torch.tensor(1))
     # Average over sensors.
-    q = sensor_reduction_fn(q, axis=2, keepdim=True)
+    q = sensor_reduction_fn(q, dim=2, keepdim=True)
     q = q.squeeze()
 
     q_pred = torch.matmul(X, coef)
@@ -179,14 +179,14 @@ if __name__ == "__main__":
     s = 2
 
     confusion = torch.rand(v_p, v_p)
-    confusion /= confusion.sum(axis=1)
+    confusion /= confusion.sum(dim=1)
 
     p_word = torch.rand(b, n_c)
-    p_word /= p_word.sum(axis=1, keepdim=True)
+    p_word /= p_word.sum(dim=1, keepdim=True)
     p_word_ground_truth = p_word[:, 0]
 
     phonemes = torch.randint(0, v_p, (b, n_c, n_p))
-    phoneme_onsets = torch.rand(b, n_p).cumsum(axis=1)
+    phoneme_onsets = torch.rand(b, n_p).cumsum(dim=1)
 
     lambda_ = torch.tensor(1.)
     threshold = torch.tensor(0.15)
