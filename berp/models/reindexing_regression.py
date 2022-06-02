@@ -59,6 +59,10 @@ def predictive_model(p_word: TensorType[B, N_C, is_log_probability],
         distribution evaluated for each example at each conditioning point.
     """
 
+    # Temperature adjustment
+    confusion = confusion.pow(1 / lambda_)
+    confusion /= confusion.sum(axis=0, keepdim=True)
+
     # Compute likelihood for each candidate and each phoneme position.
     ground_truth_phonemes = phonemes[:, ground_truth_word_idx, :].unsqueeze(1)
     phoneme_likelihoods: TensorType[B, N_C, N_P, is_log_probability] = \

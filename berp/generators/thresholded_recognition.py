@@ -42,7 +42,7 @@ phonemes = list("abcdefghijklmnopqrstuvwxyz_")
 phoneme2idx = {p: idx for idx, p in enumerate(phonemes)}
 phoneme_confusion = torch.diag(torch.ones(len(phonemes))) + \
     0.25 * torch.rand(len(phonemes), len(phonemes))
-phoneme_confusion /= phoneme_confusion.sum(axis=1, keepdim=True)
+phoneme_confusion /= phoneme_confusion.sum(axis=0, keepdim=True)
 
 
 def simple_peak(x, scale=5, b=0.05):
