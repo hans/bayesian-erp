@@ -145,7 +145,7 @@ class WordObservation(NamedTuple):
 @typechecked
 def sample_word(word: str, word_id: torch.LongTensor,
                 p_word_prior: TT[V_W, is_log_probability],
-                phon_delay_range=(0.1, 0.35),
+                phon_delay_range=(0.04, 0.1),
                 response_window=(0.0, 2),
                 sample_rate=128,
                 n400_surprisal_coef=-1,
@@ -231,7 +231,7 @@ class ItemObservation(NamedTuple):
 
 
 def sample_item(sentence: str,
-                word_delay_range=(0.3, 1),
+                word_delay_range=(0.1, 0.25),
                 response_window=(0.0, 2),  # time window over which word triggers signal response
                 recognition_irf=simple_peak,
                 irf=simple_peak, rate_irf=rate_irf,
