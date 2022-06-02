@@ -58,7 +58,7 @@ class DIMS:
 
 class ProbabilityDetail(TensorDetail):
     def check(self, t: torch.Tensor) -> bool:
-        return constraints.unit_interval.check(t).all()
+        return bool(constraints.unit_interval.check(t).all())
 
     def __repr__(self) -> str:
         return "ProbabilityDetail"
@@ -91,7 +91,7 @@ class ProperProbabilityDetail(ProbabilityDetail):
 
 class LogProbabilityDetail(TensorDetail):
     def check(self, t: torch.Tensor) -> bool:
-        return (t <= 0).all()
+        return bool((t <= 0).all())
 
     def __repr__(self) -> str:
         return "LogProbabilityDetail"

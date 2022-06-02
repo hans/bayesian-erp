@@ -9,7 +9,7 @@ from berp.typing import DIMS
 TT = TensorType
 
 
-def sample_to_time(sample_idx: TT[torch.long],
+def sample_to_time(sample_idx: torch.LongTensor,
                    sample_rate: int,
                    t_zero: float = 0
                    ) -> TT[float]:
@@ -33,8 +33,8 @@ def time_to_sample(time: TT[float],
 
 @typechecked
 def variable_position_slice(x: torch.Tensor, idxs: torch.LongTensor,
-                            slice_width: torch.LongTensor, padding_value=0.
-                            ) -> Tuple[torch.Tensor, torch.BoolTensor]:
+                            slice_width: int, padding_value=0.
+                            ) -> Tuple[torch.Tensor, TT[bool]]:
     """
     Extract fixed-width column slices from `x` with variable position by row,
     specified by `idxs`. Slices which are too close to the right edge of `x`

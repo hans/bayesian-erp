@@ -148,14 +148,14 @@ def epoched_response_model(X: TensorType[B, N_F, float],
     assert recognition_onset[2] == phoneme_onsets[2, recognition_points[2]]
     recognition_onset_samp = time_to_sample(recognition_onset,
                                             sample_rate)
-    # print("recognition_onset_samp", recognition_onset_samp)
+    print("recognition_onset_samp", recognition_onset_samp)
 
-    slice_width = time_to_sample(b, sample_rate)
+    slice_width = int(time_to_sample(b, sample_rate))
     Y_sliced, Y_mask = variable_position_slice(Y, recognition_onset_samp, slice_width)
 
     # Compute observed q.
     # Average over time, accounting for possibly variable length sequences.
-    sample_counts = Y_mask.sum(dim=1)
+    sample_counts = Y_mask.int().sum(dim=1)
     # print("sample_counts", sample_counts)
     q = Y_sliced.sum(dim=1, keepdim=True) / torch.maximum(sample_counts, torch.tensor(1))
     # Average over sensors.
@@ -185,13 +185,13 @@ if __name__ == "__main__":
     p_word /= p_word.sum(dim=1, keepdim=True)
     p_word_ground_truth = p_word[:, 0]
 
-    phonemes = torch.randint(0, v_p, batch, n_c, n_p)
+    phonemes = torch.randint(0, v_p, (batch, n_c, n_p))
     phoneme_onsets = torch.rand(batch, n_p).cumsum(dim=1)
 
     lambda_ = torch.tensor(1.)
     threshold = torch.tensor(0.15)
 
-    Y = torch.rand(b, t, s)
+    Y = torch.rand(batch, t, s)
     sample_rate = torch.tensor(32)
 
     a = torch.tensor(0.1)
