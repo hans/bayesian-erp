@@ -76,7 +76,7 @@ def pad_phoneme_data(dataset) -> Tuple[TT[DIMS.B, DIMS.N_C, DIMS.N_P], ...]:
     return candidate_phonemes, phoneme_onsets, phoneme_mask
 
 
-def preprocess_dataset(dataset: generator.RRDataset):
+def preprocess_dataset(dataset: generator.RRDataset, epoch_window=(-0.1, 0.9)):
     # We will flatten all observations across item and word
     p_word = torch.cat(dataset.p_word)
 
@@ -87,6 +87,10 @@ def preprocess_dataset(dataset: generator.RRDataset):
                                  for word_length in item])
 
     # prepare epoched response
+    if phoneme_onsets.max() > epoch_window[1]:
+        raise ValueError(f"Some words have phoneme onsets outside the word "
+                         f"epoch window {epoch_window} (max onset {phoneme_onsets.max()}). "
+                         f"This won't work -- increase the epoch window.")
     epochs_df = generator.dataset_to_epochs(dataset.X_word, dataset.y)
     epochs_df["epoch_sample_idx"] = epochs_df.groupby(["item", "token_idx"]).cumcount()
 
@@ -150,8 +154,8 @@ def build_model(*args, **kwargs):
     return model(params, *args, **kwargs)
 
 
-def fit(dataset, args):
-    input_data = preprocess_dataset(dataset)
+def fit(dataset, args, **preprocess_args):
+    input_data = preprocess_dataset(dataset, **preprocess_args)
 
     # build_model(*input_data, sample_rate=dataset.sample_rate)
 
@@ -165,13 +169,23 @@ def fit(dataset, args):
     mcmc.summary(prob=0.8)
 
 
-def soundness_check(dataset, args):
+def model_logprob(dataset, conditioning=None, **preprocess_args):
+    input_data = preprocess_dataset(dataset, **preprocess_args)
+
+    conditioned_model = poutine.condition(build_model, conditioning)
+    model_trace = poutine.trace(conditioned_model).get_trace(
+        *input_data, sample_rate=dataset.sample_rate
+    )
+
+    log_joint = model_trace.log_prob_sum()
+    return log_joint
+
+
+def soundness_check(dataset, args, **preprocess_args):
     """
     Verify that the probability of the ground truth data is greatest under the
     generating parameters (compared to perturbations thereof).
     """
-    input_data = preprocess_dataset(dataset)
-
     # from pyro.infer.autoguide.initialization import InitMessenger, init_to_uniform
     # prototype_model = poutine.trace(InitMessenger(init_to_uniform)(build_model))
     # model_trace = prototype_model.get_trace(*input_data, sample_rate=dataset.sample_rate)
@@ -180,30 +194,32 @@ def soundness_check(dataset, args):
 
     # from pyro.infer.mcmc.util import TraceEinsumEvaluator
     gt_condition = {"threshold": dataset.params.threshold}
-    alt_conditions = [{"threshold": np.exp(np.log(dataset.params.threshold / x))}
-                      for x in [2, 0.5]]
+    alt_conditions = [{"threshold": x}
+                      for x in torch.rand(10)]
     all_conditions = [gt_condition] + alt_conditions
 
     condition_logprobs = []
     for condition in all_conditions:
-        conditioned_model = poutine.condition(build_model, condition)
-        model_trace = poutine.trace(conditioned_model).get_trace(
-            *input_data, sample_rate=dataset.sample_rate
-        )
+        log_joint = model_logprob(dataset, condition, **preprocess_args)
 
-        log_joint = model_trace.log_prob_sum()
+        if log_joint.isinf():
+            raise RuntimeError(str(condition))
         condition_logprobs.append(log_joint)
+
     from pprint import pprint
-    pprint(list(zip(all_conditions, condition_logprobs)))
+    print("Ground truth: ", dataset.params.threshold)
+    pprint(sorted(zip(all_conditions, condition_logprobs),
+                  key=lambda x: -x[1]))
 
 def main(args):
     sentences = generate_sentences()
     dataset = generator.sample_dataset(sentences)
 
+    epoch_window = (-0.1, 1.5)
     if args.mode == "fit":
-        fit(dataset, args)
+        fit(dataset, args, epoch_window=epoch_window)
     elif args.mode == "soundness_check":
-        soundness_check(dataset, args)
+        soundness_check(dataset, args, epoch_window=epoch_window)
 
 
 if __name__ == "__main__":

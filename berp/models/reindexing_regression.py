@@ -109,6 +109,7 @@ def recognition_point_model(p_word_posterior: TensorType[B, N_P, is_probability]
 
     # Don't allow recognition point to go past final ground-truth phoneme.
     rec_point = torch.minimum(rec_point, word_lengths - 1)
+    # print("rec_point", rec_point)
 
     return rec_point
 
@@ -142,10 +143,12 @@ def epoched_response_model(X: TensorType[B, N_F, float],
         sigma: Standard deviation parameter for observations
     """
     # Compute start of range slice into Y for each example.
+    # print("recognition_points", recognition_points)
     recognition_onset = torch.gather(phoneme_onsets, 1, recognition_points.unsqueeze(1)).squeeze(1)
     assert recognition_onset[2] == phoneme_onsets[2, recognition_points[2]]
     recognition_onset_samp = time_to_sample(recognition_onset,
                                             sample_rate)
+    # print("recognition_onset_samp", recognition_onset_samp)
 
     slice_width = time_to_sample(b, sample_rate)
     Y_sliced, Y_mask = variable_position_slice(Y, recognition_onset_samp, slice_width)
@@ -153,12 +156,15 @@ def epoched_response_model(X: TensorType[B, N_F, float],
     # Compute observed q.
     # Average over time, accounting for possibly variable length sequences.
     sample_counts = Y_mask.sum(axis=1)
+    # print("sample_counts", sample_counts)
     q = Y_sliced.sum(axis=1, keepdim=True) / sample_counts
     # Average over sensors.
     q = sensor_reduction_fn(q, axis=2, keepdim=True)
     q = q.squeeze()
 
     q_pred = torch.matmul(X, coef)
+    # print("q_pred", q_pred)
+    # print("q", q)
     return pyro.sample("q", dist.Normal(q_pred, sigma),
                        obs=q)
 
