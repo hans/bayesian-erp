@@ -6,7 +6,7 @@ from torchtyping import TensorType, TensorDetail, patch_typeguard
 patch_typeguard()
 
 
-class DIMS(NamedTuple):
+class DIMS:
     """
     Defines standard names for tensor dimensions used across model types and
     scripts.
@@ -78,14 +78,16 @@ class ProperProbabilityDetail(ProbabilityDetail):
         if not super().check(t):
             return False
 
-        if not torch.allclose(self._val(), torch.tensor(1.)):
+        if not torch.allclose(self._val(t), torch.tensor(1.)):
             return False
+        return True
 
     def __repr__(self) -> str:
         return f"ProperProbabilityDetail({self.dim})"
 
-    def tensor_repr(self, t: torch.Tensor) -> str:
-        return f"ProperProbabilityDetail({self._val(t)})"
+    @classmethod
+    def tensor_repr(cls, t: torch.Tensor) -> str:
+        return f"ProperProbabilityDetail({t})"
 
 class LogProbabilityDetail(TensorDetail):
     def check(self, t: torch.Tensor) -> bool:
@@ -111,12 +113,14 @@ class ProperLogProbabilityDetail(LogProbabilityDetail):
 
         if not torch.allclose(self._val(t), torch.tensor(0.)):
             return False
+        return True
 
     def __repr__(self) -> str:
         return f"ProperLogProbabilityDetail({self.dim})"
 
-    def tensor_repr(self, t: torch.Tensor) -> str:
-        return f"ProperLogProbabilityDetail({self._val(t)})"
+    @classmethod
+    def tensor_repr(cls, t: torch.Tensor) -> str:
+        return f"ProperLogProbabilityDetail({t})"
 
 is_probability = ProbabilityDetail()
 is_log_probability = LogProbabilityDetail()

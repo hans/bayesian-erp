@@ -9,20 +9,20 @@ from berp.typing import DIMS
 TT = TensorType
 
 
-def sample_to_time(sample_idx: Union[int, TensorType[torch.long]],
-                   sample_rate: Union[int, TensorType[int]],
-                   t_zero: Union[float, TensorType[float]] = 0
-                   ) -> Union[float, TensorType[float]]:
+def sample_to_time(sample_idx: TT[torch.long],
+                   sample_rate: int,
+                   t_zero: float = 0
+                   ) -> TT[float]:
     """
     Convert sample index representation to time representation (in seconds).
     """
     return t_zero + sample_idx / sample_rate
 
 
-def time_to_sample(time: Union[float, TensorType[float]],
-                   sample_rate: Union[int, TensorType[int]],
-                   t_zero: Union[float, TensorType[float]] = 0
-                   ) -> Union[int, TensorType[torch.long]]:
+def time_to_sample(time: TT[float],
+                   sample_rate: int,
+                   t_zero: float = 0
+                   ) -> TT[torch.long]:
     """
     Convert time representation (in seconds) to sample index representation.
     """
