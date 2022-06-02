@@ -22,6 +22,13 @@ from berp.typing import is_probability, is_log_probability, \
                         ProperProbabilityDetail, ProperLogProbabilityDetail, \
                         DIMS
 
+# This module is extremely messy in its handling of tensors vs. lists. We used
+# tensors originally to get nice easy shape/dimension checking with type hints,
+# but it became a hassle to force everything into tensors early (due to variable
+# length content) and we abandoned this later. But the whole thing should be
+# refactored to be consistent if this is going to be anything but throwaway
+# research code.
+
 
 # model_ref = "gpt2"
 model_ref = "hf-internal-testing/tiny-xlm-roberta"
@@ -217,6 +224,7 @@ class ItemObservation(NamedTuple):
     candidate_tokens: List[List[str]]
     # DEV N_P will vary in between calls .. oops
     candidate_phonemes: TensorType[N_W, N_C, N_P, torch.int64]
+    word_lengths: List[int]
     phoneme_onsets: TT[N_W, N_P, float]
     p_word: TT[N_W, N_C, is_log_probability]
 
@@ -345,6 +353,8 @@ def sample_item(sentence: str,
         for candidate_phonemes in acc_candidate_phonemes
     ])
 
+    word_lengths = [len(onsets) for onsets in acc_phoneme_onsets]
+
     acc_phoneme_onsets = torch.nn.utils.rnn.pad_sequence(
         list(map(torch.tensor, acc_phoneme_onsets)), batch_first=True,
         padding_value=0.)
@@ -353,7 +363,7 @@ def sample_item(sentence: str,
     return ItemObservation(
         acc_X_word, acc_X_phon, acc_y.reset_index(),
         acc_candidate_ids, acc_candidate_tokens, acc_candidate_phonemes,
-        acc_phoneme_onsets,
+        word_lengths, acc_phoneme_onsets,
         acc_p_word)
 
 
@@ -365,6 +375,7 @@ class RRDataset(NamedTuple):
     candidate_ids: List[TensorType[N_W, N_C, torch.int64]]
     candidate_tokens: List[List[str]]
     candidate_phonemes: List[TensorType[N_W, N_C, N_P, torch.int64]]
+    word_lengths: List[List[int]]
     phoneme_onsets: List[TensorType[N_W, N_P, float]]
     p_word: List[TensorType[N_W, N_C, is_log_probability]]
 
@@ -376,7 +387,7 @@ def sample_dataset(sentences: List[str],
                    **item_kwargs) -> RRDataset:
     ret_X_word, ret_X_phon, ret_y = [], [], []
     ret_candidate_tokens, ret_candidate_ids, ret_candidate_phonemes = [], [], []
-    ret_phoneme_onsets, ret_p_word = [], []
+    ret_word_lengths, ret_phoneme_onsets, ret_p_word = [], [], []
     for sentence in tqdm(sentences):
         item = sample_item(sentence, sample_rate=sample_rate, **item_kwargs)
         ret_X_word.append(item.X_word)
@@ -386,6 +397,7 @@ def sample_dataset(sentences: List[str],
         ret_candidate_tokens.append(item.candidate_tokens)
         ret_candidate_ids.append(item.candidate_ids)
         ret_candidate_phonemes.append(item.candidate_phonemes)
+        ret_word_lengths.append(item.word_lengths)
         ret_phoneme_onsets.append(item.phoneme_onsets)
         ret_p_word.append(item.p_word)
 
@@ -395,7 +407,7 @@ def sample_dataset(sentences: List[str],
     return RRDataset(
         X_word, X_phon, y,
         ret_candidate_ids, ret_candidate_tokens,
-        ret_candidate_phonemes, ret_phoneme_onsets,
+        ret_candidate_phonemes, ret_word_lengths, ret_phoneme_onsets,
         ret_p_word,
         sample_rate=sample_rate)
 

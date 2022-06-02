@@ -76,15 +76,14 @@ def pad_phoneme_data(dataset) -> Tuple[TT[DIMS.B, DIMS.N_C, DIMS.N_P], ...]:
 
 
 def preprocess_dataset(dataset: generator.RRDataset):
-    # DEV: Just work with first item.
-    X_phon = dataset.X_phon.loc[0]
+    # We will flatten all observations across item and word
     p_word = torch.cat(dataset.p_word)
 
-
-    candidate_tokens = dataset.candidate_tokens[0]
     n_words, n_candidate_words = dataset.candidate_ids[0].shape
 
     candidate_phonemes, phoneme_onsets, phoneme_mask = pad_phoneme_data(dataset)
+    word_lengths = torch.tensor([word_length for item in dataset.word_lengths
+                                 for word_length in item])
 
     # prepare epoched response
     epochs_df = generator.dataset_to_epochs(dataset.X_word, dataset.y)
@@ -107,7 +106,7 @@ def preprocess_dataset(dataset: generator.RRDataset):
     baseline = torch.tensor(baseline.values)
     X = torch.stack([baseline, X], dim=1).float()
 
-    return p_word, candidate_phonemes, phoneme_onsets, X, Y
+    return p_word, word_lengths, candidate_phonemes, phoneme_onsets, X, Y
 
 
 class ModelParameters(NamedTuple):
@@ -122,7 +121,9 @@ class ModelParameters(NamedTuple):
 
 @typechecked
 def model(params: ModelParameters,
-          p_word, candidate_phonemes, phoneme_onsets, X, Y, sample_rate):
+          p_word, word_lengths,
+          candidate_phonemes, phoneme_onsets,
+          X, Y, sample_rate):
     # TODO check that masking is handled correctly
 
     p_word_posterior = rr.predictive_model(p_word,
@@ -130,6 +131,7 @@ def model(params: ModelParameters,
                                            params.confusion,
                                            params.lambda_)
     rec = rr.recognition_point_model(p_word_posterior,
+                                     word_lengths,
                                      candidate_phonemes,
                                      params.confusion,
                                      params.lambda_,

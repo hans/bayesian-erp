@@ -74,7 +74,9 @@ def predictive_model(p_word: TensorType[B, N_C, is_log_probability],
     return p_ground_truth
 
 
+@typechecked
 def recognition_point_model(p_word_posterior: TensorType[B, N_P, is_probability],
+                            word_lengths: TensorType[B, torch.long],
                             phonemes: TensorType[B, N_C, N_P, int],
                             confusion: TensorType[V_P, V_P, is_probability],
                             lambda_: TensorType[float],
@@ -83,14 +85,16 @@ def recognition_point_model(p_word_posterior: TensorType[B, N_P, is_probability]
     """
     Computes the latent onset / recognition point for each example.
     """
-    passes_threshold = p_word_posterior >= threshold
 
-    # TODO: need to incorporate ground-truth word length here and set per-item
-    # maximum. otherwise indexing error when we look for onset data later
+    passes_threshold = p_word_posterior >= threshold
 
     # Find first phoneme index for which predictive distribution passes
     # threshold.
     rec_point = passes_threshold.int().argmax(axis=1)
+
+    # Don't allow recognition point to go past final ground-truth phoneme.
+    rec_point = torch.minimum(rec_point, word_lengths - 1)
+
     return rec_point
 
 
