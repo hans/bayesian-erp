@@ -10,6 +10,7 @@ import seaborn as sns
 from tqdm.notebook import tqdm
 from icecream import ic
 from typeguard import typechecked
+from colorama import Fore, Style
 
 import torch
 from torch.nn.functional import pad
@@ -47,7 +48,7 @@ Alice had no idea what Latitude was, or Longitude either, but thought they were 
 """.strip()
     sentences = [s.strip().replace("\n", "") for s in re.split(r"[.?!]", text)]
     sentences = [s for s in sentences if s]
-    return sentences[:2]  # DEV
+    return sentences  # DEV
 
 
 def pad_phoneme_data(dataset) -> Tuple[TT[DIMS.B, DIMS.N_C, DIMS.N_P], ...]:
@@ -118,7 +119,6 @@ def model(params: rr.ModelParameters,
           p_word, word_lengths,
           candidate_phonemes, phoneme_onsets,
           X, Y, sample_rate):
-    # TODO check that masking is handled correctly
 
     p_word_posterior = rr.predictive_model(p_word,
                                            candidate_phonemes,
@@ -180,28 +180,12 @@ def model_logprob(dataset, conditioning=None, **preprocess_args):
     return log_joint
 
 
-def soundness_check(dataset, args, **preprocess_args):
-    """
-    Verify that the probability of the ground truth data is greatest under the
-    generating parameters (compared to perturbations thereof).
-    """
-    # from pyro.infer.autoguide.initialization import InitMessenger, init_to_uniform
-    # prototype_model = poutine.trace(InitMessenger(init_to_uniform)(build_model))
-    # model_trace = prototype_model.get_trace(*input_data, sample_rate=dataset.sample_rate)
-    # from pprint import pprint
-    # pprint(dict(model_trace.iter_stochastic_nodes()))
-
-    # from pyro.infer.mcmc.util import TraceEinsumEvaluator
-    background_condition = {"coef": torch.tensor([1., -1])}
-
-    gt_condition = {"threshold": dataset.params.threshold}
-    alt_conditions = [{"threshold": x}
-                      for x in torch.rand(10)]
-    all_conditions = [gt_condition] + alt_conditions
-
+def _run_soundness_check(conditions, background_condition,
+                         dataset, args, **preprocess_args):
     condition_logprobs = []
-    for condition in all_conditions:
+    for condition in conditions:
         condition.update(background_condition)
+        print(condition)
         log_joint = model_logprob(dataset, condition, **preprocess_args)
 
         if log_joint.isinf():
@@ -209,15 +193,57 @@ def soundness_check(dataset, args, **preprocess_args):
         condition_logprobs.append(log_joint)
 
     from pprint import pprint
-    print("Ground truth: ", dataset.params.threshold)
-    pprint(sorted(zip(all_conditions, condition_logprobs),
-                  key=lambda x: -x[1]))
+    result = sorted(zip(conditions, condition_logprobs),
+                    key=lambda x: -x[1])
+    pprint(result)
+
+    if result[0][0] == conditions[0]:
+        print(f"{Fore.GREEN} Pass. Ground truth is max probability.{Style.RESET_ALL}")
+    else:
+        print(f"{Fore.RED}Fail.{Style.RESET_ALL}")
+
+
+def _run_threshold_soundness_check(dataset, args, **preprocess_args):
+    background_condition = {"coef": torch.tensor([1., -1])}
+
+    gt_condition = {"threshold": dataset.params.threshold}
+    alt_conditions = [{"threshold": x}
+                      for x in torch.rand(10)]
+    all_conditions = [gt_condition] + alt_conditions
+
+    _run_soundness_check(all_conditions, background_condition,
+                         dataset, args, **preprocess_args)
+
+
+def _run_coef_soundness_check(dataset, args, **preprocess_args):
+    background_condition = {"threshold": dataset.params.threshold}
+
+    gt_condition = {"coef": torch.tensor([1., -1])}
+    alt_conditions = [{"coef": torch.tensor(x)}
+                      for x in [[1., 1.],
+                                [1., -2.],
+                                [-1., -1.]]]
+    all_conditions = [gt_condition] + alt_conditions
+
+    _run_soundness_check(all_conditions, background_condition,
+                         dataset, args, **preprocess_args)
+
+
+def soundness_check(dataset, args, **preprocess_args):
+    """
+    Verify that the probability of the ground truth data is greatest under the
+    generating parameters (compared to perturbations thereof).
+    """
+
+    _run_threshold_soundness_check(dataset, args, **preprocess_args)
+    _run_coef_soundness_check(dataset, args, **preprocess_args)
+
 
 def main(args):
     sentences = generate_sentences()
     dataset = generator.sample_dataset(sentences)
 
-    epoch_window = (-0.1, 1.5)
+    epoch_window = (-0.1, 2.5)
     if args.mode == "fit":
         fit(dataset, args, epoch_window=epoch_window)
     elif args.mode == "soundness_check":
