@@ -164,6 +164,7 @@ def main(args):
     dataset = generator.sample_dataset(sentences)
 
     input_data = preprocess_dataset(dataset)
+    # build_model(*input_data, sample_rate=dataset.sample_rate)
 
     nuts_kernel = NUTS(build_model)
     mcmc = MCMC(nuts_kernel,

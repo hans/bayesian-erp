@@ -13,7 +13,7 @@ from torchtyping import TensorType
 from typeguard import typechecked
 
 from berp.typing import Probability, is_probability, is_log_probability, DIMS
-from berp.util import sample_to_time, time_to_sample
+from berp.util import sample_to_time, time_to_sample, variable_position_slice
 
 
 # Define TensorType axis labels
@@ -108,7 +108,6 @@ def epoched_response_model(X: TensorType[B, N_F, float],
                            b: TensorType[float],
                            sample_rate: int,
                            sigma: TensorType[float] = torch.tensor(1.),
-                           time_reduction_fn=torch.mean,
                            sensor_reduction_fn=torch.mean
                            ) -> TensorType[B, float]:
     """
@@ -134,29 +133,13 @@ def epoched_response_model(X: TensorType[B, N_F, float],
                                             sample_rate)
 
     slice_width = time_to_sample(b, sample_rate)
-    # TODO: need to fix slicing to support variable windows if we are at right
-    # edge of epoch. for now, just to make this not crash..
-    recognition_onset_samp = torch.minimum(
-        recognition_onset_samp,
-        Y.shape[1] - slice_width
-    )
-
-    # TODO there must be a cleaner way to do this with slicing?
-    # Generate sample index range for each example.
-    slice_idxs = torch.arange(slice_width).tile((recognition_onset.shape[0], 1)) \
-        + recognition_onset_samp.unsqueeze(1)
-    # Now tile indices across sensors.
-    # TODO is this necessary? I want to use slice `:`
-    n_sensors = Y.shape[2]
-    slice_idxs = slice_idxs.unsqueeze(2).tile((1, 1, n_sensors))
-
-    # Gather.
-    Y_sliced = torch.gather(Y, 1, slice_idxs)
-    assert_sensor_idx = min(1, n_sensors - 1)
-    assert Y_sliced[2, 0, assert_sensor_idx] == Y[2, slice_idxs[2, 0, assert_sensor_idx], assert_sensor_idx]
+    Y_sliced, Y_mask = variable_position_slice(Y, recognition_onset_samp, slice_width)
 
     # Compute observed q.
-    q = time_reduction_fn(Y_sliced, axis=1, keepdim=True)
+    # Average over time, accounting for possibly variable length sequences.
+    sample_counts = Y_mask.sum(axis=1)
+    q = Y_sliced.sum(axis=1, keepdim=True) / sample_counts
+    # Average over sensors.
     q = sensor_reduction_fn(q, axis=2, keepdim=True)
     q = q.squeeze()
 

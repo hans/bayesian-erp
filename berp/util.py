@@ -31,6 +31,45 @@ def time_to_sample(time: TT[float],
     return torch.floor((time - t_zero) * sample_rate).long()
 
 
+@typechecked
+def variable_position_slice(x: torch.Tensor, idxs: torch.LongTensor,
+                            slice_width: torch.LongTensor, padding_value=0.
+                            ) -> Tuple[torch.Tensor, torch.BoolTensor]:
+    """
+    Extract fixed-width column slices from `x` with variable position by row,
+    specified by `idxs`. Slices which are too close to the right edge of `x`
+    to have `slice_width` items will be padded with `padding_value` and
+    marked in the returned `mask`.
+
+    Args:
+        x: B * T * ...
+        idxs: B
+
+    Returns:
+        sliced: B * slice_width
+        mask: B * slice_width, cell ij is True iff corresponding cell ij of
+            `sliced` is a valid member of `x` (and not extending past the
+            right edge of `x`)
+    """
+
+    # Generate index range for each row.
+    # TODO is there a better way to do this with real slice objects?
+    slice_idxs = torch.arange(slice_width).tile((x.shape[0], 1)) \
+        + idxs.unsqueeze(1)
+    mask = slice_idxs < x.shape[1]
+    # For invalid cells, just retrieve the first item.
+    slice_idxs[~mask] = 0
+
+    if x.ndim > 2:
+        # Tile slice indices across remaining dimensions.
+        viewer = (...,) + (None,) * (x.ndim - 2)
+        slice_idxs = slice_idxs[viewer].tile((1, 1) + x.shape[2:])
+
+    sliced = torch.gather(x, 1, slice_idxs)
+
+    return sliced, mask
+
+
 # # TODO untested
 # @typechecked
 # def pad_and_mask(batch: List[TT],
