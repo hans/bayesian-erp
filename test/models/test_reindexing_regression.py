@@ -58,6 +58,8 @@ def _run_soundness_check(conditions, background_condition,
     generating parameters (compared to perturbations thereof).
     """
     condition_logprobs = []
+    test_keys = set(key for condition_dict in conditions
+                    for key in condition_dict.keys())
     for condition in conditions:
         condition.update(background_condition)
         ic(condition)
@@ -72,7 +74,11 @@ def _run_soundness_check(conditions, background_condition,
                     key=lambda x: -x[1])
     pprint(result)
 
-    assert result[0][0] == conditions[0], "Ground truth parameter is the MAP choice"
+    map_result = result[0][0]
+    gt_result = conditions[0]
+    for test_key in test_keys:
+        assert torch.equal(map_result[test_key], gt_result[test_key]), \
+            f"Ground truth parameter is the MAP choice ({test_key})"
 
 
 def test_soundness_threshold(soundness_dataset):
@@ -93,7 +99,7 @@ def test_soundness_coef(soundness_dataset):
     gt_condition = {"coef": torch.tensor([1., -1])}
     alt_conditions = [{"coef": torch.tensor(x)}
                       for x in [[1., 1.],
-                                [1., -2.],
+                                [1., -5.],
                                 [-1., -1.]]]
     all_conditions = [gt_condition] + alt_conditions
 
