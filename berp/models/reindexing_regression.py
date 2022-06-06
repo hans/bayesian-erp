@@ -144,12 +144,13 @@ def epoched_response_model(X: TensorType[B, N_F, float],
     """
     # Compute start of range slice into Y for each example.
     # print("recognition_points", recognition_points)
-    recognition_onset = torch.gather(phoneme_onsets, 1, recognition_points.unsqueeze(1)).squeeze(1)
+    recognition_onset = pyro.deterministic(
+        "recognition_onset",
+        torch.gather(phoneme_onsets, 1, recognition_points.unsqueeze(1)).squeeze(1))
     assert recognition_onset[2] == phoneme_onsets[2, recognition_points[2]]
 
     recognition_onset_samp = time_to_sample(recognition_onset,
                                             sample_rate)
-    print("recognition_onset_samp", recognition_onset_samp)
 
     slice_width = int(time_to_sample(b, sample_rate))
     Y_sliced, Y_mask = variable_position_slice(Y, recognition_onset_samp, slice_width)
