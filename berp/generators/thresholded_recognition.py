@@ -92,7 +92,11 @@ def compute_candidate_phoneme_likelihoods(
     candidate_pairs = [(i, tok) for i, tok in candidate_pairs if tok][:n_candidates]
     candidate_ids = torch.tensor([i for i, _ in candidate_pairs])
     candidate_tokens = [tok for _, tok in candidate_pairs]
-    max_tok_length = max(len(tok) for tok in candidate_tokens)
+
+    # NB we pad ONE MORE than the maximum token length, since the final padding
+    # element is meaningful for the model -- indicates recognition at/after
+    # final phoneme offset.
+    max_tok_length = max(len(tok) for tok in candidate_tokens) + 1
     candidate_tokens = [tok + ("_" * (max_tok_length - len(tok)))
                         for tok in candidate_tokens]
 

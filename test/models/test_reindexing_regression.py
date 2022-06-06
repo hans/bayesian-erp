@@ -116,14 +116,14 @@ def test_recognition_logic(soundness_dataset):
 
     rec_1 = trace_1.nodes["recognition_point"]["value"]
     rec_2 = trace_2.nodes["recognition_point"]["value"]
-    print(rec_2 - rec_1)
-    print(np.where(rec_2 < rec_1))
+    ic(rec_2 - rec_1)
+    ic(np.where(rec_2 < rec_1))
     assert bool((rec_2 >= rec_1).all()), "Recognition points should not decrease when threshold increases"
 
     rec_onset_1 = trace_1.nodes["recognition_onset"]["value"]
     rec_onset_2 = trace_2.nodes["recognition_onset"]["value"]
-    print(rec_onset_2 - rec_onset_1)
-    print(np.where(rec_onset_2 < rec_onset_1))
+    ic(rec_onset_2 - rec_onset_1)
+    ic(np.where(rec_onset_2 < rec_onset_1))
     # NB if this assertion fails and the above passes, it's an error in the
     # onset data representation / indexing logic.
     assert bool((rec_onset_2 >= rec_onset_1).all()), "Recognition onsets should not decrease when threshold increases"
