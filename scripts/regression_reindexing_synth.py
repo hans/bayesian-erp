@@ -58,7 +58,7 @@ def pad_phoneme_data(dataset) -> Tuple[TT[DIMS.B, DIMS.N_C, DIMS.N_P], ...]:
     max_n_p = max(cand.shape[2] for cand in dataset.candidate_phonemes)
 
     candidate_phonemes = torch.cat([
-        pad(cand, (max_n_p - cand.shape[2], 0, 0, 0, 0, 0),
+        pad(cand, (0, max_n_p - cand.shape[2], 0, 0, 0, 0),
             value=generator.phoneme2idx["_"])
         for cand in dataset.candidate_phonemes
     ])
@@ -68,7 +68,7 @@ def pad_phoneme_data(dataset) -> Tuple[TT[DIMS.B, DIMS.N_C, DIMS.N_P], ...]:
     # truth word. phoneme_onsets is just as long as the ground truth longest word.
     max_n_gt_p = max(onsets.shape[1] for onsets in dataset.phoneme_onsets)
     phoneme_onsets = torch.cat([
-        pad(onsets, (max_n_gt_p - onsets.shape[1], 0, 0, 0), value=0.)
+        pad(onsets, (0, max_n_gt_p - onsets.shape[1], 0, 0), value=0.)
         for onsets in dataset.phoneme_onsets
     ])
 
