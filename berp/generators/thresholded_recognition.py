@@ -66,6 +66,17 @@ TT = TensorType
 B, N_W, N_C, N_F, N_P, V_W = DIMS.B, DIMS.N_W, DIMS.N_C, DIMS.N_F, DIMS.N_P, DIMS.V_W
 
 
+def _tensor_index(t: torch.Tensor, val) -> Optional[int]:
+    # value is Tensor([]) when not found, which has shape [0];
+    # value is Tensor(k) when found, shape []
+    # makes no sense, but let's just follow the logic
+    matches = (t == val).nonzero().squeeze()
+    if matches.shape:
+        return None
+    else:
+        return matches.item()
+
+
 @typechecked
 def compute_candidate_phoneme_likelihoods(
     word: str, word_id: torch.LongTensor,
@@ -80,11 +91,21 @@ def compute_candidate_phoneme_likelihoods(
     # Draw small set of candidate alternate words
     # NB drawing more than `n_candidates` because some will be filtered out.
     # Ideally wouldn't have this magic-number setup.
-    candidate_ids = p_word_prior.argsort(axis=0, descending=True)[:n_candidates * 4]
-    candidate_ids[0] = word_id
-    # if gt_word_id not in candidate_ids:
-    #     candidate_ids[-1] = gt_word_id
-    gt_word_candidate_pos = 0  # (candidate_ids == gt_word_id).int().argmax()
+    candidate_ids = p_word_prior.argsort(dim=0, descending=True)[:n_candidates * 4]
+
+    # If ground truth word is already in candidates, swap into idx 0. Otherwise
+    # replace the most probable item at idx 0.
+    gt_idx = _tensor_index(candidate_ids, word_id)
+    gt_word_candidate_pos = 0
+    if gt_idx is not None:
+        idxs = torch.arange(len(candidate_ids))
+        other_candidate = idxs[gt_word_candidate_pos]
+        idxs[gt_word_candidate_pos] = gt_idx
+        idxs[gt_idx] = other_candidate
+        candidate_ids = candidate_ids[idxs]
+    else:
+        candidate_ids[gt_word_candidate_pos] = word_id
+
     # Clean candidate tokens, prep for phoneme processing
     candidate_tokens = tokenizer.convert_ids_to_tokens(candidate_ids)
     candidate_pairs = [(i, clean_word_str(tok)) for i, tok in zip(candidate_ids, candidate_tokens)]
