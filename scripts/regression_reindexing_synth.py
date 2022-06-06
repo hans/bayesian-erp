@@ -120,6 +120,8 @@ def model(params: rr.ModelParameters,
           candidate_phonemes, phoneme_onsets,
           X, Y, sample_rate):
 
+    # TODO move to reindexing_regression?
+
     p_word_posterior = rr.predictive_model(p_word,
                                            candidate_phonemes,
                                            params.confusion,
@@ -168,76 +170,6 @@ def fit(dataset, args, **preprocess_args):
     mcmc.summary(prob=0.8)
 
 
-def model_logprob(dataset, conditioning=None, **preprocess_args):
-    input_data = preprocess_dataset(dataset, **preprocess_args)
-
-    conditioned_model = poutine.condition(build_model, conditioning)
-    model_trace = poutine.trace(conditioned_model).get_trace(
-        *input_data, sample_rate=dataset.sample_rate
-    )
-
-    log_joint = model_trace.log_prob_sum()
-    return log_joint
-
-
-def _run_soundness_check(conditions, background_condition,
-                         dataset, **preprocess_args):
-    """
-    Verify that the probability of the ground truth data is greatest under the
-    generating parameters (compared to perturbations thereof).
-    """
-    condition_logprobs = []
-    for condition in conditions:
-        condition.update(background_condition)
-        print(condition)
-        log_joint = model_logprob(dataset, condition, **preprocess_args)
-
-        if log_joint.isinf():
-            raise RuntimeError(str(condition))
-        condition_logprobs.append(log_joint)
-
-    from pprint import pprint
-    result = sorted(zip(conditions, condition_logprobs),
-                    key=lambda x: -x[1])
-    pprint(result)
-
-    assert result[0][0] == conditions[0], "Ground truth parameter is the MAP choice"
-
-
-def test_soundness_threshold(soundness_dataset):
-    background_condition = {"coef": torch.tensor([1., -1])}
-
-    gt_condition = {"threshold": soundness_dataset.params.threshold}
-    alt_conditions = [{"threshold": x}
-                      for x in torch.rand(10)]
-    all_conditions = [gt_condition] + alt_conditions
-
-    _run_soundness_check(all_conditions, background_condition,
-                         soundness_dataset)
-
-
-def test_soundness_coef(soundness_dataset):
-    background_condition = {"threshold": soundness_dataset.params.threshold}
-
-    gt_condition = {"coef": torch.tensor([1., -1])}
-    alt_conditions = [{"coef": torch.tensor(x)}
-                      for x in [[1., 1.],
-                                [1., -2.],
-                                [-1., -1.]]]
-    all_conditions = [gt_condition] + alt_conditions
-
-    _run_soundness_check(all_conditions, background_condition,
-                         soundness_dataset)
-
-
-@pytest.fixture(scope="session")
-def soundness_dataset():
-    # pytest hook
-    limit = 3
-    sentences = generate_sentences()[:limit]
-    dataset = generator.sample_dataset(sentences)
-    return dataset
-
 
 def main(args):
     sentences = generate_sentences()
@@ -246,14 +178,12 @@ def main(args):
     epoch_window = (-0.1, 2.5)
     if args.mode == "fit":
         fit(dataset, args, epoch_window=epoch_window)
-    elif args.mode == "soundness_check":
-        soundness_check(dataset, args, epoch_window=epoch_window)
 
 
 if __name__ == "__main__":
     p = ArgumentParser()
 
-    p.add_argument("-m", "--mode", choices=["fit", "soundness_check"],
+    p.add_argument("-m", "--mode", choices=["fit"],
                    default="fit")
 
     main(p.parse_args())
