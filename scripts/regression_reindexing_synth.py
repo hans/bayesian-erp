@@ -10,7 +10,7 @@ import seaborn as sns
 from tqdm.notebook import tqdm
 from icecream import ic
 from typeguard import typechecked
-from colorama import Fore, Style
+import pytest
 
 import torch
 from torch.nn.functional import pad
@@ -181,7 +181,11 @@ def model_logprob(dataset, conditioning=None, **preprocess_args):
 
 
 def _run_soundness_check(conditions, background_condition,
-                         dataset, args, **preprocess_args):
+                         dataset, **preprocess_args):
+    """
+    Verify that the probability of the ground truth data is greatest under the
+    generating parameters (compared to perturbations thereof).
+    """
     condition_logprobs = []
     for condition in conditions:
         condition.update(background_condition)
@@ -197,26 +201,23 @@ def _run_soundness_check(conditions, background_condition,
                     key=lambda x: -x[1])
     pprint(result)
 
-    if result[0][0] == conditions[0]:
-        print(f"{Fore.GREEN} Pass. Ground truth is max probability.{Style.RESET_ALL}")
-    else:
-        print(f"{Fore.RED}Fail.{Style.RESET_ALL}")
+    assert result[0][0] == conditions[0], "Ground truth parameter is the MAP choice"
 
 
-def _run_threshold_soundness_check(dataset, args, **preprocess_args):
+def test_soundness_threshold(soundness_dataset):
     background_condition = {"coef": torch.tensor([1., -1])}
 
-    gt_condition = {"threshold": dataset.params.threshold}
+    gt_condition = {"threshold": soundness_dataset.params.threshold}
     alt_conditions = [{"threshold": x}
                       for x in torch.rand(10)]
     all_conditions = [gt_condition] + alt_conditions
 
     _run_soundness_check(all_conditions, background_condition,
-                         dataset, args, **preprocess_args)
+                         soundness_dataset)
 
 
-def _run_coef_soundness_check(dataset, args, **preprocess_args):
-    background_condition = {"threshold": dataset.params.threshold}
+def test_soundness_coef(soundness_dataset):
+    background_condition = {"threshold": soundness_dataset.params.threshold}
 
     gt_condition = {"coef": torch.tensor([1., -1])}
     alt_conditions = [{"coef": torch.tensor(x)}
@@ -226,17 +227,16 @@ def _run_coef_soundness_check(dataset, args, **preprocess_args):
     all_conditions = [gt_condition] + alt_conditions
 
     _run_soundness_check(all_conditions, background_condition,
-                         dataset, args, **preprocess_args)
+                         soundness_dataset)
 
 
-def soundness_check(dataset, args, **preprocess_args):
-    """
-    Verify that the probability of the ground truth data is greatest under the
-    generating parameters (compared to perturbations thereof).
-    """
-
-    _run_threshold_soundness_check(dataset, args, **preprocess_args)
-    _run_coef_soundness_check(dataset, args, **preprocess_args)
+@pytest.fixture(scope="session")
+def soundness_dataset():
+    # pytest hook
+    limit = 3
+    sentences = generate_sentences()[:limit]
+    dataset = generator.sample_dataset(sentences)
+    return dataset
 
 
 def main(args):
