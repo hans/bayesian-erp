@@ -10,6 +10,7 @@ from typing import List, Tuple, NamedTuple, Optional
 from icecream import ic
 import numpy as np
 import pandas as pd
+import scipy.signal
 import scipy.stats as st
 from tqdm.auto import tqdm
 from typeguard import typechecked
@@ -44,6 +45,91 @@ phoneme2idx = {p: idx for idx, p in enumerate(phonemes)}
 phoneme_confusion = torch.diag(torch.ones(len(phonemes))) + \
     0.25 * torch.rand(len(phonemes), len(phonemes))
 phoneme_confusion /= phoneme_confusion.sum(axis=0, keepdim=True)
+
+
+
+def gaussian_window(center: float, width: float, start: float = 0, end: float = 1,
+                    sample_rate=128):
+    """Gaussian window :class:`NDVar`
+    Parameters
+    ----------
+    center : scalar
+        Center of the window (normalized to the closest sample on ``time``).
+    width : scalar
+        Standard deviation of the window.
+    time : UTS
+        Time dimension.
+    Returns
+    -------
+    gaussian : NDVar
+        Gaussian window on ``time``.
+    """
+
+    n_samples = (end - start) * sample_rate + 1
+    times, step_size = np.linspace(start, end, n_samples, retstep=True, endpoint=True)
+    width_i = int(round(width / step_size))
+    n_times = len(times)
+    center_i = (center - start) // step_size
+
+    if center_i >= n_times / 2:
+        start = None
+        stop = n_times
+        window_width = 2 * center_i + 1
+    else:
+        start = -n_times
+        stop = None
+        window_width = 2 * (n_times - center_i) - 1
+    window_data = scipy.signal.windows.gaussian(window_width, width_i)[start: stop]
+    return times, window_data
+
+
+def simulate_erp(event_probability, sample_rate=128, rng=np.random) -> np.ndarray:
+    # Stolen from https://github.com/christianbrodbeck/Eelbrain/blob/master/eelbrain/datasets/_sim_eeg.py
+
+    # Generate topography
+    n400_topo = -2.0  # * _topo(sensor, 'Cz')
+    # Generate timing
+    times, n400_timecourse = gaussian_window(0.400, 0.034)
+    # Put all the dimensions together to simulate the EEG signal
+    signal = (1 - event_probability) * n400_timecourse * n400_topo
+
+    # add early responses:
+    # 130 ms
+    _, tc = gaussian_window(0.130, 0.025)
+    # topo = _topo(sensor, 'O1') + _topo(sensor, 'O2') - 0.5 * _topo(sensor, 'Cz')
+    signal += 0.5 * tc  # * topo
+    # 195 ms
+    amp = rng.normal(0.4, 0.25)
+    _, tc = gaussian_window(0.195, 0.015)
+    # topo = 1.2 * _topo(sensor, 'F3') + _topo(sensor, 'F4')
+    signal += amp * tc  # * topo
+    # 270
+    amp = rng.normal(1, 1)
+    _, tc = gaussian_window(0.270, 0.050)
+    # topo = _topo(sensor, 'O1') + _topo(sensor, 'O2')
+    signal += amp * tc  # * topo
+    # 280
+    amp = rng.normal(-1, 1)
+    _, tc = gaussian_window(0.280, 0.030)
+    # topo = _topo(sensor, 'Pz')
+    signal += amp * tc  # * topo
+    # 600
+    amp = rng.normal(0.5, 0.1)
+    _, tc = gaussian_window(0.590, 0.100)
+    # topo = -_topo(sensor, 'Fz')
+    signal += amp * tc  # * topo
+
+    # Add noise
+    # noise = powerlaw_noise(signal, 1, rng)
+    # noise = noise.smooth('sensor', 0.02, 'gaussian')
+    # noise *= (signal.std() / noise.std() / snr)
+    noise = rng.normal(0.2, 0.05, size=len(signal))
+    signal += noise
+
+    # Data scale
+    signal *= 1e-6
+
+    return times, signal
 
 
 def simple_peak(x, scale=5, b=0.05):
@@ -173,7 +259,7 @@ def sample_word(word: str, word_id: torch.LongTensor,
                 phon_delay_range=(0.04, 0.1),
                 response_window=(0.0, 2),
                 sample_rate=128,
-                n400_surprisal_coef=-1,
+                n400_surprisal_coef=-0.1,
                 irf=simple_peak, rate_irf=rate_irf,
                 n_candidates=10,
                 recognition_threshold=torch.tensor(0.2)
@@ -261,7 +347,7 @@ def sample_item(sentence: str,
                 recognition_irf=simple_peak,
                 irf=simple_peak, rate_irf=rate_irf,
                 sample_rate=128,
-                n400_surprisal_coef=-1,
+                n400_surprisal_coef=-0.1,
                 recognition_threshold=torch.tensor(0.2),
                 **kwargs
                 ) -> ItemObservation:
@@ -277,14 +363,6 @@ def sample_item(sentence: str,
     acc_phoneme_onsets, acc_p_word = [], []
 
     time_acc = 0
-
-    # sample unitary response
-    peak_xs = np.linspace(*response_window, num=int(response_window[1] * sample_rate), endpoint=False)
-    peak_ys = n400_surprisal_coef * irf(peak_xs)
-
-    # sample word rate response
-    rate_xs = peak_xs.copy()
-    rate_ys = rate_irf(rate_xs)
 
     # Compute word-level predictive distributions
     tokenized = tokenizer(sentence, return_tensors="pt",
@@ -325,8 +403,11 @@ def sample_item(sentence: str,
         rec_surprisal = float(-p_word_prior[word_id] / np.log(2))
 
         # Produce word signal df
-        rec_times = peak_xs + rec_onset
-        rec_signal = peak_ys * rec_surprisal + rate_ys
+        rec_times, rec_signal = simulate_erp(rec_surprisal,
+                                             sample_rate=sample_rate)
+        rec_times += rec_onset
+        # rec_times = peak_xs + rec_onset
+        # rec_signal = peak_ys * rec_surprisal + rate_ys
         y_word = pd.DataFrame({"time": rec_times, "signal": rec_signal}) \
             .set_index("time")
 
@@ -418,7 +499,7 @@ def sample_dataset(sentences: List[str],
         params = ModelParameters(
             lambda_=torch.tensor(1.),
             confusion=phoneme_confusion,
-            threshold=torch.tensor(0.2),
+            threshold=torch.tensor(0.7),
 
             # TODO we don't actually control generative process to determine
             # these response parameters. Best guesses at ideal model.
