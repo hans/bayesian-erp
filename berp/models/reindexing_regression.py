@@ -108,8 +108,8 @@ def recognition_point_model(p_word_posterior: TensorType[B, N_P, is_probability]
     rec_point = passes_threshold.int().argmax(dim=1)
 
     # Don't allow recognition point to go past final ground-truth phoneme.
-    rec_point = torch.minimum(rec_point, word_lengths - 1)
-    # print("rec_point", rec_point)
+    rec_point = pyro.deterministic("recognition_point",
+                                   torch.minimum(rec_point, word_lengths - 1))
 
     return rec_point
 
@@ -146,6 +146,7 @@ def epoched_response_model(X: TensorType[B, N_F, float],
     # print("recognition_points", recognition_points)
     recognition_onset = torch.gather(phoneme_onsets, 1, recognition_points.unsqueeze(1)).squeeze(1)
     assert recognition_onset[2] == phoneme_onsets[2, recognition_points[2]]
+
     recognition_onset_samp = time_to_sample(recognition_onset,
                                             sample_rate)
     print("recognition_onset_samp", recognition_onset_samp)
