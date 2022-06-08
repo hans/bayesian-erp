@@ -32,9 +32,8 @@ from berp.typing import is_probability, is_log_probability, \
 # research code.
 
 
-
-# model_ref = "gpt2"
-model_ref = "hf-internal-testing/tiny-xlm-roberta"
+model_ref = "gpt2"
+# model_ref = "hf-internal-testing/tiny-xlm-roberta"
 model = transformers.AutoModelForCausalLM.from_pretrained(model_ref, is_decoder=True)
 model.eval()
 tokenizer = transformers.AutoTokenizer.from_pretrained(model_ref)
@@ -44,7 +43,7 @@ tokenizer.pad_token = tokenizer.eos_token
 phonemes = list("abcdefghijklmnopqrstuvwxyz_")
 phoneme2idx = {p: idx for idx, p in enumerate(phonemes)}
 phoneme_confusion = torch.diag(torch.ones(len(phonemes))) + \
-    0.5 * torch.rand(len(phonemes), len(phonemes))
+    0.1 * torch.rand(len(phonemes), len(phonemes))
 phoneme_confusion /= phoneme_confusion.sum(dim=0, keepdim=True)
 
 

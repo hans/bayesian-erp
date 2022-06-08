@@ -146,7 +146,7 @@ def build_model(*args, **kwargs):
         threshold=pyro.sample("threshold",
                               dist.Beta(1.2, 1.2)),
         a=torch.tensor(0.4),
-        b=torch.tensor(0.2),
+        b=torch.tensor(0.1),
         coef=pyro.sample("coef", dist.Normal(coef_mean, 0.1)),
     )
     return model(params, *args, **kwargs)
