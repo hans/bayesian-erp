@@ -81,6 +81,8 @@ def predictive_model(p_word: TensorType[B, N_C, is_log_probability],
     incremental_word_likelihoods: TensorType[B, N_C, N_P, is_log_probability] = \
         phoneme_likelihoods.cumsum(axis=2)
 
+    # TODO shouldn't we use incremental-word_likelihoods below?
+
     # Combine with prior and normalize.
     bayes_p_word = (p_word.unsqueeze(-1) + phoneme_likelihoods).exp()
     bayes_p_word /= bayes_p_word.sum(dim=1, keepdim=True)
@@ -147,18 +149,17 @@ def epoched_response_model(X: TensorType[B, N_F, float],
         sample_rate: Number of samples per second
         sigma: Standard deviation parameter for observations
     """
-    # Compute start of range slice into Y for each example.
-    # print("recognition_points", recognition_points)
+    # Compute recognition onset time.
     recognition_onset = pyro.deterministic(
         "recognition_onset",
         torch.gather(phoneme_onsets, 1, recognition_points.unsqueeze(1)).squeeze(1))
     assert recognition_onset[2] == phoneme_onsets[2, recognition_points[2]]
 
-    recognition_onset_samp = time_to_sample(recognition_onset,
-                                            sample_rate)
+    # Expected response is `a` seconds later. Get the left edge of this window.
+    recognition_erp_left_samp = time_to_sample(recognition_onset + a / 2, sample_rate)
 
     slice_width = int(time_to_sample(b, sample_rate))
-    Y_sliced, Y_mask = variable_position_slice(Y, recognition_onset_samp, slice_width)
+    Y_sliced, Y_mask = variable_position_slice(Y, recognition_erp_left_samp, slice_width)
 
     # Compute observed q.
     # Average over time, accounting for possibly variable length sequences.
