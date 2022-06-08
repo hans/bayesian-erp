@@ -18,7 +18,7 @@ from regression_reindexing_synth import build_model, generate_sentences, preproc
 
 @pytest.fixture(scope="session")
 def sentences():
-    limit = 3
+    limit = 10
     return generate_sentences()[:limit]
 
 

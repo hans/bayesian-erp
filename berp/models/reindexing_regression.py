@@ -127,7 +127,7 @@ def epoched_response_model(X: TensorType[B, N_F, float],
                            a: TensorType[float],
                            b: TensorType[float],
                            sample_rate: int,
-                           sigma: TensorType[float] = torch.tensor(1.),
+                           sigma: TensorType[float] = torch.tensor(0.01),
                            sensor_reduction_fn=torch.mean
                            ) -> TensorType[B, float]:
     """
