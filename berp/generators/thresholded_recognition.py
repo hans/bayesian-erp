@@ -135,17 +135,6 @@ def simulate_erp(event_probability, sample_rate=128, rng=np.random) -> Tuple[np.
     return times, signal
 
 
-def simple_peak(x, scale=5, b=0.05):
-    """Function which rapidly peaks and returns to baseline"""
-    ret = st.gamma.pdf(x * scale, 2.8, b)
-    ret /= ret.max()
-    return torch.tensor(ret)
-
-
-def rate_irf(x):
-    return 0.1 * simple_peak(x, scale=20, b=0)
-
-
 def simulate_phoneme_sequence(phoneme_surprisals: torch.Tensor,
                               phon_delay_range=(0.04, 0.1),
                               sample_rate: int = 128,
