@@ -18,7 +18,7 @@ from regression_reindexing_synth import build_model, generate_sentences, preproc
 
 @pytest.fixture(scope="session")
 def sentences():
-    limit = 10
+    limit = 50
     return generate_sentences()[:limit]
 
 
@@ -69,8 +69,13 @@ def _run_soundness_check(conditions, background_condition,
             raise RuntimeError(str(condition))
         condition_logprobs.append(log_joint)
 
+    # Renormalize+exponentiate.
+    condition_logprobs = torch.stack(condition_logprobs)
+    condition_logprobs = (condition_logprobs - condition_logprobs.max()).exp()
+    condition_logprobs /= condition_logprobs.sum()
+
     from pprint import pprint
-    result = sorted(zip(conditions, condition_logprobs),
+    result = sorted(zip(conditions, condition_logprobs.numpy()),
                     key=lambda x: -x[1])
     pprint(result)
 
