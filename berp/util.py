@@ -4,25 +4,21 @@ import torch
 from torchtyping import TensorType
 from typeguard import typechecked
 
-from berp.typing import DIMS
-
-TT = TensorType
-
 
 def sample_to_time(sample_idx: torch.LongTensor,
                    sample_rate: int,
                    t_zero: float = 0
-                   ) -> TT[float]:
+                   ) -> TensorType[float]:
     """
     Convert sample index representation to time representation (in seconds).
     """
     return t_zero + sample_idx / sample_rate
 
 
-def time_to_sample(time: TT[float],
+def time_to_sample(time: TensorType[float],
                    sample_rate: int,
                    t_zero: float = 0
-                   ) -> TT[torch.long]:
+                   ) -> TensorType[torch.long]:
     """
     Convert time representation (in seconds) to sample index representation.
     """
@@ -34,7 +30,7 @@ def time_to_sample(time: TT[float],
 @typechecked
 def variable_position_slice(x: torch.Tensor, idxs: torch.LongTensor,
                             slice_width: int, padding_value=0.
-                            ) -> Tuple[torch.Tensor, TT[bool]]:
+                            ) -> Tuple[torch.Tensor, TensorType[bool]]:
     """
     Extract fixed-width column slices from `x` with variable position by row,
     specified by `idxs`. Slices which are too close to the right edge of `x`
