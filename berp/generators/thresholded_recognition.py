@@ -43,8 +43,8 @@ tokenizer.pad_token = tokenizer.eos_token
 phonemes = list("abcdefghijklmnopqrstuvwxyz_")
 phoneme2idx = {p: idx for idx, p in enumerate(phonemes)}
 phoneme_confusion = torch.diag(torch.ones(len(phonemes))) + \
-    0.25 * torch.rand(len(phonemes), len(phonemes))
-phoneme_confusion /= phoneme_confusion.sum(axis=0, keepdim=True)
+    0.5 * torch.rand(len(phonemes), len(phonemes))
+phoneme_confusion /= phoneme_confusion.sum(dim=0, keepdim=True)
 
 
 
