@@ -18,19 +18,18 @@ from berp.util import sample_to_time, time_to_sample, variable_position_slice
 
 
 # Define TensorType axis labels
-TT = TensorType
 B, N_C, N_P, N_F, V_P, T, S = \
     DIMS.B, DIMS.N_C, DIMS.N_P, DIMS.N_F, DIMS.V_P, DIMS.T, DIMS.S
 
 
 class ModelParameters(NamedTuple):
-    lambda_: TT[float]
-    confusion: TT[V_P, V_P, float]
-    threshold: TT[float]
+    lambda_: TensorType[float]
+    confusion: TensorType[V_P, V_P, float]
+    threshold: TensorType[float]
 
-    a: TT[float]
-    b: TT[float]
-    coef: TT[N_F, float]
+    a: TensorType[float]
+    b: TensorType[float]
+    coef: TensorType[N_F, float]
 
 
 @typechecked
