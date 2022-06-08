@@ -4,6 +4,7 @@ thresholded reindexing regression model.
 """
 
 from argparse import ArgumentParser
+from numbers import Number
 import re
 from typing import List, Tuple, NamedTuple, Optional
 
@@ -30,6 +31,8 @@ from berp.typing import is_probability, is_log_probability, \
 # length content) and we abandoned this later. But the whole thing should be
 # refactored to be consistent if this is going to be anything but throwaway
 # research code.
+
+TT = TensorType
 
 
 # model_ref = "gpt2"
@@ -65,7 +68,7 @@ def gaussian_window(center: float, width: float, start: float = 0, end: float = 
         Gaussian window on ``time``.
     """
 
-    n_samples = (end - start) * sample_rate + 1
+    n_samples = int((end - start) * sample_rate) + 1
     times, step_size = np.linspace(start, end, n_samples, retstep=True, endpoint=True)
     width_i = int(round(width / step_size))
     n_times = len(times)
@@ -83,15 +86,15 @@ def gaussian_window(center: float, width: float, start: float = 0, end: float = 
     return times, window_data
 
 
-def simulate_erp(event_probability, sample_rate=128, rng=np.random) -> np.ndarray:
+def simulate_erp(event_probability, sample_rate=128, rng=np.random) -> Tuple[np.ndarray, np.ndarray]:
     # Stolen from https://github.com/christianbrodbeck/Eelbrain/blob/master/eelbrain/datasets/_sim_eeg.py
 
     # Generate topography
-    n400_topo = -2.0  # * _topo(sensor, 'Cz')
+    n400_topo = -1.0  # * _topo(sensor, 'Cz')
     # Generate timing
     times, n400_timecourse = gaussian_window(0.400, 0.034)
     # Put all the dimensions together to simulate the EEG signal
-    signal = (1 - event_probability) * n400_timecourse * n400_topo
+    signal = event_probability * n400_timecourse * n400_topo
 
     # add early responses:
     # 130 ms
@@ -143,6 +146,40 @@ def rate_irf(x):
     return 0.1 * simple_peak(x, scale=20, b=0)
 
 
+def simulate_phoneme_sequence(phoneme_surprisals: torch.Tensor,
+                              phon_delay_range=(0.04, 0.1),
+                              sample_rate: int = 128,
+                              n400_surprisal_coef: float = -0.25,
+                              ) -> Tuple[np.ndarray, TT, TT]:
+    """
+    Simulate phoneme temporal sequence and resulting ERPs.
+    """
+
+    response_window = (0., 1.)
+
+    # sample stimulus times+surprisals
+    n_phons = len(phoneme_surprisals)
+    stim_delays = np.random.uniform(*phon_delay_range, size=n_phons)
+    stim_onsets = np.cumsum(stim_delays)
+    # hack: align times to sample rate to make this easier
+    stim_onsets = np.round(stim_onsets * sample_rate) / sample_rate
+
+    max_time = stim_onsets.max() + response_window[1] + 1 / sample_rate  # DEV wut
+    all_times = torch.tensor(np.linspace(0, max_time, num=int(np.ceil(max_time * sample_rate)), endpoint=False))
+
+    signal = torch.zeros_like(all_times)
+    for onset, surprisal in zip(stim_onsets, phoneme_surprisals):
+        sample_idx = int(onset * sample_rate)  # guaranteed to be round because of hack.
+
+        _, phoneme_response_nd = gaussian_window(0.300, 0.03, *response_window)
+        phoneme_response = torch.tensor(phoneme_response_nd) * n400_surprisal_coef * surprisal
+        signal[sample_idx:sample_idx + len(phoneme_response)] += phoneme_response
+
+    signal *= 1e-6
+
+    return stim_onsets, all_times, signal
+
+
 def clean_word_str(word):
     return re.sub(r"[^a-z]", "", word.lower())
 
@@ -152,7 +189,7 @@ TT = TensorType
 B, N_W, N_C, N_F, N_P, V_W = DIMS.B, DIMS.N_W, DIMS.N_C, DIMS.N_F, DIMS.N_P, DIMS.V_W
 
 
-def _tensor_index(t: torch.Tensor, val) -> Optional[int]:
+def _tensor_index(t: torch.Tensor, val: Number) -> Optional[float]:
     # value is Tensor([]) when not found, which has shape [0];
     # value is Tensor(k) when found, shape []
     # makes no sense, but let's just follow the logic
@@ -256,13 +293,10 @@ class WordObservation(NamedTuple):
 @typechecked
 def sample_word(word: str, word_id: torch.LongTensor,
                 p_word_prior: TT[V_W, is_log_probability],
-                phon_delay_range=(0.04, 0.1),
-                response_window=(0.0, 2),
                 sample_rate=128,
-                n400_surprisal_coef=-0.1,
-                irf=simple_peak, rate_irf=rate_irf,
                 n_candidates=10,
-                recognition_threshold=torch.tensor(0.2)
+                recognition_threshold=torch.tensor(0.2),
+                **phoneme_seq_kwargs
                 ) -> WordObservation:
     """
     For the given word, sample a phoneme onset trajectory and compute
@@ -286,32 +320,12 @@ def sample_word(word: str, word_id: torch.LongTensor,
     phoneme_surprisals = -phoneme_surprisals / np.log(2)
     phoneme_surprisals = phoneme_surprisals[:n_phons]
 
-    # sample unitary response
-    peak_xs = torch.tensor(np.linspace(*response_window, num=int(response_window[1] * sample_rate), endpoint=False))
-    peak_ys = n400_surprisal_coef * irf(peak_xs)
-
-    # sample word rate response
-    rate_xs = peak_xs[:]
-    rate_ys = rate_irf(rate_xs)
-
-    # sample stimulus times+surprisals
-    stim_delays = np.random.uniform(*phon_delay_range, size=n_phons)
-    stim_onsets = np.cumsum(stim_delays)
-    # hack: align times to sample rate to make this easier
-    stim_onsets = np.round(stim_onsets * sample_rate) / sample_rate
-
-    max_time = stim_onsets.max() + response_window[1]
-    all_times = torch.tensor(np.linspace(0, max_time, num=int(np.ceil(max_time * sample_rate)), endpoint=False))
-
-    signal = torch.zeros_like(all_times)
-    for onset, surprisal in zip(stim_onsets, phoneme_surprisals):
-        sample_idx = int(onset * sample_rate)  # guaranteed to be round because of hack.
-        signal[sample_idx:sample_idx + len(peak_xs)] += peak_ys * surprisal + rate_ys
+    stim_onsets, times, signal = simulate_phoneme_sequence(phoneme_surprisals, **phoneme_seq_kwargs)
 
     # build return X, y dataframes.
     X = pd.DataFrame({"time": stim_onsets, "phoneme": list(cleaned_word),
                       "surprisal": phoneme_surprisals})
-    y = pd.DataFrame({"time": all_times, "signal": signal})
+    y = pd.DataFrame({"time": times, "signal": signal})
 
     return WordObservation(
         cleaned_word=cleaned_word,
@@ -343,9 +357,6 @@ class ItemObservation(NamedTuple):
 
 def sample_item(sentence: str,
                 word_delay_range=(0.1, 0.25),
-                response_window=(0.0, 2),  # time window over which word triggers signal response
-                recognition_irf=simple_peak,
-                irf=simple_peak, rate_irf=rate_irf,
                 sample_rate=128,
                 n400_surprisal_coef=-0.1,
                 recognition_threshold=torch.tensor(0.2),
@@ -381,9 +392,7 @@ def sample_item(sentence: str,
                                                           predictive_dists)):
         word_obs = sample_word(
             word, word_id, p_word_prior,
-            response_window=response_window,
             sample_rate=sample_rate,
-            irf=irf,
             n400_surprisal_coef=n400_surprisal_coef,
             recognition_threshold=recognition_threshold,
             **kwargs)
