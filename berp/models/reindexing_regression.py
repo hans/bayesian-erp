@@ -79,12 +79,10 @@ def predictive_model(p_word: TensorType[B, N_C, is_log_probability],
     phoneme_likelihoods: TensorType[B, N_C, N_P, is_log_probability] = \
         confusion[phonemes, ground_truth_phonemes].log()
     incremental_word_likelihoods: TensorType[B, N_C, N_P, is_log_probability] = \
-        phoneme_likelihoods.cumsum(axis=2)
-
-    # TODO shouldn't we use incremental-word_likelihoods below?
+        phoneme_likelihoods.cumsum(dim=2)
 
     # Combine with prior and normalize.
-    bayes_p_word = (p_word.unsqueeze(-1) + phoneme_likelihoods).exp()
+    bayes_p_word = (p_word.unsqueeze(-1) + incremental_word_likelihoods).exp()
     bayes_p_word /= bayes_p_word.sum(dim=1, keepdim=True)
 
     p_ground_truth = bayes_p_word[:, ground_truth_word_idx, :]
