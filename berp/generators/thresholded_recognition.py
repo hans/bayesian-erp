@@ -4,9 +4,8 @@ thresholded reindexing regression model.
 """
 
 from argparse import ArgumentParser
-from numbers import Number
 import re
-from typing import List, Tuple, NamedTuple, Optional
+from typing import List, Tuple, NamedTuple, Optional, cast
 
 from icecream import ic
 import numpy as np
@@ -32,7 +31,6 @@ from berp.typing import is_probability, is_log_probability, \
 # refactored to be consistent if this is going to be anything but throwaway
 # research code.
 
-TT = TensorType
 
 
 # model_ref = "gpt2"
@@ -51,7 +49,9 @@ phoneme_confusion /= phoneme_confusion.sum(dim=0, keepdim=True)
 
 
 
-def gaussian_window(center: float, width: float, start: float = 0, end: float = 1,
+def gaussian_window(center: float, width: float,\
+                    start: float = 0,
+                    end: float = 1,
                     sample_rate=128):
     """Gaussian window :class:`NDVar`
     Parameters
@@ -74,15 +74,17 @@ def gaussian_window(center: float, width: float, start: float = 0, end: float = 
     n_times = len(times)
     center_i = (center - start) // step_size
 
+    slice_start, slice_stop = None, None
     if center_i >= n_times / 2:
-        start = None
-        stop = n_times
+        slice_start = None
+        slice_stop = n_times
         window_width = 2 * center_i + 1
     else:
-        start = -n_times
-        stop = None
+        slice_start = -n_times
+        slice_stop = None
         window_width = 2 * (n_times - center_i) - 1
-    window_data = scipy.signal.windows.gaussian(window_width, width_i)[start: stop]
+    window_data = scipy.signal.windows.gaussian(window_width, width_i)
+    window_data = window_data[slice_start: slice_stop]
     return times, window_data
 
 
@@ -139,7 +141,7 @@ def simulate_phoneme_sequence(phoneme_surprisals: torch.Tensor,
                               phon_delay_range=(0.04, 0.1),
                               sample_rate: int = 128,
                               n400_surprisal_coef: float = -0.25,
-                              ) -> Tuple[np.ndarray, TT, TT]:
+                              ) -> Tuple[np.ndarray, TensorType, TensorType]:
     """
     Simulate phoneme temporal sequence and resulting ERPs.
     """
@@ -174,11 +176,10 @@ def clean_word_str(word):
 
 
 # Type variables
-TT = TensorType
 B, N_W, N_C, N_F, N_P, V_W = DIMS.B, DIMS.N_W, DIMS.N_C, DIMS.N_F, DIMS.N_P, DIMS.V_W
 
 
-def _tensor_index(t: torch.Tensor, val: Number) -> Optional[float]:
+def _tensor_index(t: torch.Tensor, val: torch.Tensor) -> Optional[int]:
     # value is Tensor([]) when not found, which has shape [0];
     # value is Tensor(k) when found, shape []
     # makes no sense, but let's just follow the logic
@@ -186,17 +187,17 @@ def _tensor_index(t: torch.Tensor, val: Number) -> Optional[float]:
     if matches.shape:
         return None
     else:
-        return matches.item()
+        return cast(int, matches.item())
 
 
 @typechecked
 def compute_candidate_phoneme_likelihoods(
     word: str, word_id: torch.LongTensor,
-    p_word_prior: TT[V_W, is_log_probability],
+    p_word_prior: TensorType[V_W, is_log_probability],
     n_candidates=10
-    ) -> Tuple[TT[N_C, int], List[str],
-                TT[N_C, N_P, torch.int64],
-                TT[N_C, N_P, is_log_probability]]:
+    ) -> Tuple[TensorType[N_C, int], List[str],
+                TensorType[N_C, N_P, torch.int64],
+                TensorType[N_C, N_P, is_log_probability]]:
 
     word = clean_word_str(word)
 
@@ -245,10 +246,10 @@ def compute_candidate_phoneme_likelihoods(
 
 
 @typechecked
-def compute_recognition_point(candidate_ids: TT[N_C, torch.long],
-                              p_word_prior: TT[V_W, is_log_probability],
-                              candidate_phoneme_likelihoods: TT[N_C, N_P, is_log_probability],
-                              threshold: TT[is_probability],
+def compute_recognition_point(candidate_ids: TensorType[N_C, torch.long],
+                              p_word_prior: TensorType[V_W, is_log_probability],
+                              candidate_phoneme_likelihoods: TensorType[N_C, N_P, is_log_probability],
+                              threshold: TensorType[is_probability],
                               gt_word_candidate_pos=0
                               ) -> torch.LongTensor:
     # Get likelihood of each phoneme subsequence under GT word
@@ -281,7 +282,7 @@ class WordObservation(NamedTuple):
 
 @typechecked
 def sample_word(word: str, word_id: torch.LongTensor,
-                p_word_prior: TT[V_W, is_log_probability],
+                p_word_prior: TensorType[V_W, is_log_probability],
                 sample_rate=128,
                 n_candidates=10,
                 recognition_threshold=torch.tensor(0.2),
@@ -340,8 +341,8 @@ class ItemObservation(NamedTuple):
     # DEV N_P will vary in between calls .. oops
     candidate_phonemes: TensorType[N_W, N_C, N_P, torch.int64]
     word_lengths: List[int]
-    phoneme_onsets: TT[N_W, N_P, float]
-    p_word: TT[N_W, N_C, is_log_probability]
+    phoneme_onsets: TensorType[N_W, N_P, float]
+    p_word: TensorType[N_W, N_C, is_log_probability]
 
 
 def sample_item(sentence: str,

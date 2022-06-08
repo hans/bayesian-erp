@@ -25,9 +25,6 @@ from berp.models import reindexing_regression as rr
 from berp.typing import is_log_probability, DIMS
 
 
-TT = TensorType
-
-
 def generate_sentences() -> List[str]:
     text = """
 Alice was beginning to get very tired of sitting by her sister on the bank, and of having nothing to do: once or twice she had peeped into the book her sister was reading, but it had no pictures or conversations in it, `and what is the use of a book,' thought Alice `without pictures or conversation?'
@@ -51,7 +48,7 @@ Alice had no idea what Latitude was, or Longitude either, but thought they were 
     return sentences  # DEV
 
 
-def pad_phoneme_data(dataset) -> Tuple[TT[DIMS.B, DIMS.N_C, DIMS.N_P], ...]:
+def pad_phoneme_data(dataset) -> Tuple[TensorType[DIMS.B, DIMS.N_C, DIMS.N_P], ...]:
     # we will pass flattened data representations, where each word in each
     # item is an independent sample. to do this, we have to pad N_P to be
     # equivalent across items.
