@@ -74,7 +74,7 @@ def pad_phoneme_data(dataset) -> Tuple[TensorType[DIMS.B, DIMS.N_C, DIMS.N_P], .
     return candidate_phonemes, phoneme_onsets, phoneme_mask
 
 
-def preprocess_dataset(dataset: generator.RRDataset, epoch_window=(-0.1, 0.9)):
+def preprocess_dataset(dataset: generator.RRDataset, epoch_window):
     # We will flatten all observations across item and word
     p_word = torch.cat(dataset.p_word)
 
@@ -89,7 +89,8 @@ def preprocess_dataset(dataset: generator.RRDataset, epoch_window=(-0.1, 0.9)):
         raise ValueError(f"Some words have phoneme onsets outside the word "
                          f"epoch window {epoch_window} (max onset {phoneme_onsets.max()}). "
                          f"This won't work -- increase the epoch window.")
-    epochs_df = generator.dataset_to_epochs(dataset.X_word, dataset.y)
+    epochs_df = generator.dataset_to_epochs(dataset.X_word, dataset.y,
+                                            epoch_window=epoch_window)
     epochs_df["epoch_sample_idx"] = epochs_df.groupby(["item", "token_idx"]).cumcount()
 
     # this yields a df with two index levels (item and sample_idx).
@@ -115,7 +116,7 @@ def preprocess_dataset(dataset: generator.RRDataset, epoch_window=(-0.1, 0.9)):
 def model(params: rr.ModelParameters,
           p_word, word_lengths,
           candidate_phonemes, phoneme_onsets,
-          X, Y, sample_rate):
+          X, Y, sample_rate, epoch_window):
 
     # TODO move to reindexing_regression?
 
@@ -131,7 +132,8 @@ def model(params: rr.ModelParameters,
                                          recognition_points=rec,
                                          phoneme_onsets=phoneme_onsets,
                                          Y=Y, a=params.a, b=params.b,
-                                         sample_rate=sample_rate)
+                                         sample_rate=sample_rate,
+                                         epoch_window=epoch_window)
 
 
 def build_model(*args, **kwargs):
@@ -149,8 +151,8 @@ def build_model(*args, **kwargs):
     return model(params, *args, **kwargs)
 
 
-def fit(dataset, args, **preprocess_args):
-    input_data = preprocess_dataset(dataset, **preprocess_args)
+def fit(dataset, args, epoch_window, **preprocess_args):
+    input_data = preprocess_dataset(dataset, epoch_window, **preprocess_args)
 
     # build_model(*input_data, sample_rate=dataset.sample_rate)
 
@@ -159,7 +161,8 @@ def fit(dataset, args, **preprocess_args):
                 num_samples=400,
                 warmup_steps=100,
                 num_chains=4)
-    mcmc.run(*input_data, sample_rate=dataset.sample_rate)
+    mcmc.run(*input_data, sample_rate=dataset.sample_rate,
+             epoch_window=epoch_window)
 
     mcmc.summary(prob=0.8)
 
