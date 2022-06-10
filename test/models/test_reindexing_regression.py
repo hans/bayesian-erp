@@ -72,7 +72,7 @@ Alice had no idea what Latitude was, or Longitude either, but thought they were 
 """.strip()
     sentences = [s.strip().replace("\n", "") for s in re.split(r"[.?!]", text)]
     sentences = [s for s in sentences if s]
-    return sentences[:3]
+    return sentences
 
 
 @pytest.fixture(scope="session")
@@ -119,7 +119,12 @@ def _run_soundness_check(conditions, background_condition,
         condition_logprobs.append(log_joint)
 
     # Renormalize+exponentiate.
+    from pprint import pprint
+    
     condition_logprobs = torch.stack(condition_logprobs)
+    pprint(sorted(zip(conditions, condition_logprobs.numpy()),
+                  key=lambda x: -x[1]))
+
     condition_logprobs = (condition_logprobs - condition_logprobs.max()).exp()
     condition_logprobs /= condition_logprobs.sum()
 
@@ -135,16 +140,19 @@ def _run_soundness_check(conditions, background_condition,
             f"Ground truth parameter is the MAP choice ({test_key})"
 
 
-def test_soundness_threshold(soundness_dataset):
+@pytest.mark.parametrize("dataset_fixture", ["soundness_dataset", "soundness_dataset2"])
+def test_soundness_threshold(request, dataset_fixture):
+    dataset, parameters = request.getfixturevalue(dataset_fixture)
+
     background_condition = {"coef": torch.tensor([1., -1])}
 
-    gt_condition = {"threshold": soundness_dataset.params.threshold}
+    gt_condition = {"threshold": dataset.params.threshold}
     alt_conditions = [{"threshold": x}
                       for x in torch.rand(10)]
     all_conditions = [gt_condition] + alt_conditions
 
     _run_soundness_check(all_conditions, background_condition,
-                         soundness_dataset, get_parameters)
+                         dataset, parameters)
 
 
 @pytest.mark.parametrize("dataset_fixture", ["soundness_dataset", "soundness_dataset2"])

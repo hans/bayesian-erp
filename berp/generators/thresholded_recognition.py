@@ -130,8 +130,8 @@ def simulate_erp(event_probability, sample_rate=128, rng=np.random) -> Tuple[np.
     noise = rng.normal(0.2, 0.05, size=len(signal))
     signal += noise
 
-    # Data scale
-    signal *= 1e-6
+    # # Data scale
+    # signal *= 1e-6
 
     return times, signal
 
@@ -165,7 +165,7 @@ def simulate_phoneme_sequence(phoneme_surprisals: torch.Tensor,
         phoneme_response = torch.tensor(phoneme_response_nd) * n400_surprisal_coef * surprisal
         signal[sample_idx:sample_idx + len(phoneme_response)] += phoneme_response
 
-    signal *= 1e-6
+    # signal *= 1e-6
 
     return stim_onsets, all_times, signal
 
