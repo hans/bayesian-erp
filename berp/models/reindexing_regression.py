@@ -143,6 +143,8 @@ def epoched_response_model(X: TensorType[B, N_F, float],
         sample_rate: Number of samples per second
         sigma: Standard deviation parameter for observations
     """
+    assert Y.shape[1] == int(np.floor((epoch_window[1] - epoch_window[0]) * sample_rate))
+
     # Compute recognition onset time.
     recognition_onset = pyro.deterministic(
         "recognition_onset",
@@ -150,7 +152,8 @@ def epoched_response_model(X: TensorType[B, N_F, float],
     assert recognition_onset[2] == phoneme_onsets[2, recognition_points[2]]
 
     # Expected response is `a` seconds later. Get the left edge of this window.
-    recognition_erp_left_samp = time_to_sample(recognition_onset + a - b / 2, sample_rate)
+    recognition_erp_left_samp = time_to_sample(recognition_onset + a, sample_rate,
+                                               epoch_window[0])
 
     slice_width = int(time_to_sample(b, sample_rate))
     Y_sliced, Y_mask = variable_position_slice(Y, recognition_erp_left_samp, slice_width)

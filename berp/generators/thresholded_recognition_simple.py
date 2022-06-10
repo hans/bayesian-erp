@@ -44,10 +44,12 @@ T, S = DIMS.T, DIMS.S
 class RRDataset(NamedTuple):
     params: rr.ModelParameters
     sample_rate: int
+    epoch_window: Tuple[float, float]
 
     p_word: TensorType[B, N_C, is_log_probability]
     word_lengths: TensorType[B, int]
     candidate_phonemes: TensorType[B, N_C, N_P, int]
+    word_onsets: TensorType[B, float]
     phoneme_onsets: TensorType[B, N_P, float]
 
     recognition_points: TensorType[B, int]
@@ -72,7 +74,7 @@ def sample_dataset(params: rr.ModelParameters,
                    phon_delay_range: Tuple[float, float] = (0.04, 0.1),
                    word_delay_range: Tuple[float, float] = (0.01, 0.1),
                    word_surprisal_params: Tuple[float, float] = (1., 0.5),
-                   epoch_window: Tuple[float, float] = (-0.1, 1.0),
+                   epoch_window: Tuple[float, float] = (0.0, 1.0),
                    ) -> RRDataset:
     word_lengths = torch.tensor([num_phonemes for _ in range(num_words)])
 
@@ -83,7 +85,7 @@ def sample_dataset(params: rr.ModelParameters,
     word_onsets = (torch.cat([torch.tensor([0 - epoch_window[0]]),
                               phoneme_onsets[1:, -1]]) + word_delays).cumsum(0)
     # Make phoneme_onsets global (not relative to word onset).
-    phoneme_onsets += word_onsets.view(-1, 1)
+    phoneme_onsets_global = phoneme_onsets + word_onsets.view(-1, 1)
 
     word_surprisals = dist.LogNormal(*word_surprisal_params).sample((num_words,))
 
@@ -109,11 +111,13 @@ def sample_dataset(params: rr.ModelParameters,
                                                     
     ############
 
+    # Compute recognition onset, relative to word onset
     recognition_onsets = torch.gather(phoneme_onsets, 1, recognition_points.unsqueeze(1)).squeeze(1)
-    recognition_onsets_samp = time_to_sample(recognition_onsets, sample_rate)
+    # Compute recognition onset as global index
+    recognition_onsets_samp = time_to_sample(word_onsets + recognition_onsets, sample_rate)
 
     # Generate continuous signal stream.
-    t_max = phoneme_onsets[-1, -1] + (epoch_window[1] - epoch_window[0])
+    t_max = phoneme_onsets_global[-1, -1] + (epoch_window[1] - epoch_window[0])
     Y = torch.zeros(int(np.ceil(t_max * sample_rate)), num_sensors)
 
     # Add delta response after each recognition onset.
@@ -148,9 +152,11 @@ def sample_dataset(params: rr.ModelParameters,
     return RRDataset(
         params=params,
         sample_rate=sample_rate,
+        epoch_window=epoch_window,
 
         candidate_phonemes=candidate_phonemes,
         word_lengths=word_lengths,
+        word_onsets=word_onsets,
         phoneme_onsets=phoneme_onsets,
         p_word=p_word,
 
