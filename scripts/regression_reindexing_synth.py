@@ -125,9 +125,6 @@ def model(params: rr.ModelParameters,
                                            params.lambda_)
     rec = rr.recognition_point_model(p_word_posterior,
                                      word_lengths,
-                                     candidate_phonemes,
-                                     params.confusion,
-                                     params.lambda_,
                                      params.threshold)
     response = rr.epoched_response_model(X=X,
                                          coef=params.coef,

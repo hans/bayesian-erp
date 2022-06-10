@@ -39,7 +39,7 @@ def predictive_model(p_word: TensorType[B, N_C, is_log_probability],
                      lambda_: TensorType[float],
                      ground_truth_word_idx=0
                      ) -> TensorType[B, N_P, is_probability]:
-    """
+    r"""
     Computes the next-word distribution
 
         $$P(w = w_j \mid w_{<j}, I_{\le k})$$
@@ -91,9 +91,6 @@ def predictive_model(p_word: TensorType[B, N_C, is_log_probability],
 @typechecked
 def recognition_point_model(p_word_posterior: TensorType[B, N_P, is_probability],
                             word_lengths: TensorType[B, torch.long],
-                            phonemes: TensorType[B, N_C, N_P, int],
-                            confusion: TensorType[V_P, V_P, is_probability],
-                            lambda_: TensorType[float],
                             threshold: Probability
                             ) -> TensorType[B, int]:
     """
@@ -202,7 +199,6 @@ if __name__ == "__main__":
     a = torch.tensor(0.1)
     b = torch.tensor(0.2)
 
-
     p_word_posterior = predictive_model(p_word.log(), phonemes, confusion, lambda_)
-    rec = recognition_point_model(p_word_posterior, phonemes, confusion, lambda_, threshold)
+    rec = recognition_point_model(p_word_posterior, threshold)
     epoched_response_model(rec, phoneme_onsets, Y, a, b, sample_rate)
