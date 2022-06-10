@@ -20,9 +20,9 @@ import torch
 from torch.nn.functional import pad
 from torchtyping import TensorType
 
+from berp.generators import RRDataset
 from berp.models.reindexing_regression import ModelParameters
 from berp.typing import is_probability, is_log_probability, \
-                        ProperProbabilityDetail, ProperLogProbabilityDetail, \
                         DIMS
 
 # This module is extremely messy in its handling of tensors vs. lists. We used
@@ -245,6 +245,7 @@ def compute_candidate_phoneme_likelihoods(
             candidate_phoneme_likelihoods)
 
 
+# TODO this duplicates logic in the forward model. they should be merged
 @typechecked
 def compute_recognition_point(candidate_ids: TensorType[N_C, torch.long],
                               p_word_prior: TensorType[V_W, is_log_probability],
@@ -257,8 +258,8 @@ def compute_recognition_point(candidate_ids: TensorType[N_C, torch.long],
 
     # Combine with priors (renormalized over candidate space) and normalize.
     p_word_prior = p_word_prior[candidate_ids].exp()
-    p_word_prior /= p_word_prior.sum()
-    bayes_p_word = (p_word_prior.unsqueeze(-1).log() + incremental_phoneme_likelihoods).exp()
+    p_word_prior = (p_word_prior / p_word_prior.sum()).log()
+    bayes_p_word = (p_word_prior.unsqueeze(-1) + incremental_phoneme_likelihoods).exp()
     bayes_p_word /= bayes_p_word.sum(axis=0, keepdim=True)
 
     # Compute recognition point.
@@ -472,8 +473,9 @@ def sample_item(sentence: str,
         torch.stack(acc_p_word))
 
 
-class RRDataset(NamedTuple):
+class RawDataset(NamedTuple):
     params: ModelParameters
+    sample_rate: int
 
     X_word: pd.DataFrame
     X_phon: pd.DataFrame
@@ -486,13 +488,11 @@ class RRDataset(NamedTuple):
     phoneme_onsets: List[TensorType[N_W, N_P, float]]
     p_word: List[TensorType[N_W, N_C, is_log_probability]]
 
-    sample_rate: int
 
-
-def sample_dataset(sentences: List[str],
-                   params: Optional[ModelParameters] = None,
-                   sample_rate=128,
-                   **item_kwargs) -> RRDataset:
+def sample_raw_dataset(sentences: List[str],
+                       params: Optional[ModelParameters] = None,
+                       sample_rate=128,
+                       **item_kwargs) -> RawDataset:
     if params is None:
         params = ModelParameters(
             lambda_=torch.tensor(1.),
@@ -529,13 +529,44 @@ def sample_dataset(sentences: List[str],
     X_word = pd.concat(ret_X_word, names=["item", "token_idx"], keys=np.arange(len(ret_X_word)))
     X_phon = pd.concat(ret_X_phon, names=["item", "token_idx", "phon_idx"], keys=np.arange(len(ret_X_phon)))
     y = pd.concat(ret_y, names=["item", "sample_idx"], keys=np.arange(len(ret_y)))
-    return RRDataset(
-        params,
-        X_word, X_phon, y,
-        ret_candidate_ids, ret_candidate_tokens,
-        ret_candidate_phonemes, ret_word_lengths, ret_phoneme_onsets,
-        ret_p_word,
-        sample_rate=sample_rate)
+    return RawDataset(
+        params=params,
+        sample_rate=sample_rate,
+
+        X_word=X_word, X_phon=X_phon, y=y,
+
+        candidate_ids=ret_candidate_ids,
+        candidate_tokens=ret_candidate_tokens,
+        candidate_phonemes=ret_candidate_phonemes,
+        word_lengths=ret_word_lengths,
+        phoneme_onsets=ret_phoneme_onsets,
+        p_word=ret_p_word)
+
+
+def pad_phoneme_data(dataset: RawDataset
+                     ) -> Tuple[TensorType[B, N_C, N_P, int],
+                                TensorType[B, N_P, float]]:
+    # we will pass flattened data representations, where each word in each
+    # item is an independent sample. to do this, we have to pad N_P to be
+    # equivalent across items.
+    max_n_p = max(cand.shape[2] for cand in dataset.candidate_phonemes)
+
+    candidate_phonemes = torch.cat([
+        pad(cand, (0, max_n_p - cand.shape[2], 0, 0, 0, 0),
+            value=phoneme2idx["_"])
+        for cand in dataset.candidate_phonemes
+    ])
+
+    # NB there are often longer representations (more phonemes necessary) in
+    # candidate_phonemes, because the candidate words are longer than the ground
+    # truth word. phoneme_onsets is just as long as the ground truth longest word.
+    max_n_gt_p = max(onsets.shape[1] for onsets in dataset.phoneme_onsets)
+    phoneme_onsets = torch.cat([
+        pad(onsets, (0, max_n_gt_p - onsets.shape[1], 0, 0), value=0.)
+        for onsets in dataset.phoneme_onsets
+    ])
+
+    return candidate_phonemes, phoneme_onsets
 
 
 def dataset_to_epochs(X, y, epoch_window=(-0.1, 0.9)):
@@ -558,6 +589,71 @@ def dataset_to_epochs(X, y, epoch_window=(-0.1, 0.9)):
 
     epoch_df = pd.concat(epoch_data, names=tuple(X.index.names) + tuple(y.index.names[1:]))
     return epoch_df
+
+
+def preprocess_dataset(dataset: RawDataset, epoch_window: Tuple[float, float]
+                       ) -> RRDataset:
+    # We will flatten all observations across item and word
+    p_word = torch.cat(dataset.p_word)
+
+    candidate_phonemes, phoneme_onsets = pad_phoneme_data(dataset)
+    word_lengths = torch.tensor([word_length for item in dataset.word_lengths
+                                 for word_length in item])
+
+    # TODO correct?
+    word_onsets = torch.tensor(dataset.X_phon.groupby("token_idx").time.min())
+
+    # prepare epoched response
+    if phoneme_onsets.max() > epoch_window[1]:
+        raise ValueError(f"Some words have phoneme onsets outside the word "
+                         f"epoch window {epoch_window} (max onset {phoneme_onsets.max()}). "
+                         f"This won't work -- increase the epoch window.")
+    epochs_df = dataset_to_epochs(dataset.X_word, dataset.y,
+                                  epoch_window=epoch_window)
+    epochs_df["epoch_sample_idx"] = epochs_df.groupby(["item", "token_idx"]).cumcount()
+
+    # this yields a df with two index levels (item and sample_idx).
+    # sorting is retained. the
+    # underlying ndarray is flattened in a rep where sample_idx varies within
+    # item. so it's safe to just steal this flattened matrix and use it
+    Y = epochs_df.droplevel("sample_idx") \
+        .pivot(columns="epoch_sample_idx",
+               values="signal")
+    Y = torch.tensor(Y.values)[..., np.newaxis].float()
+
+    # compute predictors: surprisal, baseline
+    X = -p_word[:, 0] / np.log(2)
+    baseline = epochs_df[epochs_df.epoch_time <= 0] \
+        .groupby(["item", "token_idx"]).signal.mean()
+    baseline = torch.tensor(baseline.values)
+    X = torch.stack([baseline, X], dim=1).float()
+
+    # return p_word, word_lengths, candidate_phonemes, phoneme_onsets, X, Y
+    return RRDataset(
+        params=dataset.params,
+        sample_rate=dataset.sample_rate,
+        epoch_window=epoch_window,
+
+        phonemes=phonemes,
+        p_word=p_word,
+        word_lengths=word_lengths,
+        candidate_phonemes=candidate_phonemes,
+        word_onsets=word_onsets,
+        phoneme_onsets=phoneme_onsets,
+
+        # recognition_points=dataset.recognition_points,
+        # recognition_onsets=dataset.recognition_onsets,
+
+        X_epoch=X,
+        Y_epoch=Y,
+    )
+
+
+def sample_dataset(epoch_window: Tuple[float, float] = (-0.1, 1.0),
+                   *args, **kwargs
+                   ) -> RRDataset:
+    raw = sample_raw_dataset(*args, **kwargs)
+    return preprocess_dataset(raw, epoch_window)
 
 
 def main(args):

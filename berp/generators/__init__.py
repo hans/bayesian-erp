@@ -66,18 +66,6 @@ class RRDataset(NamedTuple):
     the corresponding word.
     """
 
-    recognition_points: TensorType[B, int]
-    """
-    Ground-truth recognition points (phoneme indices) for each word.
-    Useful for debugging.
-    """
-
-    recognition_onsets: TensorType[B, float]
-    """
-    Ground-truth recognition onset (seconds, relative to word onset) for each
-    word. Useful for debugging.
-    """
-
     X_epoch: TensorType[B, N_F, float]
     """
     Epoch features.
@@ -85,10 +73,22 @@ class RRDataset(NamedTuple):
 
     Y_epoch: TensorType[B, T, S, float]
     """
-    Epoched response data.
+    Epoched response data (raw; not baselined).
     """
 
     Y: Optional[TensorType[..., S, float]] = None
     """
     Original response data stream.
+    """
+
+    recognition_points: Optional[TensorType[B, int]] = None
+    """
+    Ground-truth recognition points (phoneme indices) for each word.
+    Useful for debugging.
+    """
+
+    recognition_onsets: Optional[TensorType[B, float]] = None
+    """
+    Ground-truth recognition onset (seconds, relative to word onset) for each
+    word. Useful for debugging.
     """

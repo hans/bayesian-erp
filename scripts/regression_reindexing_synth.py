@@ -2,24 +2,16 @@ from argparse import ArgumentParser
 import re
 from typing import List, Tuple, NamedTuple
 
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
-import scipy.stats as st
-import seaborn as sns
-from tqdm.notebook import tqdm
-from icecream import ic
 from typeguard import typechecked
-import pytest
 
 import torch
 from torch.nn.functional import pad
-from torchtyping import TensorType
 import pyro
 import pyro.distributions as dist
 from pyro.infer import MCMC, NUTS
 import pyro.poutine as poutine
 
+from berp.generators import RRDataset
 from berp.generators import thresholded_recognition as generator
 from berp.models import reindexing_regression as rr
 from berp.typing import is_log_probability, DIMS
@@ -45,101 +37,37 @@ Alice had no idea what Latitude was, or Longitude either, but thought they were 
 """.strip()
     sentences = [s.strip().replace("\n", "") for s in re.split(r"[.?!]", text)]
     sentences = [s for s in sentences if s]
-    return sentences  # DEV
+    return sentences[:2]  # DEV
 
 
-def pad_phoneme_data(dataset) -> Tuple[TensorType[DIMS.B, DIMS.N_C, DIMS.N_P], ...]:
-    # we will pass flattened data representations, where each word in each
-    # item is an independent sample. to do this, we have to pad N_P to be
-    # equivalent across items.
-    max_n_p = max(cand.shape[2] for cand in dataset.candidate_phonemes)
+def build_model(d: generator.RRDataset):
+    # hacky: re-call get_parameters so that we get the conditioned parameter values
+    params = get_parameters()
 
-    candidate_phonemes = torch.cat([
-        pad(cand, (0, max_n_p - cand.shape[2], 0, 0, 0, 0),
-            value=generator.phoneme2idx["_"])
-        for cand in dataset.candidate_phonemes
-    ])
-
-    # NB there are often longer representations (more phonemes necessary) in
-    # candidate_phonemes, because the candidate words are longer than the ground
-    # truth word. phoneme_onsets is just as long as the ground truth longest word.
-    max_n_gt_p = max(onsets.shape[1] for onsets in dataset.phoneme_onsets)
-    phoneme_onsets = torch.cat([
-        pad(onsets, (0, max_n_gt_p - onsets.shape[1], 0, 0), value=0.)
-        for onsets in dataset.phoneme_onsets
-    ])
-
-    phoneme_mask = ...
-
-    return candidate_phonemes, phoneme_onsets, phoneme_mask
-
-
-def preprocess_dataset(dataset: generator.RRDataset, epoch_window):
-    # We will flatten all observations across item and word
-    p_word = torch.cat(dataset.p_word)
-
-    n_words, n_candidate_words = dataset.candidate_ids[0].shape
-
-    candidate_phonemes, phoneme_onsets, phoneme_mask = pad_phoneme_data(dataset)
-    word_lengths = torch.tensor([word_length for item in dataset.word_lengths
-                                 for word_length in item])
-
-    # prepare epoched response
-    if phoneme_onsets.max() > epoch_window[1]:
-        raise ValueError(f"Some words have phoneme onsets outside the word "
-                         f"epoch window {epoch_window} (max onset {phoneme_onsets.max()}). "
-                         f"This won't work -- increase the epoch window.")
-    epochs_df = generator.dataset_to_epochs(dataset.X_word, dataset.y,
-                                            epoch_window=epoch_window)
-    epochs_df["epoch_sample_idx"] = epochs_df.groupby(["item", "token_idx"]).cumcount()
-
-    # this yields a df with two index levels (item and sample_idx).
-    # sorting is retained. the
-    # underlying ndarray is flattened in a rep where sample_idx varies within
-    # item. so it's safe to just steal this flattened matrix and use it
-    Y = epochs_df.droplevel("sample_idx") \
-        .pivot(columns="epoch_sample_idx",
-               values="signal")
-    Y = torch.tensor(Y.values)[..., np.newaxis].float()
-
-    # compute predictors: surprisal, baseline
-    X = -p_word[:, 0] / np.log(2)
-    baseline = epochs_df[epochs_df.epoch_time <= 0] \
-        .groupby(["item", "token_idx"]).signal.mean()
-    baseline = torch.tensor(baseline.values)
-    X = torch.stack([baseline, X], dim=1).float()
-
-    return p_word, word_lengths, candidate_phonemes, phoneme_onsets, X, Y
-
-
-@typechecked
-def model(params: rr.ModelParameters,
-          p_word, word_lengths,
-          candidate_phonemes, phoneme_onsets,
-          X, Y, sample_rate, epoch_window):
-
-    # TODO move to reindexing_regression?
-
-    p_word_posterior = rr.predictive_model(p_word,
-                                           candidate_phonemes,
+    p_word_posterior = rr.predictive_model(d.p_word,
+                                           d.candidate_phonemes,
                                            params.confusion,
                                            params.lambda_)
     rec = rr.recognition_point_model(p_word_posterior,
-                                     word_lengths,
+                                     d.word_lengths,
                                      params.threshold)
-    response = rr.epoched_response_model(X=X,
+    response = rr.epoched_response_model(X=d.X_epoch,
                                          coef=params.coef,
                                          recognition_points=rec,
-                                         phoneme_onsets=phoneme_onsets,
-                                         Y=Y, a=params.a, b=params.b,
-                                         sample_rate=sample_rate,
-                                         epoch_window=epoch_window)
+                                         phoneme_onsets=d.phoneme_onsets,
+                                         Y=d.Y_epoch,
+                                         a=d.params.a, b=d.params.b,
+                                         sigma=torch.tensor(1.),
+                                         sample_rate=d.sample_rate,
+                                         epoch_window=d.epoch_window)
+
+    return response
 
 
-def build_model(*args, **kwargs):
+def get_parameters():
     # Sample model parameters.
     coef_mean = torch.tensor([1., -1.])
-    params = rr.ModelParameters(
+    return rr.ModelParameters(
         lambda_=torch.tensor(1.0),
         confusion=generator.phoneme_confusion,
         threshold=pyro.sample("threshold",
@@ -148,33 +76,29 @@ def build_model(*args, **kwargs):
         b=torch.tensor(0.1),
         coef=pyro.sample("coef", dist.Normal(coef_mean, 0.1)),
     )
-    return model(params, *args, **kwargs)
 
 
-def fit(dataset, args, epoch_window, **preprocess_args):
-    input_data = preprocess_dataset(dataset, epoch_window, **preprocess_args)
-
-    # build_model(*input_data, sample_rate=dataset.sample_rate)
-
+def fit(dataset: RRDataset):
     nuts_kernel = NUTS(build_model)
     mcmc = MCMC(nuts_kernel,
                 num_samples=400,
                 warmup_steps=100,
                 num_chains=4)
-    mcmc.run(*input_data, sample_rate=dataset.sample_rate,
-             epoch_window=epoch_window)
+    mcmc.run(dataset)
 
     mcmc.summary(prob=0.8)
 
 
 
 def main(args):
-    sentences = generate_sentences()
-    dataset = generator.sample_dataset(sentences)
-
     epoch_window = (-0.1, 2.5)
+
+    sentences = generate_sentences()
+    dataset = generator.sample_dataset(sentences=sentences,
+                                       epoch_window=epoch_window)
+
     if args.mode == "fit":
-        fit(dataset, args, epoch_window=epoch_window)
+        fit(dataset)
 
 
 if __name__ == "__main__":
