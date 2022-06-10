@@ -13,39 +13,45 @@ from berp.generators import thresholded_recognition_simple as generator
 from berp.models import reindexing_regression as rr
 
 
-@pytest.fixture(scope="session")
-def model_parameters():
+def get_parameters():
     coef_mean = torch.tensor([0., -1.])
+
+    # NB we establish deterministic sites below so that they can be conditioned
     return rr.ModelParameters(
         lambda_=torch.tensor(1.0),
         confusion=generator.phoneme_confusion,
-        threshold=torch.tensor(0.7),
+        threshold=pyro.deterministic("threshold", torch.tensor(0.7)),
         a=torch.tensor(0.4),
-        b=torch.tensor(0.1),
-        coef=coef_mean,
+        b=torch.tensor(0.05),
+        coef=pyro.deterministic("coef", coef_mean),
     )
 
 
 @pytest.fixture(scope="session")
-def soundness_dataset(model_parameters):
-    return generator.sample_dataset(model_parameters)
+def soundness_dataset():
+    return generator.sample_dataset(get_parameters(), num_words=50)
 
 
 def build_model(d: generator.RRDataset):
+    # hacky: re-call get_parameters so that we get the conditioned parameter values
+    params = get_parameters()
+
     p_word_posterior = rr.predictive_model(d.p_word,
                                            d.candidate_phonemes,
-                                           d.params.confusion,
-                                           d.params.lambda_)
+                                           params.confusion,
+                                           params.lambda_)
     rec = rr.recognition_point_model(p_word_posterior,
                                      d.word_lengths,
-                                     d.params.threshold)
+                                     params.threshold)
     response = rr.epoched_response_model(X=d.X_epoch,
-                                         coef=d.params.coef,
+                                         coef=params.coef,
                                          recognition_points=rec,
                                          phoneme_onsets=d.phoneme_onsets,
                                          Y=d.Y_epoch,
                                          a=d.params.a, b=d.params.b,
-                                         sample_rate=d.sample_rate)
+                                         sigma=torch.tensor(1.),
+                                         sample_rate=d.sample_rate,
+                                         epoch_window=d.epoch_window)
 
     return response
 
@@ -77,7 +83,7 @@ def _run_soundness_check(conditions, background_condition,
                     for key in condition_dict.keys())
     for condition in conditions:
         condition.update(background_condition)
-        ic(condition)
+        print(condition)
         log_joint = model_forward(dataset, condition).log_prob_sum()
 
         if log_joint.isinf():
@@ -116,7 +122,7 @@ def test_soundness_threshold(soundness_dataset):
 def test_soundness_coef(soundness_dataset):
     background_condition = {"threshold": soundness_dataset.params.threshold}
 
-    gt_condition = {"coef": torch.tensor([1., -1])}
+    gt_condition = {"coef": torch.tensor([0., -1])}
     alt_conditions = [{"coef": torch.tensor(x)}
                       for x in [[1., 1.],
                                 [1., -5.],
