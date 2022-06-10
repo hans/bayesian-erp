@@ -87,7 +87,7 @@ def sample_dataset(params: rr.ModelParameters,
     # Make phoneme_onsets global (not relative to word onset).
     phoneme_onsets_global = phoneme_onsets + word_onsets.view(-1, 1)
 
-    word_surprisals = dist.LogNormal(*word_surprisal_params).sample((num_words,))
+    word_surprisals: torch.Tensor = dist.LogNormal(*word_surprisal_params).sample((num_words,))  # type: ignore
 
     # Calculate p_word using surprisal; allocate remainder randomly
     p_gt_word = (-word_surprisals).exp()
