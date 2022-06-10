@@ -17,6 +17,7 @@ from typeguard import typechecked
 
 import transformers
 import torch
+from torch.nn.functional import pad
 from torchtyping import TensorType
 
 from berp.models.reindexing_regression import ModelParameters
@@ -34,9 +35,9 @@ from berp.typing import is_probability, is_log_probability, \
 
 model_ref = "gpt2"
 # model_ref = "hf-internal-testing/tiny-xlm-roberta"
-model = transformers.AutoModelForCausalLM.from_pretrained(model_ref, is_decoder=True)
+model = transformers.AutoModelForCausalLM.from_pretrained(model_ref, is_decoder=True)  # type: ignore
 model.eval()
-tokenizer = transformers.AutoTokenizer.from_pretrained(model_ref)
+tokenizer = transformers.AutoTokenizer.from_pretrained(model_ref)  # type: ignore
 tokenizer.pad_token = tokenizer.eos_token
 
 # dumb phoneme=letter
@@ -137,7 +138,7 @@ def simulate_erp(event_probability, sample_rate=128, rng=np.random) -> Tuple[np.
 
 
 def simulate_phoneme_sequence(phoneme_surprisals: torch.Tensor,
-                              phon_delay_range=(0.04, 0.1),
+                              phon_delay_range: Tuple[float, float] = (0.04, 0.1),
                               sample_rate: int = 128,
                               n400_surprisal_coef: float = -0.25,
                               ) -> Tuple[np.ndarray, TensorType, TensorType]:
@@ -261,7 +262,8 @@ def compute_recognition_point(candidate_ids: TensorType[N_C, torch.long],
     bayes_p_word /= bayes_p_word.sum(axis=0, keepdim=True)
 
     # Compute recognition point.
-    recognition_point = (bayes_p_word[gt_word_candidate_pos, :] >= threshold).int().argmax()
+    recognition_point: torch.LongTensor = \
+        (bayes_p_word[gt_word_candidate_pos, :] >= threshold).int().argmax()
 
     return recognition_point
 
@@ -358,7 +360,7 @@ def sample_item(sentence: str,
     sentence = re.sub(r"[^a-z\s]", "", sentence.lower()).strip()
     print(sentence)
 
-    acc_X_word, acc_X_phon, acc_y = [], None, None
+    acc_X_word, acc_X_phon, acc_y = [], pd.DataFrame(), pd.DataFrame()
     acc_candidate_ids, acc_candidate_tokens, acc_candidate_phonemes = [], [], []
     acc_phoneme_onsets, acc_p_word = [], []
 
@@ -443,33 +445,31 @@ def sample_item(sentence: str,
         delay = np.round(delay * sample_rate) / sample_rate
         time_acc += final_word_onset + delay
 
-    acc_X_word = pd.DataFrame(acc_X_word, columns=["token", "time", "recognition_point", "surprisal"])
-    acc_X_word.index.name = "token_idx"
-
-    acc_candidate_ids = torch.tensor(acc_candidate_ids)
+    acc_X_word = pd.DataFrame(acc_X_word, columns=["token", "time", "recognition_point", "surprisal"]) \
+        .rename_axis("token_idx")
 
     # Pad candidate phoneme sequences.
     max_length = max(len(candidate_phonemes[0]) for candidate_phonemes
                      in acc_candidate_phonemes)
-    acc_candidate_phonemes = torch.stack([
-        torch.nn.functional.pad(torch.stack(candidate_phonemes),
-                                (0, max_length - len(candidate_phonemes[0])),
-                                value=phoneme2idx["_"])
+    ret_candidate_phonemes = torch.stack([
+        pad(torch.stack(candidate_phonemes),
+            (0, max_length - len(candidate_phonemes[0])),
+            value=phoneme2idx["_"])
         for candidate_phonemes in acc_candidate_phonemes
     ])
 
     word_lengths = [len(onsets) for onsets in acc_phoneme_onsets]
 
-    acc_phoneme_onsets = torch.nn.utils.rnn.pad_sequence(
+    ret_phoneme_onsets = torch.nn.utils.rnn.pad_sequence(
         list(map(torch.tensor, acc_phoneme_onsets)), batch_first=True,
         padding_value=0.)
 
-    acc_p_word = torch.stack(acc_p_word)
     return ItemObservation(
         acc_X_word, acc_X_phon, acc_y.reset_index(),
-        acc_candidate_ids, acc_candidate_tokens, acc_candidate_phonemes,
-        word_lengths, acc_phoneme_onsets,
-        acc_p_word)
+        torch.tensor(acc_candidate_ids),
+        acc_candidate_tokens, ret_candidate_phonemes,
+        word_lengths, ret_phoneme_onsets,
+        torch.stack(acc_p_word))
 
 
 class RRDataset(NamedTuple):
@@ -564,8 +564,8 @@ def main(args):
     sentences = ["this is a test sentence"]
 
     for sentence in sentences:
-        X_word, X_phon, y, p_word = sample_item(sentence)
-        print(X_word, X_phon, y)
+        obs = sample_item(sentence)
+        print(obs)
 
 
 if __name__ == "__main__":
