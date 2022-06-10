@@ -1,31 +1,16 @@
-from argparse import ArgumentParser
-import re
-from typing import List, Tuple, NamedTuple
+from typing import List, NamedTuple, Tuple
 
-import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
-import scipy.stats as st
-import seaborn as sns
-from tqdm.notebook import tqdm
-from icecream import ic
-from typeguard import typechecked
-import pytest
-
+import pyro.distributions as dist
 import torch
 from torch.nn.functional import pad
-from torchtyping import TensorType
+from tqdm.notebook import tqdm
 from typeguard import typechecked
-import pyro
-import pyro.distributions as dist
-from pyro.infer import MCMC, NUTS
-import pyro.poutine as poutine
 
-from berp.generators import thresholded_recognition as generator
+from berp.generators import RRDataset
 from berp.models import reindexing_regression as rr
-from berp.typing import is_log_probability, DIMS
-from berp.util import time_to_sample, sample_to_time
-
+from berp.typing import DIMS, is_log_probability
+from berp.util import sample_to_time, time_to_sample
 
 PHONEMES = np.array(list("abcdefghijklmnop_"))
 phoneme2idx = {p: idx for idx, p in enumerate(PHONEMES)}
@@ -40,24 +25,6 @@ phoneme_confusion /= phoneme_confusion.sum(dim=0, keepdim=True)
 # Type variables
 B, N_W, N_C, N_F, N_P, V_W = DIMS.B, DIMS.N_W, DIMS.N_C, DIMS.N_F, DIMS.N_P, DIMS.V_W
 T, S = DIMS.T, DIMS.S
-
-class RRDataset(NamedTuple):
-    params: rr.ModelParameters
-    sample_rate: int
-    epoch_window: Tuple[float, float]
-
-    p_word: TensorType[B, N_C, is_log_probability]
-    word_lengths: TensorType[B, int]
-    candidate_phonemes: TensorType[B, N_C, N_P, int]
-    word_onsets: TensorType[B, float]
-    phoneme_onsets: TensorType[B, N_P, float]
-
-    recognition_points: TensorType[B, int]
-    recognition_onsets: TensorType[B, float]
-
-    Y: TensorType[..., S, float]
-    X_epoch: TensorType[B, N_F, float]
-    Y_epoch: TensorType[B, T, S, float]
 
 
 def rand_unif(low, high, *shape) -> torch.Tensor:
@@ -153,12 +120,14 @@ def sample_dataset(params: rr.ModelParameters,
         params=params,
         sample_rate=sample_rate,
         epoch_window=epoch_window,
+        phonemes=PHONEMES.tolist(),
 
-        candidate_phonemes=candidate_phonemes,
+        p_word=p_word,
         word_lengths=word_lengths,
+        candidate_phonemes=candidate_phonemes,
+
         word_onsets=word_onsets,
         phoneme_onsets=phoneme_onsets,
-        p_word=p_word,
 
         recognition_points=recognition_points,
         recognition_onsets=recognition_onsets,
