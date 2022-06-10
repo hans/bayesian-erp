@@ -36,7 +36,7 @@ Alice had no idea what Latitude was, or Longitude either, but thought they were 
 """.strip()
     sentences = [s.strip().replace("\n", "") for s in re.split(r"[.?!]", text)]
     sentences = [s for s in sentences if s]
-    return sentences[:2]  # DEV
+    return sentences  # DEV
 
 
 def get_parameters():
@@ -50,17 +50,28 @@ def get_parameters():
         a=torch.tensor(0.4),
         b=torch.tensor(0.1),
         coef=pyro.sample("coef", dist.Normal(coef_mean, 0.1)),
-        sigma=torch.tensor(0.1),
+        sigma=torch.tensor(1.0),
     )
 
 
 def fit(dataset: rr.RRDataset):
-    nuts_kernel = NUTS(rr.model_for_dataset)
+    nuts_kernel = NUTS(rr.model)
     mcmc = MCMC(nuts_kernel,
                 num_samples=400,
                 warmup_steps=100,
                 num_chains=4)
-    mcmc.run(dataset, get_parameters)
+
+    mcmc.run(dataset.params,
+        p_word=dataset.p_word,
+        candidate_phonemes=dataset.candidate_phonemes,
+        phoneme_onsets=dataset.phoneme_onsets,
+        word_lengths=dataset.word_lengths,
+
+        X_epoched=dataset.X_epoch,
+        Y_epoched=dataset.Y_epoch,
+
+        sample_rate=dataset.sample_rate,
+        epoch_window=dataset.epoch_window)
 
     mcmc.summary(prob=0.8)
 
