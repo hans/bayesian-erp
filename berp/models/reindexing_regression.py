@@ -3,7 +3,7 @@ Defines a simple three-parameter latent-onset model. Latent onset indices
 are a deterministic function of data and these three parameters.
 """
 
-from typing import NamedTuple
+from typing import NamedTuple, Tuple
 
 from icecream import ic
 import numpy as np
@@ -124,6 +124,7 @@ def epoched_response_model(X: TensorType[B, N_F, float],
                            a: TensorType[float],
                            b: TensorType[float],
                            sample_rate: int,
+                           epoch_window: Tuple[float, float],
                            sigma: TensorType[float] = torch.tensor(0.1),
                            sensor_reduction_fn=torch.mean
                            ) -> TensorType[B, float]:
