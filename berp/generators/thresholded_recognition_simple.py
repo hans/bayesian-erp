@@ -74,7 +74,7 @@ def sample_dataset(params: rr.ModelParameters,
                    phon_delay_range: Tuple[float, float] = (0.04, 0.1),
                    word_delay_range: Tuple[float, float] = (0.01, 0.1),
                    word_surprisal_params: Tuple[float, float] = (1., 0.5),
-                   epoch_window: Tuple[float, float] = (0.0, 1.0),
+                   epoch_window: Tuple[float, float] = (-0.1, 1.0),
                    ) -> RRDataset:
     word_lengths = torch.tensor([num_phonemes for _ in range(num_words)])
 
