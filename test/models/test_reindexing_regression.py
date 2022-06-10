@@ -5,26 +5,49 @@ from icecream import ic
 import numpy as np
 import pyro
 from pyro import poutine
+from pyro import distributions as dist
 import pytest
 import torch
 
-from berp.generators import thresholded_recognition as generator
-
-import sys
-sys.path.append(str(Path(__file__).parent.parent.parent / "scripts"))
-# steal dataset preprocessor, model wrapper from regression script
-from regression_reindexing_synth import build_model, generate_sentences, preprocess_dataset
+from berp.generators import thresholded_recognition_simple as generator
+from berp.models import reindexing_regression as rr
 
 
 @pytest.fixture(scope="session")
-def sentences():
-    limit = 50
-    return generate_sentences()[:limit]
+def model_parameters():
+    coef_mean = torch.tensor([0., -1.])
+    return rr.ModelParameters(
+        lambda_=torch.tensor(1.0),
+        confusion=generator.phoneme_confusion,
+        threshold=torch.tensor(0.7),
+        a=torch.tensor(0.4),
+        b=torch.tensor(0.1),
+        coef=coef_mean,
+    )
 
 
 @pytest.fixture(scope="session")
-def soundness_dataset(sentences):
-    return generator.sample_dataset(sentences)
+def soundness_dataset(model_parameters):
+    return generator.sample_dataset(model_parameters)
+
+
+def build_model(d: generator.RRDataset):
+    p_word_posterior = rr.predictive_model(d.p_word,
+                                           d.candidate_phonemes,
+                                           d.params.confusion,
+                                           d.params.lambda_)
+    rec = rr.recognition_point_model(p_word_posterior,
+                                     d.word_lengths,
+                                     d.params.threshold)
+    response = rr.epoched_response_model(X=d.X_epoch,
+                                         coef=d.params.coef,
+                                         recognition_points=rec,
+                                         phoneme_onsets=d.phoneme_onsets,
+                                         Y=d.Y_epoch,
+                                         a=d.params.a, b=d.params.b,
+                                         sample_rate=d.sample_rate)
+
+    return response
 
 
 def trace_conditional(conditioning: Dict, *args, **kwargs):
@@ -35,24 +58,16 @@ def trace_conditional(conditioning: Dict, *args, **kwargs):
     return poutine.trace(conditioned_model).get_trace(*args, **kwargs)
 
 
-EPOCH_WINDOW = (-0.1, 2.9)
-def model_forward(dataset, conditioning=None, **preprocess_args):
+def model_forward(dataset, conditioning=None):
     if conditioning is None:
         conditioning = {}
 
-    preprocess_args.setdefault("epoch_window", EPOCH_WINDOW)
-    input_data = preprocess_dataset(dataset, **preprocess_args)
-
-    model_trace = trace_conditional(
-        conditioning,
-        *input_data, sample_rate=dataset.sample_rate
-    )
-
+    model_trace = trace_conditional(conditioning, dataset)
     return model_trace
 
 
 def _run_soundness_check(conditions, background_condition,
-                         dataset, **preprocess_args):
+                         dataset):
     """
     Verify that the probability of the ground truth data is greatest under the
     generating parameters (compared to perturbations thereof).
@@ -63,7 +78,7 @@ def _run_soundness_check(conditions, background_condition,
     for condition in conditions:
         condition.update(background_condition)
         ic(condition)
-        log_joint = model_forward(dataset, condition, **preprocess_args).log_prob_sum()
+        log_joint = model_forward(dataset, condition).log_prob_sum()
 
         if log_joint.isinf():
             raise RuntimeError(str(condition))

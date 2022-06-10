@@ -113,9 +113,7 @@ def sample_dataset(params: rr.ModelParameters,
     recognition_onsets_samp = time_to_sample(recognition_onsets, sample_rate)
 
     # Generate continuous signal stream.
-    print(word_onsets)
     t_max = phoneme_onsets[-1, -1] + (epoch_window[1] - epoch_window[0])
-    print(t_max)
     Y = torch.zeros(int(np.ceil(t_max * sample_rate)), num_sensors)
 
     # Add delta response after each recognition onset.
