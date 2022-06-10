@@ -144,7 +144,7 @@ def epoched_response_model(X: TensorType[B, N_F, float],
         sample_rate: Number of samples per second
         sigma: Standard deviation parameter for observations
     """
-    assert Y.shape[1] == int(np.floor((epoch_window[1] - epoch_window[0]) * sample_rate))
+    assert np.abs(Y.shape[1] - int(np.floor((epoch_window[1] - epoch_window[0]) * sample_rate))) <= 1
 
     # Compute recognition onset time.
     recognition_onset = pyro.deterministic(
