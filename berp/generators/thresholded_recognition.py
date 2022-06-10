@@ -20,8 +20,7 @@ import torch
 from torch.nn.functional import pad
 from torchtyping import TensorType
 
-from berp.generators import RRDataset
-from berp.models.reindexing_regression import ModelParameters
+from berp.models.reindexing_regression import ModelParameters, RRDataset
 from berp.typing import is_probability, is_log_probability, \
                         DIMS
 

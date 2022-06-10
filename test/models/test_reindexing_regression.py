@@ -32,35 +32,11 @@ def soundness_dataset():
     return generator.sample_dataset(get_parameters(), num_words=50)
 
 
-def build_model(d: generator.RRDataset):
-    # hacky: re-call get_parameters so that we get the conditioned parameter values
-    params = get_parameters()
-
-    p_word_posterior = rr.predictive_model(d.p_word,
-                                           d.candidate_phonemes,
-                                           params.confusion,
-                                           params.lambda_)
-    rec = rr.recognition_point_model(p_word_posterior,
-                                     d.word_lengths,
-                                     params.threshold)
-    response = rr.epoched_response_model(X=d.X_epoch,
-                                         coef=params.coef,
-                                         recognition_points=rec,
-                                         phoneme_onsets=d.phoneme_onsets,
-                                         Y=d.Y_epoch,
-                                         a=d.params.a, b=d.params.b,
-                                         sigma=torch.tensor(1.),
-                                         sample_rate=d.sample_rate,
-                                         epoch_window=d.epoch_window)
-
-    return response
-
-
 def trace_conditional(conditioning: Dict, *args, **kwargs):
     """
     Evaluate model trace for given conditioning set.
     """
-    conditioned_model = poutine.condition(build_model, conditioning)
+    conditioned_model = poutine.condition(rr.model_for_dataset, conditioning)
     return poutine.trace(conditioned_model).get_trace(*args, **kwargs)
 
 
@@ -68,7 +44,7 @@ def model_forward(dataset, conditioning=None):
     if conditioning is None:
         conditioning = {}
 
-    model_trace = trace_conditional(conditioning, dataset)
+    model_trace = trace_conditional(conditioning, dataset, get_parameters)
     return model_trace
 
 

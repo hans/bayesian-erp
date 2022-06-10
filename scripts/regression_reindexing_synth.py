@@ -1,6 +1,6 @@
 from argparse import ArgumentParser
 import re
-from typing import List, Tuple, NamedTuple
+from typing import List, Tuple, NamedTuple, Callable
 
 from typeguard import typechecked
 
@@ -11,7 +11,6 @@ import pyro.distributions as dist
 from pyro.infer import MCMC, NUTS
 import pyro.poutine as poutine
 
-from berp.generators import RRDataset
 from berp.generators import thresholded_recognition as generator
 from berp.models import reindexing_regression as rr
 from berp.typing import is_log_probability, DIMS
@@ -40,30 +39,6 @@ Alice had no idea what Latitude was, or Longitude either, but thought they were 
     return sentences[:2]  # DEV
 
 
-def build_model(d: generator.RRDataset):
-    # hacky: re-call get_parameters so that we get the conditioned parameter values
-    params = get_parameters()
-
-    p_word_posterior = rr.predictive_model(d.p_word,
-                                           d.candidate_phonemes,
-                                           params.confusion,
-                                           params.lambda_)
-    rec = rr.recognition_point_model(p_word_posterior,
-                                     d.word_lengths,
-                                     params.threshold)
-    response = rr.epoched_response_model(X=d.X_epoch,
-                                         coef=params.coef,
-                                         recognition_points=rec,
-                                         phoneme_onsets=d.phoneme_onsets,
-                                         Y=d.Y_epoch,
-                                         a=d.params.a, b=d.params.b,
-                                         sigma=torch.tensor(1.),
-                                         sample_rate=d.sample_rate,
-                                         epoch_window=d.epoch_window)
-
-    return response
-
-
 def get_parameters():
     # Sample model parameters.
     coef_mean = torch.tensor([1., -1.])
@@ -78,13 +53,13 @@ def get_parameters():
     )
 
 
-def fit(dataset: RRDataset):
-    nuts_kernel = NUTS(build_model)
+def fit(dataset: rr.RRDataset):
+    nuts_kernel = NUTS(rr.model_for_dataset)
     mcmc = MCMC(nuts_kernel,
                 num_samples=400,
                 warmup_steps=100,
                 num_chains=4)
-    mcmc.run(dataset)
+    mcmc.run(dataset, get_parameters)
 
     mcmc.summary(prob=0.8)
 

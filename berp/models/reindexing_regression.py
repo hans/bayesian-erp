@@ -3,7 +3,7 @@ Defines a simple three-parameter latent-onset model. Latent onset indices
 are a deterministic function of data and these three parameters.
 """
 
-from typing import NamedTuple, Tuple
+from typing import NamedTuple, Tuple, Callable, List, Optional
 
 from icecream import ic
 import numpy as np
@@ -30,6 +30,82 @@ class ModelParameters(NamedTuple):
     a: TensorType[float]
     b: TensorType[float]
     coef: TensorType[N_F, float]
+
+
+class RRDataset(NamedTuple):
+    """
+    Defines an epoched dataset for reindexing regression, generated with the given
+    ground-truth parameters ``params``.
+
+    Each element on the batch axis corresponds to a single word within a single
+    item.
+
+    All tensors are padded on the N_P axis on the right to the maximum word length.
+    """
+
+    params: ModelParameters
+    sample_rate: int
+    epoch_window: Tuple[float, float]
+
+    phonemes: List[str]
+    """
+    Phoneme vocabulary.
+    """
+
+    p_word: TensorType[B, N_C, is_log_probability]
+    """
+    Predictive distribution over expected candidate words at each time step,
+    derived from a language model.
+    """
+
+    word_lengths: TensorType[B, int]
+    """
+    Length of ground-truth words in phonemes. Can be used to unpack padded
+    ``N_P`` axes.
+    """
+
+    candidate_phonemes: TensorType[B, N_C, N_P, int]
+    """
+    Phoneme ID sequence for each word and alternate candidate set.
+    """
+
+    word_onsets: TensorType[B, float]
+    """
+    Onset of each word in seconds, relative to the start of the sequence.
+    """
+
+    phoneme_onsets: TensorType[B, N_P, float]
+    """
+    Onset of each phoneme within each word in seconds, relative to the start of
+    the corresponding word.
+    """
+
+    X_epoch: TensorType[B, N_F, float]
+    """
+    Epoch features.
+    """
+
+    Y_epoch: TensorType[B, T, S, float]
+    """
+    Epoched response data (raw; not baselined).
+    """
+
+    Y: Optional[TensorType[..., S, float]] = None
+    """
+    Original response data stream.
+    """
+
+    recognition_points: Optional[TensorType[B, int]] = None
+    """
+    Ground-truth recognition points (phoneme indices) for each word.
+    Useful for debugging.
+    """
+
+    recognition_onsets: Optional[TensorType[B, float]] = None
+    """
+    Ground-truth recognition onset (seconds, relative to word onset) for each
+    word. Useful for debugging.
+    """
 
 
 @typechecked
@@ -173,6 +249,57 @@ def epoched_response_model(X: TensorType[B, N_F, float],
     # print("q", q)
     return pyro.sample("q", dist.Normal(q_pred, sigma),
                        obs=q)
+
+
+@typechecked
+def model(params: ModelParameters,
+          p_word: TensorType[B, N_C, is_log_probability],
+          candidate_phonemes: TensorType[B, N_C, N_P, int],
+          phoneme_onsets: TensorType[B, "n_gt_phonemes", float],
+          word_lengths: TensorType[B, int],
+          
+          X_epoched: TensorType[B, N_F, float],
+          Y_epoched: TensorType[B, T, S, float],
+
+          sample_rate: int,
+          epoch_window: Tuple[float, float],
+          ) -> ...:
+    """
+    Execute full forward model.
+    """
+    p_word_posterior = predictive_model(
+        p_word, candidate_phonemes,
+        params.confusion, params.lambda_)
+    rec = recognition_point_model(
+        p_word_posterior, word_lengths,
+        params.threshold)
+    response = epoched_response_model(
+        X=X_epoched,
+        coef=params.coef,
+        recognition_points=rec,
+        phoneme_onsets=phoneme_onsets,
+        Y=Y_epoched,
+        a=params.a, b=params.b,
+        sigma=torch.tensor(1.),
+        sample_rate=sample_rate,
+        epoch_window=epoch_window)
+
+
+def model_for_dataset(dataset: RRDataset,
+                      parameters: Callable[[], ModelParameters]):
+    params = parameters()
+    return model(
+        params=params,
+        p_word=dataset.p_word,
+        candidate_phonemes=dataset.candidate_phonemes,
+        phoneme_onsets=dataset.phoneme_onsets,
+        word_lengths=dataset.word_lengths,
+
+        X_epoched=dataset.X_epoch,
+        Y_epoched=dataset.Y_epoch,
+
+        sample_rate=dataset.sample_rate,
+        epoch_window=dataset.epoch_window)
 
 
 if __name__ == "__main__":

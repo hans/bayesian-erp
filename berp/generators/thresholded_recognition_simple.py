@@ -7,7 +7,6 @@ from torch.nn.functional import pad
 from tqdm.notebook import tqdm
 from typeguard import typechecked
 
-from berp.generators import RRDataset
 from berp.models import reindexing_regression as rr
 from berp.typing import DIMS, is_log_probability
 from berp.util import sample_to_time, time_to_sample
@@ -42,7 +41,7 @@ def sample_dataset(params: rr.ModelParameters,
                    word_delay_range: Tuple[float, float] = (0.01, 0.1),
                    word_surprisal_params: Tuple[float, float] = (1., 0.5),
                    epoch_window: Tuple[float, float] = (-0.1, 1.0),
-                   ) -> RRDataset:
+                   ) -> rr.RRDataset:
     word_lengths = torch.tensor([num_phonemes for _ in range(num_words)])
 
     phoneme_onsets = rand_unif(*phon_delay_range, num_words, num_phonemes)
@@ -116,7 +115,7 @@ def sample_dataset(params: rr.ModelParameters,
 
         Y_epoch[i, :, :] = val
 
-    return RRDataset(
+    return rr.RRDataset(
         params=params,
         sample_rate=sample_rate,
         epoch_window=epoch_window,
