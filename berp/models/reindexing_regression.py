@@ -30,6 +30,7 @@ class ModelParameters(NamedTuple):
     a: TensorType[float]
     b: TensorType[float]
     coef: TensorType[N_F, float]
+    sigma: TensorType[float]
 
 
 class RRDataset(NamedTuple):
@@ -280,7 +281,7 @@ def model(params: ModelParameters,
         phoneme_onsets=phoneme_onsets,
         Y=Y_epoched,
         a=params.a, b=params.b,
-        sigma=torch.tensor(1.),
+        sigma=params.sigma,
         sample_rate=sample_rate,
         epoch_window=epoch_window)
 

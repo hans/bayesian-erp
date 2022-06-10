@@ -502,7 +502,8 @@ def sample_raw_dataset(sentences: List[str],
             # these response parameters. Best guesses at ideal model.
             a=torch.tensor(0.4),
             b=torch.tensor(0.2),
-            coef=torch.tensor([1., -1.])
+            coef=torch.tensor([1., -1.]),
+            sigma=torch.tensor(0.1),
         )
 
     ret_X_word, ret_X_phon, ret_y = [], [], []
@@ -648,10 +649,11 @@ def preprocess_dataset(dataset: RawDataset, epoch_window: Tuple[float, float]
     )
 
 
-def sample_dataset(epoch_window: Tuple[float, float] = (-0.1, 1.0),
+def sample_dataset(sentences: List[str],
+                   epoch_window: Tuple[float, float] = (-0.1, 1.0),
                    *args, **kwargs
                    ) -> RRDataset:
-    raw = sample_raw_dataset(*args, **kwargs)
+    raw = sample_raw_dataset(sentences, *args, **kwargs)
     return preprocess_dataset(raw, epoch_window)
 
 
