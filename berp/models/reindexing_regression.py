@@ -247,9 +247,21 @@ def epoched_response_model(X: TensorType[B, N_F, float],
     q = q.squeeze()
 
     q_pred = torch.matmul(X, coef)
-    # print("q_pred", q_pred)
-    # print("q", q)
-    return pyro.sample("q", dist.Normal(q_pred, sigma),
+    # print("q_pred", q_pred[:5])
+    # print("q", q[:5])
+
+    # HACK: Drop regression outliers.
+    # Ideally we'd 1) have a more robust regression or 2) account for correlations between
+    # items.
+    resids = (q - q_pred) ** 2
+    q95 = torch.quantile(resids, 0.95)
+    outlier_mask = resids > q95
+    # Effectively drop outliers from probability estimate by assigning a high
+    # predictive variance.
+    sigma_vec = torch.ones_like(q) * sigma
+    sigma_vec[outlier_mask] = 100.
+
+    return pyro.sample("q", dist.Normal(q_pred, sigma_vec),
                        obs=q)
 
 
@@ -268,6 +280,7 @@ def model(params: ModelParameters,
     """
     Execute full forward model.
     """
+    print("--", params.threshold, params.coef)
     p_word_posterior = predictive_model(
         p_word, candidate_phonemes,
         params.confusion, params.lambda_)

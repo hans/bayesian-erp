@@ -105,7 +105,9 @@ def _run_soundness_check(conditions, background_condition,
     Verify that the probability of the ground truth data is greatest under the
     generating parameters (compared to perturbations thereof).
     """
+
     condition_logprobs = []
+    condition_traces = []
     test_keys = set(key for condition_dict in conditions
                     for key in condition_dict.keys())
     for condition in conditions:
@@ -116,7 +118,9 @@ def _run_soundness_check(conditions, background_condition,
 
         if log_joint.isinf():
             raise RuntimeError(str(condition))
+        
         condition_logprobs.append(log_joint)
+        condition_traces.append(trace)
 
     # Renormalize+exponentiate.
     from pprint import pprint
@@ -139,12 +143,14 @@ def _run_soundness_check(conditions, background_condition,
         assert torch.equal(map_result[test_key], gt_result[test_key]), \
             f"Ground truth parameter is the MAP choice ({test_key})"
 
+    return result, condition_traces
+
 
 @pytest.mark.parametrize("dataset_fixture", ["soundness_dataset1", "soundness_dataset2"])
 def test_soundness_threshold(request, dataset_fixture):
     dataset, parameters = request.getfixturevalue(dataset_fixture)
 
-    background_condition = {"coef": torch.tensor([1., -1])}
+    background_condition = {"coef": dataset.params.coef}
 
     gt_condition = {"threshold": dataset.params.threshold}
     alt_conditions = [{"threshold": x}

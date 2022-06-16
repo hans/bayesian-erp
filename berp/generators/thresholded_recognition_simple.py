@@ -88,7 +88,7 @@ def sample_dataset(params: rr.ModelParameters,
 
     # Sample a standardized response, which will be scaled by per-word surprisal.
     # TODO check that window size is sufficient to cover this
-    window_std = params.b / 2
+    window_std = params.b  # NB this means there's nontrivial response outside of b window.
     window_center = params.a + window_std / 2
     unit_response_xs, unit_response_ys = gaussian_window(window_center.item(), window_std.item(),
                                                          sample_rate=sample_rate)
