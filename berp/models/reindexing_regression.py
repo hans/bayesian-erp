@@ -280,7 +280,6 @@ def model(params: ModelParameters,
     """
     Execute full forward model.
     """
-    print("--", params.threshold, params.coef)
     p_word_posterior = predictive_model(
         p_word, candidate_phonemes,
         params.confusion, params.lambda_)
