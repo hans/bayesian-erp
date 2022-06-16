@@ -24,7 +24,7 @@ def get_parameters():
         confusion=generator.phoneme_confusion,
         threshold=pyro.deterministic("threshold", torch.tensor(0.7)),
         a=torch.tensor(0.4),
-        b=torch.tensor(0.05),
+        b=torch.tensor(0.1),
         coef=pyro.deterministic("coef", coef_mean),
         sigma=torch.tensor(0.1),
     )
@@ -46,8 +46,8 @@ def get_parameters2():
 
 
 @pytest.fixture(scope="session")
-def soundness_dataset():
-    return (generator.sample_dataset(get_parameters(), num_words=50),
+def soundness_dataset1():
+    return (generator.sample_dataset(get_parameters(), num_words=200),
             get_parameters)
 
 
@@ -140,7 +140,7 @@ def _run_soundness_check(conditions, background_condition,
             f"Ground truth parameter is the MAP choice ({test_key})"
 
 
-@pytest.mark.parametrize("dataset_fixture", ["soundness_dataset", "soundness_dataset2"])
+@pytest.mark.parametrize("dataset_fixture", ["soundness_dataset1", "soundness_dataset2"])
 def test_soundness_threshold(request, dataset_fixture):
     dataset, parameters = request.getfixturevalue(dataset_fixture)
 
@@ -155,7 +155,7 @@ def test_soundness_threshold(request, dataset_fixture):
                          dataset, parameters)
 
 
-@pytest.mark.parametrize("dataset_fixture", ["soundness_dataset", "soundness_dataset2"])
+@pytest.mark.parametrize("dataset_fixture", ["soundness_dataset1", "soundness_dataset2"])
 def test_soundness_coef(request, dataset_fixture):
     dataset, parameters = request.getfixturevalue(dataset_fixture)
 
@@ -172,18 +172,19 @@ def test_soundness_coef(request, dataset_fixture):
                          dataset, parameters)
 
 
-def test_recognition_logic(soundness_dataset):
+def test_recognition_logic(soundness_dataset1):
     """
     For possible thresholds T2 > T1, inferred recognition points K2, K1 should
     obey K2 >= K1. Corresponding onsets O2 >= O1 as well.
     """
+    dataset, params = soundness_dataset1
 
-    t1 = soundness_dataset.params.threshold
-    t2 = np.sqrt(soundness_dataset.params.threshold)
+    t1 = dataset.params.threshold
+    t2 = np.sqrt(dataset.params.threshold)
     assert t2 > t1
 
-    trace_1 = model_forward(soundness_dataset, {"threshold": t1})
-    trace_2 = model_forward(soundness_dataset, {"threshold": t2})
+    trace_1 = model_forward(dataset, params, {"threshold": t1})
+    trace_2 = model_forward(dataset, params, {"threshold": t2})
 
     rec_1 = trace_1.nodes["recognition_point"]["value"]
     rec_2 = trace_2.nodes["recognition_point"]["value"]

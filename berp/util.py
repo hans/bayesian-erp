@@ -1,5 +1,7 @@
 from typing import Union, List, Tuple
 
+import numpy as np
+import scipy.signal
 import torch
 from torchtyping import TensorType
 from typeguard import typechecked
@@ -64,6 +66,45 @@ def variable_position_slice(x: torch.Tensor, idxs: torch.LongTensor,
     sliced = torch.gather(x, 1, slice_idxs)
 
     return sliced, mask
+
+
+def gaussian_window(center: float, width: float,\
+                    start: float = 0,
+                    end: float = 1,
+                    sample_rate=128):
+    """Gaussian window :class:`NDVar`
+    Parameters
+    ----------
+    center : scalar
+        Center of the window (normalized to the closest sample on ``time``).
+    width : scalar
+        Standard deviation of the window.
+    time : UTS
+        Time dimension.
+    Returns
+    -------
+    gaussian : NDVar
+        Gaussian window on ``time``.
+    """
+
+    n_samples = int((end - start) * sample_rate) + 1
+    times, step_size = np.linspace(start, end, n_samples, retstep=True, endpoint=True)
+    width_i = int(round(width / step_size))
+    n_times = len(times)
+    center_i = (center - start) // step_size
+
+    slice_start, slice_stop = None, None
+    if center_i >= n_times / 2:
+        slice_start = None
+        slice_stop = n_times
+        window_width = 2 * center_i + 1
+    else:
+        slice_start = -n_times
+        slice_stop = None
+        window_width = 2 * (n_times - center_i) - 1
+    window_data = scipy.signal.windows.gaussian(window_width, width_i)
+    window_data = window_data[slice_start: slice_stop]
+    return times, window_data
 
 
 # # TODO untested

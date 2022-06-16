@@ -9,7 +9,7 @@ from typeguard import typechecked
 
 from berp.models import reindexing_regression as rr
 from berp.typing import DIMS, is_log_probability
-from berp.util import sample_to_time, time_to_sample
+from berp.util import sample_to_time, time_to_sample, gaussian_window
 
 PHONEMES = np.array(list("abcdefghijklmnop_"))
 phoneme2idx = {p: idx for idx, p in enumerate(PHONEMES)}
@@ -86,13 +86,22 @@ def sample_dataset(params: rr.ModelParameters,
     t_max = phoneme_onsets_global[-1, -1] + (epoch_window[1] - epoch_window[0])
     Y = torch.zeros(int(np.ceil(t_max * sample_rate)), num_sensors)
 
+    # Sample a standardized response, which will be scaled by per-word surprisal.
+    # TODO check that window size is sufficient to cover this
+    window_std = params.b / 2
+    window_center = params.a + window_std / 2
+    unit_response_xs, unit_response_ys = gaussian_window(window_center.item(), window_std.item(),
+                                                         sample_rate=sample_rate)
+    response_width = len(unit_response_xs)
+    unit_response_ys = torch.tensor(unit_response_ys).view(-1, 1).tile((1, num_sensors))
+
     # Add delta response after each recognition onset.
-    response_delay = time_to_sample(params.a, sample_rate)
-    response_width = time_to_sample(params.b, sample_rate)
+    # response_delay = time_to_sample(params.a, sample_rate)
+    # response_width = time_to_sample(params.b, sample_rate)
     for word_surp, rec_onset_samp in zip(word_surprisals, recognition_onsets_samp):
-        start_idx = rec_onset_samp + response_delay
-        end_idx = rec_onset_samp + response_delay + response_width
-        Y[start_idx:end_idx] += params.coef[1] * word_surp
+        start_idx = rec_onset_samp
+        end_idx = start_idx + response_width
+        Y[start_idx:end_idx] += params.coef[1] * word_surp * unit_response_ys
 
     #############
     # Run epoching.
