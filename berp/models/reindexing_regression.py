@@ -184,6 +184,7 @@ def recognition_point_model(p_word_posterior: TensorType[B, N_P, is_probability]
     # point the n+1 th phoneme in our representation.
     valid_point = passes_threshold.any(dim=1).int()
     rec_point = valid_point * rec_point + (1 - valid_point) * (word_lengths - 1)
+    # print("recognition_pct", rec_point / word_lengths)
 
     # Don't allow recognition point to go past final ground-truth phoneme.
     rec_point = pyro.deterministic("recognition_point",
@@ -252,7 +253,6 @@ def epoched_response_model(X: TensorType[B, N_F, float],
                        obs=q)
 
 
-@typechecked
 def model(params: ModelParameters,
           p_word: TensorType[B, N_C, is_log_probability],
           candidate_phonemes: TensorType[B, N_C, N_P, int],
@@ -284,6 +284,8 @@ def model(params: ModelParameters,
         sigma=params.sigma,
         sample_rate=sample_rate,
         epoch_window=epoch_window)
+
+    return response
 
 
 def model_for_dataset(dataset: RRDataset,
