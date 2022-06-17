@@ -10,7 +10,7 @@ import pyro.distributions as dist
 from pyro.infer import MCMC, NUTS, EmpiricalMarginal, TracePosterior
 
 from berp.generators import thresholded_recognition_simple as generator
-from berp.infer import Importance
+import berp.infer
 from berp.models import reindexing_regression as rr
 
 
@@ -108,41 +108,20 @@ def fit_map(dataset: rr.RRDataset):
     print(pyro.param("threshold"))
 
 
-def evaluate_sliced_tp(tp: TracePosterior, sample_points: List[int]) -> List[Tuple[int, float]]:
-    if tp.num_chains > 1:
-        raise NotImplementedError()
-
-    assert sorted(sample_points) == sample_points
-    ret = []
-    for sample_point in sample_points[::-1]:
-        # Slice TP to the given sample point.
-        tp.log_weights = tp.log_weights[:sample_point]
-        tp.exec_traces = tp.exec_traces[:sample_point]
-        tp.chain_ids = tp.chain_ids[:sample_point]
-
-        ret.append((sample_point, EmpiricalMarginal(tp).mean))
-
-    return ret
-
-
 def fit_importance(dataset: rr.RRDataset):
-    def model(**kwargs):
+    def model():
         result = rr.model_wrapped(get_parameters, dataset)
         return result.params.threshold
 
-    importance = Importance(model, num_samples=5000)
-    emp_marginal = EmpiricalMarginal(importance.run())
-
-    print(emp_marginal.mean)
+    importance, slice_means = berp.infer.fit_importance(
+        model, guide=None, num_samples=5000)
 
     # Evaluate parameter estimate on a sliding window of samples to
     # understand how many samples we actually needed.
-    sample_points = np.linspace(1, importance.num_samples, 10).round().astype(int)
-    slice_means = evaluate_sliced_tp(importance, sample_points.tolist())
     from pprint import pprint
     pprint(slice_means)
 
-    return importance, emp_marginal
+    return importance
 
 
 def main(args):
