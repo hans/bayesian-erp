@@ -12,6 +12,7 @@ from pyro.infer import MCMC, NUTS
 import pyro.poutine as poutine
 
 from berp.generators import thresholded_recognition as generator
+import berp.infer
 from berp.models import reindexing_regression as rr
 from berp.typing import is_log_probability, DIMS
 
@@ -76,6 +77,23 @@ def fit(dataset: rr.RRDataset):
     mcmc.summary(prob=0.8)
 
 
+def fit_importance(dataset: rr.RRDataset):
+    def model():
+        result = rr.model_wrapped(get_parameters, dataset)
+        return result.params.threshold
+
+    importance, slice_means = berp.infer.fit_importance(
+        model, guide=None, num_samples=5000
+    )
+
+    # Evaluate parameter estimate on a sliding window of samples to
+    # understand how many samples we actually needed.
+    from pprint import pprint
+    pprint(slice_means)
+
+    return importance
+
+
 
 def main(args):
     epoch_window = (-0.1, 2.5)
@@ -86,12 +104,14 @@ def main(args):
 
     if args.mode == "fit":
         fit(dataset)
+    elif args.mode == "fit_importance":
+        fit_importance(dataset)
 
 
 if __name__ == "__main__":
     p = ArgumentParser()
 
-    p.add_argument("-m", "--mode", choices=["fit"],
+    p.add_argument("-m", "--mode", choices=["fit", "fit_importance"],
                    default="fit")
 
     main(p.parse_args())
