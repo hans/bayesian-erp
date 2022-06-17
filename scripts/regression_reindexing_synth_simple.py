@@ -1,9 +1,5 @@
 from argparse import ArgumentParser
-from copy import deepcopy
-import re
 from typing import List, Tuple, NamedTuple, Callable
-
-from typeguard import typechecked
 
 import numpy as np
 import torch
@@ -12,12 +8,10 @@ from torch.nn.functional import pad
 import pyro
 import pyro.distributions as dist
 from pyro.infer import MCMC, NUTS, EmpiricalMarginal, TracePosterior
-import pyro.poutine as poutine
 
 from berp.generators import thresholded_recognition_simple as generator
 from berp.infer import Importance
 from berp.models import reindexing_regression as rr
-from berp.typing import is_log_probability, DIMS
 
 
 def get_parameters():
