@@ -209,7 +209,7 @@ def epoched_response_model(X: TensorType[B, N_F, float],
     """
     Computes the distribution over observable response to word $w_j$
 
-        $$q ~ P(Y_j \mid k_j, w_j)$$
+        $$q ~ P(Y_j \\mid k_j, w_j)$$
 
     Args:
         X: word-level features describing each word
@@ -315,36 +315,3 @@ def model_for_dataset(dataset: RRDataset,
 
         sample_rate=dataset.sample_rate,
         epoch_window=dataset.epoch_window)
-
-
-if __name__ == "__main__":
-    batch = 5
-    n_c = 10
-    n_p = 4
-    v_p = 7
-
-    t = 100
-    s = 2
-
-    confusion = torch.rand(v_p, v_p)
-    confusion /= confusion.sum(dim=1)
-
-    p_word = torch.rand(batch, n_c)
-    p_word /= p_word.sum(dim=1, keepdim=True)
-    p_word_ground_truth = p_word[:, 0]
-
-    phonemes = torch.randint(0, v_p, (batch, n_c, n_p))
-    phoneme_onsets = torch.rand(batch, n_p).cumsum(dim=1)
-
-    lambda_ = torch.tensor(1.)
-    threshold = torch.tensor(0.15)
-
-    Y = torch.rand(batch, t, s)
-    sample_rate = torch.tensor(32)
-
-    a = torch.tensor(0.1)
-    b = torch.tensor(0.2)
-
-    p_word_posterior = predictive_model(p_word.log(), phonemes, confusion, lambda_)
-    rec = recognition_point_model(p_word_posterior, threshold)
-    epoched_response_model(rec, phoneme_onsets, Y, a, b, sample_rate)

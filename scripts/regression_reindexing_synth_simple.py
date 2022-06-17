@@ -54,7 +54,8 @@ def get_parameters_mle():
         lambda_=torch.tensor(1.0),
         confusion=generator.phoneme_confusion,
         threshold=pyro.param("threshold",
-                             torch.tensor(0.5), constraint=constraints.unit_interval),
+                             torch.tensor(0.5),
+                             constraint=constraints.unit_interval),  # type: ignore
         a=torch.tensor(0.4),
         b=torch.tensor(0.1),
         coef=pyro.deterministic("coef", coef_mean),  # pyro.sample("coef", dist.Normal(coef_mean, coef_sigma)),
@@ -80,7 +81,7 @@ def fit(dataset: rr.RRDataset):
 def fit_map(dataset: rr.RRDataset):
     from pyro.infer import SVI, Trace_ELBO
     from pyro.infer.autoguide import AutoDelta
-    from pyro.optim import Adam
+    from pyro.optim import Adam  # type: ignore
     # autoguide = AutoDelta(model)
 
     kwargs = dict(
@@ -148,7 +149,7 @@ def fit_importance(dataset: rr.RRDataset):
 
         return params.threshold
 
-    importance = Importance(model, num_samples=200)
+    importance = Importance(model, num_samples=5000)
     emp_marginal = EmpiricalMarginal(importance.run(**kwargs))
 
     print(emp_marginal.mean)

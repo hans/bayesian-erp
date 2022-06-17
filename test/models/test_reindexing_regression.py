@@ -87,7 +87,7 @@ def trace_conditional(conditioning: Dict, *args, **kwargs):
     Evaluate model trace for given conditioning set.
     """
     conditioned_model = poutine.condition(rr.model_for_dataset, conditioning)
-    return poutine.trace(conditioned_model).get_trace(*args, **kwargs)
+    return poutine.trace(conditioned_model).get_trace(*args, **kwargs)  # type: ignore
 
 
 def model_forward(dataset, parameters, conditioning=None):
