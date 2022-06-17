@@ -130,7 +130,7 @@ def fit_importance(dataset: rr.RRDataset):
         result = rr.model_wrapped(get_parameters, dataset)
         return result.params.threshold
 
-    importance = Importance(model, num_samples=200)
+    importance = Importance(model, num_samples=5000)
     emp_marginal = EmpiricalMarginal(importance.run())
 
     print(emp_marginal.mean)
