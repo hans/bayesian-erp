@@ -113,14 +113,19 @@ def fit_map(dataset: rr.RRDataset):
     print(pyro.param("threshold"))
 
 
-def slice_trace_posterior(tp: TracePosterior, num_samples: int) -> TracePosterior:
+def evaluate_sliced_tp(tp: TracePosterior, sample_points: List[int]) -> List[Tuple[int, float]]:
     if tp.num_chains > 1:
         raise NotImplementedError()
 
-    ret = deepcopy(tp)
-    ret.log_weights = ret.log_weights[:num_samples]
-    ret.exec_traces = ret.exec_traces[:num_samples]
-    ret.chain_ids = ret.chain_ids[:num_samples]
+    assert sorted(sample_points) == sample_points
+    ret = []
+    for sample_point in sample_points[::-1]:
+        # Slice TP to the given sample point.
+        tp.log_weights = tp.log_weights[:sample_point]
+        tp.exec_traces = tp.exec_traces[:sample_point]
+        tp.chain_ids = tp.chain_ids[:sample_point]
+
+        ret.append((sample_point, EmpiricalMarginal(tp).mean))
 
     return ret
 
@@ -143,7 +148,7 @@ def fit_importance(dataset: rr.RRDataset):
 
         return params.threshold
 
-    importance = Importance(model, num_samples=5000)
+    importance = Importance(model, num_samples=200)
     emp_marginal = EmpiricalMarginal(importance.run(**kwargs))
 
     print(emp_marginal.mean)
@@ -151,10 +156,9 @@ def fit_importance(dataset: rr.RRDataset):
     # Evaluate parameter estimate on a sliding window of samples to
     # understand how many samples we actually needed.
     sample_points = np.linspace(1, importance.num_samples, 10).round().astype(int)
-    for num_samples in sample_points:
-        im_sliced = slice_trace_posterior(importance, num_samples)
-        emp_marginal_sliced = EmpiricalMarginal(im_sliced)
-        print(num_samples, emp_marginal_sliced.mean)
+    slice_means = evaluate_sliced_tp(importance, sample_points.tolist())
+    from pprint import pprint
+    pprint(slice_means)
 
     return importance, emp_marginal
 
