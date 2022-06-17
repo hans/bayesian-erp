@@ -28,7 +28,7 @@ def get_parameters():
         a=torch.tensor(0.4),
         b=torch.tensor(0.1),
         coef=pyro.deterministic("coef", coef_mean),  # pyro.sample("coef", dist.Normal(coef_mean, coef_sigma)),
-        sigma=torch.tensor(0.1),
+        sigma=torch.tensor(1.0),
     )
 
 
