@@ -41,6 +41,7 @@ def sample_dataset(params: rr.ModelParameters,
                    word_delay_range: Tuple[float, float] = (0.01, 0.1),
                    word_surprisal_params: Tuple[float, float] = (1., 0.5),
                    epoch_window: Tuple[float, float] = (-0.1, 1.0),
+                   noise_params: Tuple[float, float] = (0., 0.5),
                    ) -> rr.RRDataset:
     word_lengths = torch.tensor([num_phonemes for _ in range(num_words)])
 
@@ -84,7 +85,8 @@ def sample_dataset(params: rr.ModelParameters,
 
     # Generate continuous signal stream.
     t_max = phoneme_onsets_global[-1, -1] + (epoch_window[1] - epoch_window[0])
-    Y = torch.zeros(int(np.ceil(t_max * sample_rate)), num_sensors)
+    Y = torch.normal(*noise_params,
+                     size=(int(np.ceil(t_max * sample_rate)), num_sensors))
 
     # Sample a standardized response, which will be scaled by per-word surprisal.
     # TODO check that window size is sufficient to cover this
