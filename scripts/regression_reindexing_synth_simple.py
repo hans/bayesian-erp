@@ -60,14 +60,14 @@ def get_parameters_mle():
 
 def fit(dataset: rr.RRDataset):
     from pyro.infer import HMC
-    kernel = HMC(rr.model_for_dataset, step_size=1.)
+    kernel = HMC(rr.model_wrapped, step_size=1.)
     # kernel = NUTS(rr.model_for_dataset)
     mcmc = MCMC(kernel,
                 num_samples=50,
                 warmup_steps=50,
                 num_chains=1)
 
-    mcmc.run(dataset, get_parameters)
+    mcmc.run(get_parameters, dataset)
 
     mcmc.summary()
 
@@ -126,25 +126,12 @@ def evaluate_sliced_tp(tp: TracePosterior, sample_points: List[int]) -> List[Tup
 
 
 def fit_importance(dataset: rr.RRDataset):
-    kwargs = dict(
-        p_word=dataset.p_word,
-        candidate_phonemes=dataset.candidate_phonemes,
-        phoneme_onsets=dataset.phoneme_onsets,
-        word_lengths=dataset.word_lengths,
-        X_epoched=dataset.X_epoch,
-        Y_epoched=dataset.Y_epoch,
-        sample_rate=dataset.sample_rate,
-        epoch_window=dataset.epoch_window,
-    )
-
     def model(**kwargs):
-        params = get_parameters()
-        rr.model(params=params, **kwargs)
+        result = rr.model_wrapped(get_parameters, dataset)
+        return result.params.threshold
 
-        return params.threshold
-
-    importance = Importance(model, num_samples=5000)
-    emp_marginal = EmpiricalMarginal(importance.run(**kwargs))
+    importance = Importance(model, num_samples=200)
+    emp_marginal = EmpiricalMarginal(importance.run())
 
     print(emp_marginal.mean)
 

@@ -86,7 +86,7 @@ def trace_conditional(conditioning: Dict, *args, **kwargs):
     """
     Evaluate model trace for given conditioning set.
     """
-    conditioned_model = poutine.condition(rr.model_for_dataset, conditioning)
+    conditioned_model = poutine.condition(rr.model_wrapped, conditioning)
     return poutine.trace(conditioned_model).get_trace(*args, **kwargs)  # type: ignore
 
 
@@ -113,7 +113,7 @@ def _run_soundness_check(conditions, background_condition,
     for condition in conditions:
         condition.update(background_condition)
         print(condition)
-        trace = model_forward(dataset, parameters, condition)
+        trace = model_forward(parameters, dataset, condition)
         log_joint = trace.log_prob_sum()
 
         if log_joint.isinf():
@@ -189,8 +189,8 @@ def test_recognition_logic(soundness_dataset1):
     t2 = np.sqrt(dataset.params.threshold)
     assert t2 > t1
 
-    trace_1 = model_forward(dataset, params, {"threshold": t1})
-    trace_2 = model_forward(dataset, params, {"threshold": t2})
+    trace_1 = model_forward(params, dataset, {"threshold": t1})
+    trace_2 = model_forward(params, dataset, {"threshold": t2})
 
     rec_1 = trace_1.nodes["recognition_point"]["value"]
     rec_2 = trace_2.nodes["recognition_point"]["value"]

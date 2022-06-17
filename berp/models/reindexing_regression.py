@@ -109,6 +109,14 @@ class RRDataset(NamedTuple):
     """
 
 
+class RRResult(NamedTuple):
+
+    params: ModelParameters
+    dataset: RRDataset
+
+    response: TensorType[B, T, S, float]
+
+
 @typechecked
 def predictive_model(p_word: TensorType[B, N_C, is_log_probability],
                      phonemes: TensorType[B, N_C, N_P, int],
@@ -266,52 +274,38 @@ def epoched_response_model(X: TensorType[B, N_F, float],
 
 
 def model(params: ModelParameters,
-          p_word: TensorType[B, N_C, is_log_probability],
-          candidate_phonemes: TensorType[B, N_C, N_P, int],
-          phoneme_onsets: TensorType[B, "n_gt_phonemes", float],
-          word_lengths: TensorType[B, int],
-          
-          X_epoched: TensorType[B, N_F, float],
-          Y_epoched: TensorType[B, T, S, float],
-
-          sample_rate: int,
-          epoch_window: Tuple[float, float],
-          ) -> ...:
+          dataset: RRDataset) -> RRResult:
     """
     Execute full forward model.
     """
     p_word_posterior = predictive_model(
-        p_word, candidate_phonemes,
+        dataset.p_word, dataset.candidate_phonemes,
         params.confusion, params.lambda_)
     rec = recognition_point_model(
-        p_word_posterior, word_lengths,
+        p_word_posterior, dataset.word_lengths,
         params.threshold)
     response = epoched_response_model(
-        X=X_epoched,
+        X=dataset.X_epoch,
         coef=params.coef,
         recognition_points=rec,
-        phoneme_onsets=phoneme_onsets,
-        Y=Y_epoched,
+        phoneme_onsets=dataset.phoneme_onsets,
+        Y=dataset.Y_epoch,
         a=params.a, b=params.b,
         sigma=params.sigma,
-        sample_rate=sample_rate,
-        epoch_window=epoch_window)
-
-    return response
-
-
-def model_for_dataset(dataset: RRDataset,
-                      parameters: Callable[[], ModelParameters]):
-    params = parameters()
-    return model(
-        params=params,
-        p_word=dataset.p_word,
-        candidate_phonemes=dataset.candidate_phonemes,
-        phoneme_onsets=dataset.phoneme_onsets,
-        word_lengths=dataset.word_lengths,
-
-        X_epoched=dataset.X_epoch,
-        Y_epoched=dataset.Y_epoch,
-
         sample_rate=dataset.sample_rate,
         epoch_window=dataset.epoch_window)
+
+    return RRResult(
+        params=params,
+        dataset=dataset,
+        response=response
+    )
+
+
+def model_wrapped(params: Callable[[], ModelParameters],
+                  dataset: RRDataset) -> RRResult:
+    """
+    Execute full forward model, wrapped in a function that allows for
+    parameterization.
+    """
+    return model(params(), dataset)
