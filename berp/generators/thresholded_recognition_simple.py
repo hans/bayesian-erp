@@ -4,6 +4,7 @@ import numpy as np
 import pyro.distributions as dist
 import torch
 from torch.nn.functional import pad
+from torchtyping import TensorType
 from tqdm.notebook import tqdm
 from typeguard import typechecked
 
@@ -30,27 +31,36 @@ def rand_unif(low, high, *shape) -> torch.Tensor:
     return torch.rand(*shape) * (high - low) + low
 
 
+class Stimulus(NamedTuple):
+
+    word_lengths: TensorType[N_W, int]
+    phoneme_onsets: TensorType[N_W, N_P, float]
+    phoneme_onsets_global: TensorType[N_W, N_P, float]
+    word_onsets: TensorType[N_W, float]
+    word_surprisals: TensorType[N_W, float]
+    p_word: TensorType[N_W, N_C, float]
+    candidate_phonemes: TensorType[N_W, N_C, N_P, int]
+
+
 @typechecked
-def sample_dataset(params: rr.ModelParameters,
-                   num_words: int = 100,
+def sample_stimulus(num_words: int = 100,
                    num_candidates: int = 10,
                    num_phonemes: int = 5,
-                   num_sensors: int = 1,
-                   sample_rate: int = 128,
                    phon_delay_range: Tuple[float, float] = (0.04, 0.1),
                    word_delay_range: Tuple[float, float] = (0.01, 0.1),
                    word_surprisal_params: Tuple[float, float] = (1., 0.5),
-                   epoch_window: Tuple[float, float] = (-0.1, 1.0),
-                   noise_params: Tuple[float, float] = (0., 0.5),
-                   ) -> rr.RRDataset:
+                   first_onset=1.0,
+                   # TODO rm first_onset silliness
+                   ) -> Stimulus:
     word_lengths = torch.tensor([num_phonemes for _ in range(num_words)])
 
     phoneme_onsets = rand_unif(*phon_delay_range, num_words, num_phonemes)
     phoneme_onsets[:, 0] = 0.
     phoneme_onsets = phoneme_onsets.cumsum(1)
     word_delays = rand_unif(*word_delay_range, num_words)
-    word_onsets = (torch.cat([torch.tensor([0 - epoch_window[0]]),
-                              phoneme_onsets[1:, -1]]) + word_delays).cumsum(0)
+    word_onsets = (torch.cat([torch.tensor([first_onset]),
+                              first_onset + phoneme_onsets[1:, -1]])
+                              + word_delays).cumsum(0)
     # Make phoneme_onsets global (not relative to word onset).
     phoneme_onsets_global = phoneme_onsets + word_onsets.view(-1, 1)
 
@@ -67,24 +77,40 @@ def sample_dataset(params: rr.ModelParameters,
     candidate_phonemes = torch.randint(0, len(PHONEMES) - 2,
                                        (num_words, num_candidates, num_phonemes))
 
+    return Stimulus(word_lengths, phoneme_onsets, phoneme_onsets_global,
+                    word_onsets, word_surprisals, p_word, candidate_phonemes)
+
+
+@typechecked
+def sample_dataset(params: rr.ModelParameters,
+                   num_sensors: int = 1,
+                   sample_rate: int = 128,
+                   epoch_window: Tuple[float, float] = (-0.1, 1.0),
+                   noise_params: Tuple[float, float] = (0., 0.5),
+                   **stimulus_params,
+                   ) -> rr.RRDataset:
+    
+    stim = sample_stimulus(**stimulus_params)
+
     ############
 
-    p_word_posterior = rr.predictive_model(p_word, candidate_phonemes,
+    p_word_posterior = rr.predictive_model(stim.p_word, stim.candidate_phonemes,
                                            confusion=params.confusion,
                                            lambda_=params.lambda_)
     recognition_points = rr.recognition_point_model(p_word_posterior,
-                                                    word_lengths,
+                                                    stim.word_lengths,
                                                     threshold=params.threshold)
                                                     
     ############
 
     # Compute recognition onset, relative to word onset
-    recognition_onsets = torch.gather(phoneme_onsets, 1, recognition_points.unsqueeze(1)).squeeze(1)
+    recognition_onsets = torch.gather(stim.phoneme_onsets_global, 1,
+                                      recognition_points.unsqueeze(1)).squeeze(1)
     # Compute recognition onset as global index
-    recognition_onsets_samp = time_to_sample(word_onsets + recognition_onsets, sample_rate)
+    recognition_onsets_samp = time_to_sample(recognition_onsets, sample_rate)
 
     # Generate continuous signal stream.
-    t_max = phoneme_onsets_global[-1, -1] + (epoch_window[1] - epoch_window[0])
+    t_max = stim.phoneme_onsets_global[-1, -1] + (epoch_window[1] - epoch_window[0])
     Y = torch.normal(*noise_params,
                      size=(int(np.ceil(t_max * sample_rate)), num_sensors))
 
@@ -100,7 +126,7 @@ def sample_dataset(params: rr.ModelParameters,
     # Add delta response after each recognition onset.
     # response_delay = time_to_sample(params.a, sample_rate)
     # response_width = time_to_sample(params.b, sample_rate)
-    for word_surp, rec_onset_samp in zip(word_surprisals, recognition_onsets_samp):
+    for word_surp, rec_onset_samp in zip(stim.word_surprisals, recognition_onsets_samp):
         start_idx = rec_onset_samp
         end_idx = start_idx + response_width
         Y[start_idx:end_idx] += params.coef[1] * word_surp * unit_response_ys
@@ -110,9 +136,10 @@ def sample_dataset(params: rr.ModelParameters,
 
     epoch_tmin, epoch_tmax = torch.tensor(epoch_window)
     epoch_samples = time_to_sample(epoch_tmax - epoch_tmin, sample_rate)
-    X_epoch = torch.stack([torch.ones(num_words), word_surprisals], dim=1)
+    num_words = stim.word_lengths.shape[0]
+    X_epoch = torch.stack([torch.ones(num_words), stim.word_surprisals], dim=1)
     Y_epoch = torch.empty(num_words, epoch_samples, num_sensors)
-    for i, word_onset in enumerate(word_onsets):
+    for i, word_onset in enumerate(stim.word_onsets):
         start_idx = time_to_sample(word_onset + epoch_tmin, sample_rate)
         end_idx = time_to_sample(word_onset + epoch_tmax, sample_rate)
 
@@ -132,12 +159,12 @@ def sample_dataset(params: rr.ModelParameters,
         epoch_window=epoch_window,
         phonemes=PHONEMES.tolist(),
 
-        p_word=p_word,
-        word_lengths=word_lengths,
-        candidate_phonemes=candidate_phonemes,
+        p_word=stim.p_word,
+        word_lengths=stim.word_lengths,
+        candidate_phonemes=stim.candidate_phonemes,
 
-        word_onsets=word_onsets,
-        phoneme_onsets=phoneme_onsets,
+        word_onsets=stim.word_onsets,
+        phoneme_onsets=stim.phoneme_onsets,
 
         recognition_points=recognition_points,
         recognition_onsets=recognition_onsets,
