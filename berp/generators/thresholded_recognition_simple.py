@@ -104,10 +104,10 @@ def sample_dataset(params: rr.ModelParameters,
     ############
 
     # Compute recognition onset, relative to word onset
-    recognition_onsets = torch.gather(stim.phoneme_onsets_global, 1,
+    recognition_onsets = torch.gather(stim.phoneme_onsets, 1,
                                       recognition_points.unsqueeze(1)).squeeze(1)
     # Compute recognition onset as global index
-    recognition_onsets_samp = time_to_sample(recognition_onsets, sample_rate)
+    recognition_onsets_global_samp = time_to_sample(stim.word_onsets + recognition_onsets, sample_rate)
 
     # Generate continuous signal stream.
     t_max = stim.phoneme_onsets_global[-1, -1] + (epoch_window[1] - epoch_window[0])
@@ -126,7 +126,7 @@ def sample_dataset(params: rr.ModelParameters,
     # Add delta response after each recognition onset.
     # response_delay = time_to_sample(params.a, sample_rate)
     # response_width = time_to_sample(params.b, sample_rate)
-    for word_surp, rec_onset_samp in zip(stim.word_surprisals, recognition_onsets_samp):
+    for word_surp, rec_onset_samp in zip(stim.word_surprisals, recognition_onsets_global_samp):
         start_idx = rec_onset_samp
         end_idx = start_idx + response_width
         Y[start_idx:end_idx] += params.coef[1] * word_surp * unit_response_ys
