@@ -59,7 +59,8 @@ class RandomStimulusGenerator(StimulusGenerator):
 
     def __call__(self) -> Stimulus:
         word_lengths = 1 + dist.Binomial(self.num_phonemes - 1, 0.5) \
-            .sample((self.num_words,)).long()  # type: ignore
+            .sample((self.num_words, self.num_candidates)).long()  # type: ignore
+        gt_word_lengths = word_lengths[:, 0]
 
         candidate_phonemes = torch.randint(0, len(self.phonemes) - 2,
                                           (self.num_words,
@@ -68,8 +69,7 @@ class RandomStimulusGenerator(StimulusGenerator):
         # Use padding token when word length exceeded.
         # TODO can have candidates with different lengths
         pad_idx = self.phoneme2idx["_"]
-        pad_mask = (torch.arange(self.num_phonemes) >= word_lengths[:, None])[:, :, None] \
-            .transpose(1, 2).tile((1, self.num_candidates, 1))
+        pad_mask = (torch.arange(self.num_phonemes) >= word_lengths[:, :, None])
         candidate_phonemes[pad_mask] = pad_idx
 
         phoneme_onsets = rand_unif(*self.phon_delay_range, self.num_words, self.num_phonemes)
@@ -93,5 +93,5 @@ class RandomStimulusGenerator(StimulusGenerator):
         p_word = torch.cat([p_gt_word.view(-1, 1), p_candidates], dim=1) \
             .log()
 
-        return Stimulus(word_lengths, phoneme_onsets, phoneme_onsets_global,
+        return Stimulus(gt_word_lengths, phoneme_onsets, phoneme_onsets_global,
                         word_onsets, word_surprisals, p_word, candidate_phonemes)
