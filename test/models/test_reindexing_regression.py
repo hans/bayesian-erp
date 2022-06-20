@@ -10,6 +10,7 @@ from pyro import distributions as dist
 import pytest
 import torch
 
+from berp.generators import stimulus
 from berp.generators import thresholded_recognition_simple as generator
 from berp.generators import thresholded_recognition as generator2
 from berp.models import reindexing_regression as rr
@@ -47,9 +48,10 @@ def get_parameters2():
 
 @pytest.fixture(scope="session")
 def soundness_dataset1():
+    stim = stimulus.RandomStimulusGenerator(phoneme_voc_size=len(generator.phoneme2idx))
     dataset = generator.sample_dataset(
         get_parameters(),
-        stimulus_kwargs=dict(num_words=200))
+        stim)
     return (dataset, get_parameters)
 
 
