@@ -1,4 +1,6 @@
 from argparse import ArgumentParser
+from pathlib import Path
+import pickle
 import re
 from typing import List, Tuple, NamedTuple, Callable
 
@@ -98,9 +100,17 @@ def fit_importance(dataset: rr.RRDataset):
 def main(args):
     epoch_window = (-0.1, 2.5)
 
-    sentences = generate_sentences()
-    dataset = generator.sample_dataset(sentences=sentences,
-                                       epoch_window=epoch_window)
+    if args.dataset is not None and args.dataset.exists():
+        with args.dataset.open("rb") as f:
+            dataset = pickle.load(f)
+    else:
+        sentences = generate_sentences()
+        dataset = generator.sample_dataset(sentences,
+                                           epoch_window=epoch_window)
+
+        if args.dataset is not None:
+            with args.dataset.open("wb") as f:
+                pickle.dump(dataset, f)
 
     if args.mode == "fit":
         fit(dataset)
@@ -113,5 +123,6 @@ if __name__ == "__main__":
 
     p.add_argument("-m", "--mode", choices=["fit", "fit_importance"],
                    default="fit")
+    p.add_argument("-d", "--dataset", type=Path)
 
     main(p.parse_args())
