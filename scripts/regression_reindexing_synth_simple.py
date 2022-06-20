@@ -128,8 +128,8 @@ def main(args):
     epoch_window = (-0.1, 1.0)
 
     dataset = generator.sample_dataset(params=get_parameters(),
-                                       num_words=500,
-                                       epoch_window=epoch_window)
+                                       epoch_window=epoch_window,
+                                       stimulus_kwargs=dict(num_words=500,),)
     from pprint import pprint
     pprint(dataset.params)
 
