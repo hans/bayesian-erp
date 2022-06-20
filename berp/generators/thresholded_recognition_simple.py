@@ -8,6 +8,7 @@ from torchtyping import TensorType
 from tqdm.notebook import tqdm
 from typeguard import typechecked
 
+from berp.generators.stimulus import Stimulus, StimulusGenerator
 from berp.models import reindexing_regression as rr
 from berp.typing import DIMS, is_log_probability
 from berp.util import sample_to_time, time_to_sample, gaussian_window
@@ -25,67 +26,6 @@ phoneme_confusion /= phoneme_confusion.sum(dim=0, keepdim=True)
 # Type variables
 B, N_W, N_C, N_F, N_P, V_W = DIMS.B, DIMS.N_W, DIMS.N_C, DIMS.N_F, DIMS.N_P, DIMS.V_W
 T, S = DIMS.T, DIMS.S
-
-
-def rand_unif(low, high, *shape) -> torch.Tensor:
-    return torch.rand(*shape) * (high - low) + low
-
-
-class Stimulus(NamedTuple):
-
-    word_lengths: TensorType[N_W, int]
-    phoneme_onsets: TensorType[N_W, N_P, float]
-    phoneme_onsets_global: TensorType[N_W, N_P, float]
-    word_onsets: TensorType[N_W, float]
-    word_surprisals: TensorType[N_W, float]
-    p_word: TensorType[N_W, N_C, float]
-    candidate_phonemes: TensorType[N_W, N_C, N_P, int]
-
-
-@typechecked
-def sample_stimulus(num_words: int = 100,
-                    num_candidates: int = 10,
-                    num_phonemes: int = 5,
-                    phon_delay_range: Tuple[float, float] = (0.04, 0.1),
-                    word_delay_range: Tuple[float, float] = (0.01, 0.1),
-                    word_surprisal_params: Tuple[float, float] = (1., 0.5),
-                    first_onset=1.0,
-                    # TODO rm first_onset silliness
-                    ) -> Stimulus:
-
-    word_lengths = 1 + dist.Binomial(num_phonemes - 1, 0.5).sample((num_words,)).long()  # type: ignore
-
-    candidate_phonemes = torch.randint(0, len(PHONEMES) - 2,
-                                       (num_words, num_candidates, num_phonemes))
-    # Use padding token when word length exceeded.
-    # TODO can have candidates with different lengths
-    pad_idx = phoneme2idx["_"]
-    pad_mask = (torch.arange(num_phonemes) >= word_lengths[:, None])[:, :, None] \
-        .transpose(1, 2).tile((1, num_candidates, 1))
-    candidate_phonemes[pad_mask] = pad_idx
-
-    phoneme_onsets = rand_unif(*phon_delay_range, num_words, num_phonemes)
-    phoneme_onsets[:, 0] = 0.
-    phoneme_onsets = phoneme_onsets.cumsum(1)
-    word_delays = rand_unif(*word_delay_range, num_words)
-    word_onsets = (torch.cat([torch.tensor([first_onset]),
-                              first_onset + phoneme_onsets[1:, -1]])
-                              + word_delays).cumsum(0)
-    # Make phoneme_onsets global (not relative to word onset).
-    phoneme_onsets_global = phoneme_onsets + word_onsets.view(-1, 1)
-
-    word_surprisals: torch.Tensor = dist.LogNormal(*word_surprisal_params).sample((num_words,))  # type: ignore
-
-    # Calculate p_word using surprisal; allocate remainder randomly
-    p_gt_word = (-word_surprisals).exp()
-    remainder = 1 - p_gt_word
-    p_candidates = (remainder / (num_candidates - 1)).view(-1, 1) \
-        * torch.ones(num_words, num_candidates - 1)
-    p_word = torch.cat([p_gt_word.view(-1, 1), p_candidates], dim=1) \
-        .log()
-
-    return Stimulus(word_lengths, phoneme_onsets, phoneme_onsets_global,
-                    word_onsets, word_surprisals, p_word, candidate_phonemes)
 
 
 def response_model(stim: Stimulus,
@@ -128,14 +68,14 @@ def response_model(stim: Stimulus,
 
 @typechecked
 def sample_dataset(params: rr.ModelParameters,
+                   stimulus_generator: StimulusGenerator,
                    num_sensors: int = 1,
                    sample_rate: int = 128,
                    epoch_window: Tuple[float, float] = (-0.1, 1.0),
                    noise_params: Tuple[float, float] = (0., 0.5),
-                   stimulus_kwargs: Optional[Dict] = None,
                    ) -> rr.RRDataset:
     
-    stim = sample_stimulus(**(stimulus_kwargs or {}))
+    stim = stimulus_generator()
 
     ############
 
