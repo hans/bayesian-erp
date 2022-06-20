@@ -47,8 +47,10 @@ def get_parameters2():
 
 @pytest.fixture(scope="session")
 def soundness_dataset1():
-    return (generator.sample_dataset(get_parameters(), num_words=200),
-            get_parameters)
+    dataset = generator.sample_dataset(
+        get_parameters(),
+        stimulus_kwargs=dict(num_words=200))
+    return (dataset, get_parameters)
 
 
 @pytest.fixture(scope="session")

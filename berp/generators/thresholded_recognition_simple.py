@@ -1,4 +1,4 @@
-from typing import List, NamedTuple, Tuple
+from typing import List, NamedTuple, Tuple, Optional, Dict
 
 import numpy as np
 import pyro.distributions as dist
@@ -44,15 +44,25 @@ class Stimulus(NamedTuple):
 
 @typechecked
 def sample_stimulus(num_words: int = 100,
-                   num_candidates: int = 10,
-                   num_phonemes: int = 5,
-                   phon_delay_range: Tuple[float, float] = (0.04, 0.1),
-                   word_delay_range: Tuple[float, float] = (0.01, 0.1),
-                   word_surprisal_params: Tuple[float, float] = (1., 0.5),
-                   first_onset=1.0,
-                   # TODO rm first_onset silliness
-                   ) -> Stimulus:
-    word_lengths = torch.tensor([num_phonemes for _ in range(num_words)])
+                    num_candidates: int = 10,
+                    num_phonemes: int = 5,
+                    phon_delay_range: Tuple[float, float] = (0.04, 0.1),
+                    word_delay_range: Tuple[float, float] = (0.01, 0.1),
+                    word_surprisal_params: Tuple[float, float] = (1., 0.5),
+                    first_onset=1.0,
+                    # TODO rm first_onset silliness
+                    ) -> Stimulus:
+
+    word_lengths = 1 + dist.Binomial(num_phonemes - 1, 0.5).sample((num_words,)).long()  # type: ignore
+
+    candidate_phonemes = torch.randint(0, len(PHONEMES) - 2,
+                                       (num_words, num_candidates, num_phonemes))
+    # Use padding token when word length exceeded.
+    # TODO can have candidates with different lengths
+    pad_idx = phoneme2idx["_"]
+    pad_mask = (torch.arange(num_phonemes) >= word_lengths[:, None])[:, :, None] \
+        .transpose(1, 2).tile((1, num_candidates, 1))
+    candidate_phonemes[pad_mask] = pad_idx
 
     phoneme_onsets = rand_unif(*phon_delay_range, num_words, num_phonemes)
     phoneme_onsets[:, 0] = 0.
@@ -73,9 +83,6 @@ def sample_stimulus(num_words: int = 100,
         * torch.ones(num_words, num_candidates - 1)
     p_word = torch.cat([p_gt_word.view(-1, 1), p_candidates], dim=1) \
         .log()
-
-    candidate_phonemes = torch.randint(0, len(PHONEMES) - 2,
-                                       (num_words, num_candidates, num_phonemes))
 
     return Stimulus(word_lengths, phoneme_onsets, phoneme_onsets_global,
                     word_onsets, word_surprisals, p_word, candidate_phonemes)
@@ -125,10 +132,10 @@ def sample_dataset(params: rr.ModelParameters,
                    sample_rate: int = 128,
                    epoch_window: Tuple[float, float] = (-0.1, 1.0),
                    noise_params: Tuple[float, float] = (0., 0.5),
-                   **stimulus_params,
+                   stimulus_kwargs: Optional[Dict] = None,
                    ) -> rr.RRDataset:
     
-    stim = sample_stimulus(**stimulus_params)
+    stim = sample_stimulus(**(stimulus_kwargs or {}))
 
     ############
 
