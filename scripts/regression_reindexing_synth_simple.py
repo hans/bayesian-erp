@@ -9,6 +9,7 @@ import pyro
 import pyro.distributions as dist
 from pyro.infer import MCMC, NUTS, EmpiricalMarginal, TracePosterior
 
+from berp.generators import stimulus
 from berp.generators import thresholded_recognition_simple as generator
 import berp.infer
 from berp.models import reindexing_regression as rr
@@ -127,9 +128,12 @@ def fit_importance(dataset: rr.RRDataset):
 def main(args):
     epoch_window = (-0.1, 1.0)
 
-    dataset = generator.sample_dataset(params=get_parameters(),
-                                       epoch_window=epoch_window,
-                                       stimulus_kwargs=dict(num_words=500,),)
+    # TODO off by one with padding token? does this matter?
+    stim = stimulus.RandomStimulusGenerator(
+        phoneme_voc_size=len(generator.phoneme2idx))
+    dataset = generator.sample_dataset(get_parameters(),
+                                       stim,
+                                       epoch_window=epoch_window)
     from pprint import pprint
     pprint(dataset.params)
 
