@@ -1,4 +1,4 @@
-from typing import List, NamedTuple, Tuple, Optional, Dict
+from typing import List, NamedTuple, Tuple, Optional, Dict, Union, Callable
 
 import numpy as np
 import pyro.distributions as dist
@@ -68,7 +68,7 @@ def response_model(stim: Stimulus,
 
 @typechecked
 def sample_dataset(params: rr.ModelParameters,
-                   stimulus_generator: StimulusGenerator,
+                   stimulus_generator: Union[StimulusGenerator, Callable[[], Stimulus]],
                    num_sensors: int = 1,
                    sample_rate: int = 128,
                    epoch_window: Tuple[float, float] = (-0.1, 1.0),

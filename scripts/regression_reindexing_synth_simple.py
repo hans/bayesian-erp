@@ -129,8 +129,24 @@ def main(args):
     epoch_window = (-0.1, 1.0)
 
     # TODO off by one with padding token? does this matter?
-    stim = stimulus.RandomStimulusGenerator(
-        phoneme_voc_size=len(generator.phoneme2idx))
+
+    if args.stim == "random":
+        stim = stimulus.RandomStimulusGenerator(
+            phoneme_voc_size=len(generator.phoneme2idx))
+    elif args.stim == "sentences":
+        sentences = ["This is a test sentence.", "And a second test sentence."]
+        phonemes = list("abcdefghijklmnopqrstuvwxyz") + ["_"]
+        stim = stimulus.NaturalLanguageStimulusGenerator(
+            phonemes=phonemes,
+            hf_model="hf-internal-testing/tiny-xlm-roberta",
+            batch_size=2,  # DEV
+        )
+
+        from functools import partial
+        stim = partial(stim, sentences)
+    else:
+        raise ValueError("Unknown stimulus type: {}".format(args.stim))
+
     dataset = generator.sample_dataset(get_parameters(),
                                        stim,
                                        epoch_window=epoch_window)
@@ -150,5 +166,7 @@ if __name__ == "__main__":
 
     p.add_argument("-m", "--mode", choices=["fit", "fit_map", "fit_importance"],
                    default="fit")
+    p.add_argument("-s", "--stim", choices=["random", "sentences"],
+                   default="random")
 
     main(p.parse_args())
