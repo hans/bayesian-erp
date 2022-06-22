@@ -13,7 +13,7 @@ from berp.models import reindexing_regression as rr
 from berp.typing import DIMS, is_log_probability
 from berp.util import sample_to_time, time_to_sample, gaussian_window
 
-PHONEMES = np.array(list("abcdefghijklmnop_"))
+PHONEMES = np.array(list("abcdefghijklmnopqrstuvwxyz_"))
 phoneme2idx = {p: idx for idx, p in enumerate(PHONEMES)}
 def random_word(length):
     return np.random.choice(PHONEMES, size=length)
