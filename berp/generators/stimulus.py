@@ -280,7 +280,7 @@ class NaturalLanguageStimulusGenerator(StimulusGenerator):
             batches.append(batch)
 
         i = 0
-        word_lengths = torch.zeros(num_words, dtype=torch.int)
+        word_lengths = torch.zeros(num_words, dtype=torch.long)
         p_word = torch.zeros((num_words, self.num_candidates), dtype=torch.float)
         candidate_phonemes = torch.zeros((num_words, self.num_candidates, max_num_phonemes), dtype=torch.long)
         for batch in batches:
