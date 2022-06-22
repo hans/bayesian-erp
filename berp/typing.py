@@ -122,8 +122,20 @@ class ProperLogProbabilityDetail(LogProbabilityDetail):
     def tensor_repr(cls, t: torch.Tensor) -> str:
         return f"ProperLogProbabilityDetail({t})"
 
+class PositiveDetail(TensorDetail):
+    def check(self, t: torch.Tensor) -> bool:
+        return bool(constraints.positive.check(t).all())
+
+    def __repr__(self) -> str:
+        return "PositiveDetail"
+
+    @classmethod
+    def tensor_repr(cls, t: torch.Tensor) -> str:
+        return repr(t)
+
 is_probability = ProbabilityDetail()
 is_log_probability = LogProbabilityDetail()
+is_positive = PositiveDetail()
 
 Probability = TensorType[float, is_probability]
 LogProbability = TensorType[float, is_log_probability]

@@ -13,7 +13,7 @@ import torch
 from torchtyping import TensorType
 from typeguard import typechecked
 
-from berp.typing import Probability, is_probability, is_log_probability, DIMS
+from berp.typing import Probability, is_probability, is_log_probability, is_positive, DIMS
 from berp.util import sample_to_time, time_to_sample, variable_position_slice
 
 
@@ -175,7 +175,7 @@ def predictive_model(p_word: TensorType[B, N_C, is_log_probability],
 
 @typechecked
 def recognition_point_model(p_word_posterior: TensorType[B, N_P, is_probability],
-                            word_lengths: TensorType[B, torch.long],
+                            word_lengths: TensorType[B, torch.long, is_positive],
                             threshold: Probability
                             ) -> TensorType[B, int]:
     """
