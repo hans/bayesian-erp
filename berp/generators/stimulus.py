@@ -13,7 +13,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer  # type: ignore
 from transformers.tokenization_utils_base import BatchEncoding
 from tqdm.auto import tqdm
 
-from berp.typing import DIMS, is_probability
+from berp.typing import DIMS, is_probability, is_log_probability
 
 
 L = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ class Stimulus(NamedTuple):
     phoneme_onsets_global: TensorType[N_W, N_P, torch.float]
     word_onsets: TensorType[N_W, torch.float]
     word_surprisals: TensorType[N_W, torch.float]
-    p_word: TensorType[N_W, N_C, torch.float]
+    p_word: TensorType[N_W, N_C, torch.float, is_log_probability]
     candidate_phonemes: TensorType[N_W, N_C, N_P, torch.long]
 
 
@@ -340,7 +340,7 @@ class NaturalLanguageStimulusGenerator(StimulusGenerator):
 
             i += batch_num_samples
 
-        word_surprisals = -p_word[:, 0] / np.log(2)
+        word_surprisals = -p_word[:, 0].log() / np.log(2)
 
         phoneme_onsets, phoneme_onsets_global, word_onsets = \
             self.sample_stream(word_lengths, max_num_phonemes)
