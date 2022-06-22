@@ -275,8 +275,18 @@ class NaturalLanguageStimulusGenerator(StimulusGenerator):
                                     return_tensors="pt", truncation=True,
                                     max_length=self._model.config.max_length)
 
+            # TODO refactor. The function of this code is to heuristically compute how many
+            # words in total we have in the final output matrices. To do so, we re-code
+            # all of the logic in other methods of this class here. That's not good for
+            # sustainability. Ideally we'd use exactly the core logic to compute the number
+            # of words as well. In the worst case, could just do a dry run of the whole data
+            # prep in order to compute the number of words.
             for encoding in batch.encodings:  # type: ignore
                 for i, token_word_id in enumerate(encoding.word_ids):  # type: ignore
+                    # Skip first token of each sentence -- no predictions.
+                    if i == 0:
+                        continue
+
                     # Count only tokens which have corresponding words in input.
                     # Tokens for which this is not the case have value `None` in
                     # encoding.word_ids
@@ -305,8 +315,9 @@ class NaturalLanguageStimulusGenerator(StimulusGenerator):
 
             # Compute a mask which is `True` iff a word within item
             # corresponds to a real word in the input string (i.e. not special token/padding).
+            # Skip BOS token since we don't have data on that in the above variables.
             word_mask: TensorType[B, N_W, bool] = torch.tensor([
-                [word_id is not None for word_id in encoding.word_ids]
+                [word_id is not None for word_id in encoding.word_ids[1:]]
                 for encoding in batch.encodings
             ])
             # Also ignore words with zero length.
