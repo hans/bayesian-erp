@@ -152,18 +152,21 @@ class NaturalLanguageStimulusGenerator(StimulusGenerator):
         return [re.sub(r"[^a-z\s]", "", sentence.lower()).strip()
                 for sentence in sentences]
 
-    def get_predictive_topk(self, sentences: List[str]
-                            ) -> Tuple[TensorType[N_W, N_C, is_probability],
-                                       TensorType[N_W, N_C, int]]:
+    def get_predictive_topk(self, batch_tok: BatchEncoding,
+                            ) -> Tuple[TensorType[B, N_W, N_C, is_probability],
+                                       TensorType[B, N_W, N_C, int]]:
         """
         For each sentence and each token, retrieve a top-K predictive
         distribution over the next word, along with a list of the top K
         candidate token IDs.
+
+        Args:
+            batch_tok: Preprocessed batch of sentences
+
+        Returns:
+            p_word:
+            candidate_ids:
         """
-        batch_tok: BatchEncoding = \
-            self._tokenizer(sentences,
-                            padding=True, return_tensors="pt",
-                            max_length=self._model.config.max_length)
 
         with torch.no_grad():
             model_outputs = self._model(batch_tok["input_ids"])[0].log_softmax(dim=2)
@@ -171,12 +174,12 @@ class NaturalLanguageStimulusGenerator(StimulusGenerator):
         # Ignore disallowed tokens.
         model_outputs[:, :, ~self.vocab_mask] = -torch.inf
         # Sample top N candidates per item + predicted word.
-        # candidate_ids = torch.argsort(model_outputs, dim=2, descending=True)
-        # Start at t=1 because word at t=0 is not predicted.
-        _, candidate_ids = torch.topk(model_outputs[:, 1:], k=self.num_candidates,
+        # TODO double check indexing. notice we're not dropping first item.
+        _, candidate_ids = torch.topk(model_outputs[:, :], k=self.num_candidates,
                                       dim=2)
 
-        gt_token_ids = batch_tok["input_ids"][:, 1:]  # type: ignore
+        # TODO double check indexing
+        gt_token_ids = batch_tok["input_ids"][:, :]  # type: ignore
 
         # Prepend ground truth token as top candidate. If it already exists elsewhere,
         # drop it; otherwise, drop the lowest-probability candidate.
@@ -202,7 +205,7 @@ class NaturalLanguageStimulusGenerator(StimulusGenerator):
 
         # Reindex and normalize predictive distribution.
         p_word = torch.gather(
-            model_outputs[:, 1:, :],
+            model_outputs,
             dim=2,
             index=candidate_ids
         )
@@ -247,33 +250,67 @@ class NaturalLanguageStimulusGenerator(StimulusGenerator):
     def __call__(self, sentences: List[str]) -> Stimulus:
         sentences = self._clean_sentences(sentences)
 
-        # TODO we don't know the full size yet. pre-tokenize?
-        num_words = 100
-        max_num_phonemes = 5
+        # Pre-tokenize sentences and split into batches.
+        # Also pre-compute relevant size parameters:
+        # - total number of words, collapsing over sentences
+        # - maximum number of phonemes (in ground-truth word -- we don't care about
+        #   truncating candidates, since we'll never be indexing past the ground-truth
+        #   final phoneme -- there are no defined time onsets for non-ground-truth
+        #   phonemes anyway)
+        batches = []
+        num_words = 0
+        max_num_phonemes = 0
+        for i in range(0, len(sentences), self.batch_size):
+            batch_sentences = sentences[i:i + self.batch_size]
+            batch = self._tokenizer(batch_sentences, padding=True, 
+                                    return_tensors="pt", truncation=True,
+                                    max_length=self._model.config.max_length)
 
+            for encoding in batch.encodings:  # type: ignore
+                for i, token_word_id in enumerate(encoding.word_ids):  # type: ignore
+                    # Count only tokens which have corresponding words in input.
+                    # Tokens for which this is not the case have value `None` in
+                    # encoding.word_ids
+                    if token_word_id is None:
+                        continue
+
+                    num_words += 1
+                    max_num_phonemes = max(max_num_phonemes, len(self._clean_word(encoding.tokens[i])))  # type: ignore
+
+            batches.append(batch)
+
+        i = 0
         word_lengths = torch.zeros(num_words, dtype=torch.int)
         p_word = torch.zeros((num_words, self.num_candidates), dtype=torch.float)
         candidate_phonemes = torch.zeros((num_words, self.num_candidates, max_num_phonemes), dtype=torch.long)
-        for i in range(0, len(sentences), self.batch_size):
-            batch_sentences = sentences[i:i + self.batch_size]
-            batch_p_word, batch_candidate_ids = self.get_predictive_topk(batch_sentences)
-
+        for batch in batches:
+            batch_p_word, batch_candidate_ids = self.get_predictive_topk(batch)
             batch_candidate_phonemes, batch_word_lengths = self.get_candidate_phonemes(
                 batch_candidate_ids, max_num_phonemes)
 
-            # Now collapse over items and store.
-            batch_word_lengths = batch_word_lengths.flatten()
-            batch_candidate_phonemes = batch_candidate_phonemes.reshape(-1, *batch_candidate_phonemes.shape[2:])
-            batch_p_word = batch_p_word.reshape(-1, *batch_p_word.shape[2:])
+            # Compute a mask which is `True` iff a word within item
+            # corresponds to a real word in the input string (i.e. not special token/padding).
+            word_mask: TensorType[B, N_W, bool] = torch.tensor([
+                [word_id is not None for word_id in encoding.word_ids]
+                for encoding in batch.encodings
+            ])
+
+            # Drop rows which correspond to non-words. Flattens first two axes in the process.
+            # TODO track retained indices -- will be important when we have non-random
+            # onset data!
+            batch_word_lengths = batch_word_lengths[word_mask]
+            batch_p_word = batch_p_word[word_mask]
+            batch_candidate_phonemes = batch_candidate_phonemes[word_mask]
 
             batch_num_samples = batch_candidate_phonemes.shape[0]
             assert batch_p_word.shape[0] == batch_num_samples
-
-            import pdb; pdb.set_trace()
             start, end = i, i + batch_num_samples
+
             word_lengths[start:end] = batch_word_lengths
             p_word[start:end] = batch_p_word
             candidate_phonemes[start:end] = batch_candidate_phonemes
+
+            i += batch_num_samples
 
         word_surprisals = -p_word[:, 0] / np.log(2)
 
