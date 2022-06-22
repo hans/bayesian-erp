@@ -183,12 +183,12 @@ class NaturalLanguageStimulusGenerator(StimulusGenerator):
         # Ignore disallowed tokens.
         model_outputs[:, :, ~self.vocab_mask] = -torch.inf
         # Sample top N candidates per item + predicted word.
-        # TODO double check indexing. notice we're not dropping first item.
-        _, candidate_ids = torch.topk(model_outputs[:, :], k=self.num_candidates,
+        # NB t=0 here prior to reindexing corresponds to model output after consuming 1st token
+        _, candidate_ids = torch.topk(model_outputs[:, :-1], k=self.num_candidates,
                                       dim=2)
 
-        # TODO double check indexing
-        gt_token_ids = batch_tok["input_ids"][:, :]  # type: ignore
+        # NB we start at t=1 because that is where predictions start.
+        gt_token_ids = batch_tok["input_ids"][:, 1:]  # type: ignore
 
         # Prepend ground truth token as top candidate. If it already exists elsewhere,
         # drop it; otherwise, drop the lowest-probability candidate.
