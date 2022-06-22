@@ -1,3 +1,4 @@
+from functools import partial
 from pathlib import Path
 import re
 from typing import Dict, Callable
@@ -12,7 +13,6 @@ import torch
 
 from berp.generators import stimulus
 from berp.generators import thresholded_recognition_simple as generator
-from berp.generators import thresholded_recognition as generator2
 from berp.models import reindexing_regression as rr
 
 
@@ -32,12 +32,12 @@ def get_parameters():
 
 
 def get_parameters2():
-    coef_mean = torch.tensor([1., -1.])
+    coef_mean = torch.tensor([0., -1.])
 
     # NB we establish deterministic sites below so that they can be conditioned
     return rr.ModelParameters(
         lambda_=torch.tensor(1.0),
-        confusion=generator2.phoneme_confusion,
+        confusion=generator.phoneme_confusion,
         threshold=pyro.deterministic("threshold", torch.tensor(0.7)),
         a=torch.tensor(0.4),
         b=torch.tensor(0.2),
@@ -81,8 +81,13 @@ Alice had no idea what Latitude was, or Longitude either, but thought they were 
 
 @pytest.fixture(scope="session")
 def soundness_dataset2(sentences):
-    return (generator2.sample_dataset(sentences=sentences,
-                                      params=get_parameters2()),
+    phonemes = list("abcdefghijklmnopqrstuvwxyz_")
+    stim = stimulus.NaturalLanguageStimulusGenerator(
+        phonemes=phonemes,
+        hf_model="hf-internal-testing/tiny-xlm-roberta")  # TODO use gpt2 instead?
+    stim = partial(stim, sentences)
+    return (generator.sample_dataset(get_parameters2(),
+                                     stim),
             get_parameters2)
 
 

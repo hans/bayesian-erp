@@ -37,8 +37,8 @@ class Stimulus(NamedTuple):
 class StimulusGenerator(object):
 
     def __init__(self,
-                 phon_delay_range: Tuple[float, float] = (0.04, 0.1),
-                 word_delay_range: Tuple[float, float] = (0.01, 0.1)):
+                 phon_delay_range: Tuple[float, float] = (0.08, 0.2),
+                 word_delay_range: Tuple[float, float] = (0.1, 0.4)):
         self.phon_delay_range = phon_delay_range
         self.word_delay_range = word_delay_range
 

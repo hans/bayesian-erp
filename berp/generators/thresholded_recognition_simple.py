@@ -33,7 +33,6 @@ def response_model(stim: Stimulus,
                    params: rr.ModelParameters,
                    num_sensors: int = 1,
                    sample_rate: int = 128,
-                   noise_params: Tuple[float, float] = (0., 0.5),
                    right_padding: float = 0.,
                    ) -> torch.Tensor:
     """
@@ -45,12 +44,12 @@ def response_model(stim: Stimulus,
 
     # Generate continuous signal stream.
     t_max = stim.phoneme_onsets_global[-1, -1] + right_padding
-    Y = torch.normal(*noise_params,
+    Y = torch.normal(0, params.sigma,
                      size=(int(np.ceil(t_max * sample_rate)), num_sensors))
 
     # Sample a standardized response, which will be scaled by per-word surprisal.
     # TODO check that window size is sufficient to cover this
-    window_std = params.b  # NB this means there's nontrivial response outside of b window.
+    window_std = params.b / 4
     window_center = params.a + window_std / 2
     unit_response_xs, unit_response_ys = gaussian_window(window_center.item(), window_std.item(),
                                                          sample_rate=sample_rate)
@@ -71,8 +70,7 @@ def sample_dataset(params: rr.ModelParameters,
                    stimulus_generator: Union[StimulusGenerator, Callable[[], Stimulus]],
                    num_sensors: int = 1,
                    sample_rate: int = 128,
-                   epoch_window: Tuple[float, float] = (-0.1, 1.0),
-                   noise_params: Tuple[float, float] = (0., 0.5),
+                   epoch_window: Tuple[float, float] = (-0.1, 1.0)
                    ) -> rr.RRDataset:
     
     stim = stimulus_generator()
@@ -94,7 +92,7 @@ def sample_dataset(params: rr.ModelParameters,
 
     epoch_width = epoch_window[1] - epoch_window[0]
     Y = response_model(stim, recognition_onsets, params, num_sensors, sample_rate,
-                       noise_params=noise_params, right_padding=epoch_width)
+                       right_padding=epoch_width)
 
     #############
     # Run epoching.
