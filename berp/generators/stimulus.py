@@ -1,4 +1,5 @@
 import itertools
+import logging
 import re
 from typing import List, NamedTuple, Tuple
 
@@ -10,9 +11,12 @@ from torchtyping import TensorType
 import transformers
 from transformers import AutoModelForCausalLM, AutoTokenizer  # type: ignore
 from transformers.tokenization_utils_base import BatchEncoding
+from tqdm.auto import tqdm
 
 from berp.typing import DIMS, is_probability
 
+
+L = logging.getLogger(__name__)
 
 # Type variables
 B, N_W, N_C, N_F, N_P, V_W = DIMS.B, DIMS.N_W, DIMS.N_C, DIMS.N_F, DIMS.N_P, DIMS.V_W
@@ -138,6 +142,11 @@ class NaturalLanguageStimulusGenerator(StimulusGenerator):
         self.batch_size = batch_size
         self._tokenizer = AutoTokenizer.from_pretrained(hf_model)
         self._model = AutoModelForCausalLM.from_pretrained(hf_model)
+
+        if self._tokenizer.pad_token is None:
+            logging.warn("Tokenizer is missing pad token; using EOS token " +
+                         self._tokenizer.eos_token)
+            self._tokenizer.pad_token = self._tokenizer.eos_token
 
         # Pre-compute mask of allowed tokens (== which have content after cleaning)
         self.vocab_mask = torch.ones(self._tokenizer.vocab_size, dtype=torch.bool)
@@ -283,7 +292,7 @@ class NaturalLanguageStimulusGenerator(StimulusGenerator):
         word_lengths = torch.zeros(num_words, dtype=torch.long)
         p_word = torch.zeros((num_words, self.num_candidates), dtype=torch.float)
         candidate_phonemes = torch.zeros((num_words, self.num_candidates, max_num_phonemes), dtype=torch.long)
-        for batch in batches:
+        for batch in tqdm(batches):
             batch_p_word, batch_candidate_ids = self.get_predictive_topk(batch)
             batch_candidate_phonemes, batch_word_lengths = self.get_candidate_phonemes(
                 batch_candidate_ids, max_num_phonemes)
