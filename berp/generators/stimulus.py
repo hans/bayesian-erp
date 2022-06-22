@@ -231,7 +231,7 @@ class NaturalLanguageStimulusGenerator(StimulusGenerator):
         candidate_tokens = [self._clean_word(tok) for tok in candidate_tokens]
 
         word_lengths = torch.tensor([len(tok) for tok in candidate_tokens]) \
-            .reshape(*candidate_ids.shape)[:, 0]
+            .reshape(*candidate_ids.shape)[:, :, 0]
 
         candidate_phonemes = torch.stack([
             pad(torch.tensor([self.phoneme2idx[p] for p in token]),
