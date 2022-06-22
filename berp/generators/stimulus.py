@@ -56,11 +56,13 @@ class StimulusGenerator(object):
 
         phoneme_onsets = rand_unif(*self.phon_delay_range, num_words, max_num_phonemes)
         phoneme_onsets[:, 0] = 0.
+        phoneme_onsets[torch.arange(max_num_phonemes) >= word_lengths.unsqueeze(1)] = 0.
         phoneme_onsets = phoneme_onsets.cumsum(1)
         word_delays = rand_unif(*self.word_delay_range, num_words)
         word_onsets = (torch.cat([torch.tensor([self.first_onset]),
-                                self.first_onset + phoneme_onsets[1:, -1]])
+                                  phoneme_onsets[:-1, -1]])
                                 + word_delays).cumsum(0)
+        
         # Make phoneme_onsets global (not relative to word onset).
         phoneme_onsets_global = phoneme_onsets + word_onsets.view(-1, 1)
 
