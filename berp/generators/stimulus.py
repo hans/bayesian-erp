@@ -283,8 +283,14 @@ class NaturalLanguageStimulusGenerator(StimulusGenerator):
                     if token_word_id is None:
                         continue
 
+                    cleaned_word = self._clean_word(encoding.tokens[i])  # type: ignore
+                    # Will be dropped by masking later on.
+                    # TODO would be great to not have coupled separate parts of code
+                    if len(cleaned_word) == 0:
+                        continue
+
                     num_words += 1
-                    max_num_phonemes = max(max_num_phonemes, len(self._clean_word(encoding.tokens[i])))  # type: ignore
+                    max_num_phonemes = max(max_num_phonemes, len(cleaned_word))
 
             batches.append(batch)
 
@@ -303,6 +309,8 @@ class NaturalLanguageStimulusGenerator(StimulusGenerator):
                 [word_id is not None for word_id in encoding.word_ids]
                 for encoding in batch.encodings
             ])
+            # Also ignore words with zero length.
+            word_mask = word_mask & (batch_word_lengths > 0)
 
             # Drop rows which correspond to non-words. Flattens first two axes in the process.
             # TODO track retained indices -- will be important when we have non-random
