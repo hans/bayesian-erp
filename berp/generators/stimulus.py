@@ -186,10 +186,10 @@ class NaturalLanguageStimulusGenerator(StimulusGenerator):
         candidate_ids = torch.cat([gt_token_ids.unsqueeze(2), candidate_ids], dim=2)
         existing_candidate_indices = (candidate_ids == gt_token_ids[:, :, None]).nonzero()
         for x, y, z in existing_candidate_indices:
-            if y == 0:
+            if z == 0:
                 # Expected.
                 continue
-            elif y == candidate_ids.shape[2]:
+            elif z == candidate_ids.shape[2]:
                 # Will be dropped anyway. Nothing to do.
                 continue
 
