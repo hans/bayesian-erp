@@ -204,10 +204,25 @@ def test_soundness_a(soundness_dataset1):
                             "b": dataset.params.b}
 
     gt_condition = {"a": dataset.params.a}
-    # a_min, a_max = 0.2, 0.6
-    # alt_conditions = [{"a": rand * (a_max - a_min) + a_min}
-    #                   for rand in torch.rand(10)]
-    alt_conditions = [{"a": torch.tensor(0.3697)}]
+    a_min, a_max = 0.2, 0.6
+    alt_conditions = [{"a": a}
+                      for a in torch.linspace(a_min, a_max, 10)]
+    all_conditions = [gt_condition] + alt_conditions
+
+    _run_soundness_check(all_conditions, background_condition,
+                         dataset, parameters)
+
+
+def test_soundness_b(soundness_dataset1):
+    dataset, parameters = soundness_dataset1
+    background_condition = {"threshold": dataset.params.threshold,
+                            "coef": dataset.params.coef,
+                            "a": dataset.params.a}
+
+    gt_condition = {"b": dataset.params.b}
+    log_b_min, log_b_max = -2, 0
+    alt_conditions = [{"b": b}
+                      for b in torch.logspace(log_b_min, log_b_max, 5)]
     all_conditions = [gt_condition] + alt_conditions
 
     _run_soundness_check(all_conditions, background_condition,

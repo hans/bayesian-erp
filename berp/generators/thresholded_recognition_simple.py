@@ -65,7 +65,7 @@ def response_model(stim: Stimulus,
     if response_type == "gaussian":
         # TODO check that window size is sufficient to cover this
         window_std = params.b / 4
-        window_center = params.a + window_std / 2
+        window_center = params.a + params.b / 2
         _, unit_response_ys = gaussian_window(window_center.item(), window_std.item(),
                                               sample_rate=sample_rate)
         unit_response_ys = torch.tensor(unit_response_ys).view(-1, 1).tile((1, num_sensors))
