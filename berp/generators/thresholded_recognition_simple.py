@@ -1,3 +1,4 @@
+import itertools
 from typing import List, NamedTuple, Tuple, Optional, Dict, Union, Callable
 
 import numpy as np
@@ -18,8 +19,15 @@ phoneme2idx = {p: idx for idx, p in enumerate(PHONEMES)}
 def random_word(length):
     return np.random.choice(PHONEMES, size=length)
 
-phoneme_confusion = torch.diag(torch.ones(len(PHONEMES))) + \
-    0.1 * torch.rand(len(PHONEMES), len(PHONEMES))
+vowels = list("aeiou")
+consonants = list("bcdfghjklmnpqrstvwxyz")
+phoneme_confusion = torch.diag(torch.ones(len(PHONEMES)))
+# Add confusion between sets of phonemes
+confusion_constant = 0.2
+for confusion_set in [vowels, consonants]:
+    for p_i, p_j in itertools.product(confusion_set, repeat=2):
+        if p_i == p_j: continue
+        phoneme_confusion[phoneme2idx[p_i], phoneme2idx[p_j]] += confusion_constant / len(confusion_set)
 phoneme_confusion /= phoneme_confusion.sum(dim=0, keepdim=True)
 
 
