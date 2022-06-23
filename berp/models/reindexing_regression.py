@@ -213,6 +213,7 @@ def epoched_response_model(X: TensorType[B, N_F, float],
                            sample_rate: int,
                            epoch_window: Tuple[float, float],
                            sigma: TensorType[float] = torch.tensor(0.1),
+                           predictive_distribution: str = "student_t",
                            sensor_reduction_fn=torch.mean
                            ) -> Tuple[TensorType[B, float], TensorType[B, float]]:
     """
@@ -230,6 +231,8 @@ def epoched_response_model(X: TensorType[B, N_F, float],
         b: Test window width, in seconds.
         sample_rate: Number of samples per second
         sigma: Standard deviation parameter for observations
+        predictive_distribution: `student_t` or `normal`. If `normal`, outliers
+            (values outside 95% percentile) are dropped from probability calculation
 
     Returns:
         q_obs:
@@ -263,20 +266,21 @@ def epoched_response_model(X: TensorType[B, N_F, float],
     # print("q_pred", q_pred[:5])
     # print("q", q[:5])
 
-    # HACK: Drop regression outliers.
-    # Ideally we'd 1) have a more robust regression or 2) account for correlations between
-    # items.
-    resids = (q - q_pred) ** 2
-    q95 = torch.quantile(resids, 0.95)
-    outlier_mask = resids > q95
-    # Effectively drop outliers from probability estimate by assigning a high
-    # predictive variance.
-    sigma_vec = torch.ones_like(q) * sigma
-    sigma_vec[outlier_mask] = 100.
+    if predictive_distribution == "student_t":
+        q = pyro.sample("q", dist.StudentT(4, q_pred, sigma), obs=q)  # type: ignore
+    elif predictive_distribution == "normal":
+        # HACK: Drop regression outliers.
+        # Ideally we'd 1) have a more robust regression or 2) account for correlations between
+        # items.
+        resids = (q - q_pred) ** 2
+        q95 = torch.quantile(resids, 0.95)
+        outlier_mask = resids > q95
+        # Effectively drop outliers from probability estimate by assigning a high
+        # predictive variance.
+        sigma_vec = torch.ones_like(q) * sigma
+        sigma_vec[outlier_mask] = 100.
 
-    return (pyro.sample("q", dist.Normal(q_pred, sigma_vec),
-                        obs=q),
-            q_pred)
+    return (q, q_pred)
 
 
 def model(params: ModelParameters,
