@@ -3,10 +3,12 @@ import re
 from typing import List, Tuple, NamedTuple, Callable
 
 import numpy as np
+import pandas as pd
 import torch
 from torch.distributions import constraints
 from torch.nn.functional import pad
 import pyro
+from pyro import poutine
 import pyro.distributions as dist
 from pyro.infer import MCMC, NUTS, EmpiricalMarginal, TracePosterior
 
@@ -140,22 +142,46 @@ def fit_map(dataset: rr.RRDataset):
     print(pyro.param("threshold"))
 
 
-def fit_importance(dataset: rr.RRDataset):
+def fit_importance(dataset: rr.RRDataset, test_dataset=None):
+    def evaluate_mse(params: rr.ModelParameters, dataset: rr.RRDataset):
+        with poutine.block():
+            test_result = rr.model(params, dataset)
+        return ((test_result.q_obs - test_result.q_pred) ** 2).mean()
+
+    point_estimate_keys = ["threshold", "lambda_", "a", "b", "sigma"]
+
     def model():
+        # Evaluate parameter point estimates.
         result = rr.model_wrapped(get_parameters, dataset)
-        return torch.tensor([result.params.threshold,
-                             result.params.lambda_,
-                             result.params.a,
-                             result.params.b,
-                             result.params.sigma])
+        ret = [getattr(result.params, key) for key in point_estimate_keys]
+
+        if test_dataset is not None:
+            # Evaluate MSE on test dataset points.
+            ret.append(evaluate_mse(result.params, test_dataset))
+
+        return torch.stack(ret)
+
+    if test_dataset is not None:
+        # Calculate expected MSE of random model parameters.    
+        random_mses = [evaluate_mse(get_parameters(), test_dataset)
+                    for _ in range(50)]
+        print(f"Random model MSE: {np.mean(random_mses)}")
 
     importance, slice_means = berp.infer.fit_importance(
         model, guide=None, num_samples=5000)
 
+    result_labels = point_estimate_keys
+    if test_dataset is not None:
+        result_labels += ["MSE"]
+    
+    slice_means = [(idx, dict(zip(result_labels, values.numpy())))
+                   for idx, values in slice_means]
+
     # Evaluate parameter estimate on a sliding window of samples to
     # understand how many samples we actually needed.
-    from pprint import pprint
-    pprint(slice_means)
+    df = pd.DataFrame.from_dict(dict(slice_means), orient="index")
+    df.index.name = "num_samples"
+    print(df)
 
     return importance
 
@@ -184,6 +210,10 @@ def main(args):
     dataset = generator.sample_dataset(get_parameters(),
                                        stim,
                                        epoch_window=epoch_window)
+    test_dataset = None
+    if args.stim == "random":
+        test_dataset = generator.sample_dataset(dataset.params, stim, epoch_window=epoch_window)
+
     from pprint import pprint
     pprint(dataset.params)
 
@@ -192,7 +222,7 @@ def main(args):
     elif args.mode == "fit_map":
         fit_map(dataset)
     elif args.mode == "fit_importance":
-        fit_importance(dataset)
+        fit_importance(dataset, test_dataset=test_dataset)
 
 
 if __name__ == "__main__":

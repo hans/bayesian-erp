@@ -114,7 +114,8 @@ class RRResult(NamedTuple):
     params: ModelParameters
     dataset: RRDataset
 
-    response: TensorType[B, T, S, float]
+    q_pred: TensorType[B, T, S, float]
+    q_obs: TensorType[B, T, S, float]
 
 
 @typechecked
@@ -213,7 +214,7 @@ def epoched_response_model(X: TensorType[B, N_F, float],
                            epoch_window: Tuple[float, float],
                            sigma: TensorType[float] = torch.tensor(0.1),
                            sensor_reduction_fn=torch.mean
-                           ) -> TensorType[B, float]:
+                           ) -> Tuple[TensorType[B, float], TensorType[B, float]]:
     """
     Computes the distribution over observable response to word $w_j$
 
@@ -229,6 +230,10 @@ def epoched_response_model(X: TensorType[B, N_F, float],
         b: Test window width, in seconds.
         sample_rate: Number of samples per second
         sigma: Standard deviation parameter for observations
+
+    Returns:
+        q_obs:
+        q_pred:
     """
     assert np.abs(Y.shape[1] - int(np.floor((epoch_window[1] - epoch_window[0]) * sample_rate))) <= 1
 
@@ -269,8 +274,9 @@ def epoched_response_model(X: TensorType[B, N_F, float],
     sigma_vec = torch.ones_like(q) * sigma
     sigma_vec[outlier_mask] = 100.
 
-    return pyro.sample("q", dist.Normal(q_pred, sigma_vec),
-                       obs=q)
+    return (pyro.sample("q", dist.Normal(q_pred, sigma_vec),
+                        obs=q),
+            q_pred)
 
 
 def model(params: ModelParameters,
@@ -284,7 +290,7 @@ def model(params: ModelParameters,
     rec = recognition_point_model(
         p_word_posterior, dataset.word_lengths,
         params.threshold)
-    response = epoched_response_model(
+    q_obs, q_pred = epoched_response_model(
         X=dataset.X_epoch,
         coef=params.coef,
         recognition_points=rec,
@@ -298,7 +304,8 @@ def model(params: ModelParameters,
     return RRResult(
         params=params,
         dataset=dataset,
-        response=response
+        q_pred=q_pred,
+        q_obs=q_obs,
     )
 
 

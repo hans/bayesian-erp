@@ -3,6 +3,7 @@ from typing import Tuple, List, Any
 import numpy as np
 import pyro.infer
 import pyro.poutine as poutine
+import torch
 from tqdm import tqdm, trange
 
 
@@ -26,7 +27,7 @@ class Importance(pyro.infer.Importance):
 
 
 def evaluate_sliced_tp(tp: pyro.infer.TracePosterior, sample_points: List[int]
-                       ) -> List[Tuple[int, float]]:
+                       ) -> List[Tuple[int, torch.Tensor]]:
     if tp.num_chains > 1:
         raise NotImplementedError()
 
@@ -44,7 +45,7 @@ def evaluate_sliced_tp(tp: pyro.infer.TracePosterior, sample_points: List[int]
 
 
 def fit_importance(model, guide, num_samples, *args, **kwargs
-                   ) -> Tuple[Importance, List[Tuple[int, float]]]:
+                   ) -> Tuple[Importance, List[Tuple[int, torch.Tensor]]]:
     """
     Run importance sampler and return result along with windowed analysis
     of mean estimate with progressively more samples.
