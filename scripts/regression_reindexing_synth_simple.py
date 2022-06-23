@@ -214,10 +214,13 @@ def main(args):
 
     dataset = generator.sample_dataset(get_parameters(),
                                        stim,
+                                       response_type=args.response_type,
                                        epoch_window=epoch_window)
     test_dataset = None
     if args.stim == "random":
-        test_dataset = generator.sample_dataset(dataset.params, stim, epoch_window=epoch_window)
+        test_dataset = generator.sample_dataset(dataset.params, stim,
+                                                response_type=args.response_type,
+                                                epoch_window=epoch_window)
 
     from pprint import pprint
     pprint(dataset.params)
@@ -237,5 +240,7 @@ if __name__ == "__main__":
                    default="fit")
     p.add_argument("-s", "--stim", choices=["random", "sentences"],
                    default="random")
+    p.add_argument("-r", "--response_type", choices=["gaussian", "square", "n400"],
+                   default="gaussian")
 
     main(p.parse_args())

@@ -1,3 +1,4 @@
+from functools import partial
 import itertools
 from typing import List, NamedTuple, Tuple, Optional, Dict, Union, Callable
 
@@ -9,6 +10,7 @@ from torchtyping import TensorType
 from tqdm.notebook import tqdm
 from typeguard import typechecked
 
+from berp.generators import response
 from berp.generators.stimulus import Stimulus, StimulusGenerator
 from berp.models import reindexing_regression as rr
 from berp.typing import DIMS, is_log_probability
@@ -36,19 +38,6 @@ B, N_W, N_C, N_F, N_P, V_W = DIMS.B, DIMS.N_W, DIMS.N_C, DIMS.N_F, DIMS.N_P, DIM
 T, S = DIMS.T, DIMS.S
 
 
-def simple_peak(width: float, delay: float, sample_rate: int):
-    delay_num_samples = int(delay * sample_rate)
-    peak_num_samples = int(width * sample_rate)
-
-    delay_xs = torch.arange(delay_num_samples) / sample_rate
-    peak_xs = torch.arange(delay_num_samples, delay_num_samples + peak_num_samples) / sample_rate
-
-    delay_ys = torch.zeros_like(delay_xs)
-    peak_ys = torch.ones_like(peak_xs)
-
-    return torch.cat((delay_xs, peak_xs), dim=0), torch.cat((delay_ys, peak_ys), dim=0)
-
-
 def response_model(stim: Stimulus,
                    recognition_onsets: TensorType[N_W, float],
                    params: rr.ModelParameters,
@@ -71,23 +60,26 @@ def response_model(stim: Stimulus,
 
     # Sample a standardized response, which will be scaled by per-word surprisal.
     if response_type == "gaussian":
-        # TODO check that window size is sufficient to cover this
-        window_std = params.b / 4
-        window_center = params.a + params.b / 2
-        _, unit_response_ys = gaussian_window(window_center.item(), window_std.item(),
-                                              sample_rate=sample_rate)
-        unit_response_ys = torch.tensor(unit_response_ys).view(-1, 1).tile((1, num_sensors))
+        _, unit_response_ys = response.simple_gaussian(params.b, params.a, sample_rate)
+        response_fn = lambda surprisal: params.coef[1] * unit_response_ys * surprisal
     elif response_type == "square":
-        _, unit_response_ys = simple_peak(width=params.b, delay=params.a, sample_rate=sample_rate)
-        unit_response_ys = unit_response_ys.view(-1, 1).tile((1, num_sensors))
+        _, unit_response_ys = response.simple_peak(params.b, params.a, sample_rate)
+        response_fn = lambda surprisal: params.coef[1] * unit_response_ys * surprisal
+    elif response_type == "n400":
+        response_fn = lambda surprisal: response.n400_like(surprisal, sample_rate=sample_rate)[1]
     else:
         raise ValueError("Unknown response type: {}".format(response_type))
 
     # Add characteristic response after each recognition onset.
     for word_surp, rec_onset_samp in zip(stim.word_surprisals, recognition_onsets_global_samp):
+        response_values = response_fn(word_surp)
+        if response_values.ndim == 1:
+            # Tile across sensors.
+            response_values = response_values.view(-1, 1).tile((1, num_sensors))
+
         start_idx = rec_onset_samp
-        end_idx = start_idx + len(unit_response_ys)
-        Y[start_idx:end_idx] += params.coef[1] * word_surp * unit_response_ys
+        end_idx = start_idx + len(response_values)
+        Y[start_idx:end_idx] += response_values
 
     return Y
 
