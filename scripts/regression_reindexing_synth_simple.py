@@ -1,4 +1,5 @@
 from argparse import ArgumentParser
+from pprint import pprint
 import re
 from typing import List, Tuple, NamedTuple, Callable
 
@@ -143,12 +144,15 @@ def fit_map(dataset: rr.RRDataset):
 
 
 def fit_importance(dataset: rr.RRDataset, test_dataset=None):
-    def evaluate_mse(params: rr.ModelParameters, dataset: rr.RRDataset):
+    def evaluate(params: rr.ModelParameters, dataset: rr.RRDataset):
         with poutine.block():
             test_result = rr.model(params, dataset)
-        return ((test_result.q_obs - test_result.q_pred) ** 2).mean()
+        mse = ((test_result.q_obs - test_result.q_pred) ** 2).mean()
+        corr = torch.corrcoef(torch.stack([test_result.q_obs, test_result.q_pred]))[0, 1]
+        return [mse, corr]
 
     point_estimate_keys = ["threshold", "lambda_", "a", "b", "sigma"]
+    metric_names = ["mse", "corr"]
 
     def model():
         # Evaluate parameter point estimates.
@@ -157,22 +161,23 @@ def fit_importance(dataset: rr.RRDataset, test_dataset=None):
 
         if test_dataset is not None:
             # Evaluate MSE on test dataset points.
-            ret.append(evaluate_mse(result.params, test_dataset))
+            ret.extend(evaluate(result.params, test_dataset))
 
         return torch.stack(ret)
 
     if test_dataset is not None:
         # Calculate expected MSE of random model parameters.    
-        random_mses = [evaluate_mse(get_parameters(), test_dataset)
-                    for _ in range(50)]
-        print(f"Random model MSE: {np.mean(random_mses)}")
+        random_metrics = np.array(
+            [evaluate(get_parameters(), test_dataset) for _ in range(100)])
+        print("Random model evaluation:")
+        pprint(list(zip(metric_names, random_metrics.mean(axis=0))))
 
     importance, slice_means = berp.infer.fit_importance(
         model, guide=None, num_samples=5000)
 
     result_labels = point_estimate_keys
     if test_dataset is not None:
-        result_labels += ["MSE"]
+        result_labels += metric_names
     
     slice_means = [(idx, dict(zip(result_labels, values.numpy())))
                    for idx, values in slice_means]
