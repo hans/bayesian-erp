@@ -50,14 +50,15 @@ def get_parameters():
     coef_mean = torch.tensor([0., -1.])
     coef_sigma = torch.tensor([1e-6, 0.1])
     return rr.ModelParameters(
-        lambda_=torch.tensor(1.0),
+        # lambda_=pyro.sample("lambda", dist.Uniform(0.8, 1.2)),  # torch.tensor(1.0),
+        lambda_=pyro.deterministic("lambda", torch.tensor(1.0)),
         confusion=generator.phoneme_confusion,
         threshold=pyro.sample("threshold",
                               dist.Beta(1.2, 1.2)),
         a=pyro.sample("a", dist.Uniform(0.3, 0.5)),  # unif_categorical_rv("a", torch.tensor([0.3, 0.4, 0.5])),
         b=pyro.sample("b", dist.Uniform(0.05, 0.2)), # unif_categorical_rv("b", torch.tensor([0.05, 0.1, 0.15, 0.2])),
         coef=pyro.deterministic("coef", coef_mean),  # pyro.sample("coef", dist.Normal(coef_mean, coef_sigma)),
-        sigma=pyro.sample("sigma", dist.Uniform(1.0, 2.0))
+        sigma=pyro.sample("sigma", dist.Uniform(0.5, 1.2))
         # sigma=torch.tensor(1.0),
     )
 
@@ -143,8 +144,10 @@ def fit_importance(dataset: rr.RRDataset):
     def model():
         result = rr.model_wrapped(get_parameters, dataset)
         return torch.tensor([result.params.threshold,
+                             result.params.lambda_,
                              result.params.a,
-                             result.params.b])
+                             result.params.b,
+                             result.params.sigma])
 
     importance, slice_means = berp.infer.fit_importance(
         model, guide=None, num_samples=5000)
