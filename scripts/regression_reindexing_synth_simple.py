@@ -39,6 +39,12 @@ Alice had no idea what Latitude was, or Longitude either, but thought they were 
     return sentences
 
 
+def unif_categorical_rv(name, choices: torch.Tensor):
+    one_hot = dist.OneHotCategorical(torch.ones_like(choices) / choices.numel())
+    one_hot = pyro.sample(name, one_hot)
+    return (one_hot * choices).sum()
+
+
 def get_parameters():
     # Sample model parameters.
     coef_mean = torch.tensor([0., -1.])
@@ -48,8 +54,8 @@ def get_parameters():
         confusion=generator.phoneme_confusion,
         threshold=pyro.sample("threshold",
                               dist.Beta(1.2, 1.2)),
-        a=torch.tensor(0.4),
-        b=torch.tensor(0.1),
+        a=pyro.sample("a", dist.Uniform(0.3, 0.5)),  # unif_categorical_rv("a", torch.tensor([0.3, 0.4, 0.5])),
+        b=pyro.sample("b", dist.Uniform(0.05, 0.2)), # unif_categorical_rv("b", torch.tensor([0.05, 0.1, 0.15, 0.2])),
         coef=pyro.deterministic("coef", coef_mean),  # pyro.sample("coef", dist.Normal(coef_mean, coef_sigma)),
         sigma=pyro.sample("sigma", dist.Uniform(1.0, 2.0))
         # sigma=torch.tensor(1.0),
@@ -136,7 +142,9 @@ def fit_map(dataset: rr.RRDataset):
 def fit_importance(dataset: rr.RRDataset):
     def model():
         result = rr.model_wrapped(get_parameters, dataset)
-        return result.params.threshold
+        return torch.tensor([result.params.threshold,
+                             result.params.a,
+                             result.params.b])
 
     importance, slice_means = berp.infer.fit_importance(
         model, guide=None, num_samples=5000)
