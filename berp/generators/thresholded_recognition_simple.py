@@ -28,11 +28,25 @@ B, N_W, N_C, N_F, N_P, V_W = DIMS.B, DIMS.N_W, DIMS.N_C, DIMS.N_F, DIMS.N_P, DIM
 T, S = DIMS.T, DIMS.S
 
 
+def simple_peak(width: float, delay: float, sample_rate: int):
+    delay_num_samples = int(delay * sample_rate)
+    peak_num_samples = int(width * sample_rate)
+
+    delay_xs = torch.arange(delay_num_samples) / sample_rate
+    peak_xs = torch.arange(delay_num_samples, delay_num_samples + peak_num_samples) / sample_rate
+
+    delay_ys = torch.zeros_like(delay_xs)
+    peak_ys = torch.ones_like(peak_xs)
+
+    return torch.cat((delay_xs, peak_xs), dim=0), torch.cat((delay_ys, peak_ys), dim=0)
+
+
 def response_model(stim: Stimulus,
                    recognition_onsets: TensorType[N_W, float],
                    params: rr.ModelParameters,
                    num_sensors: int = 1,
                    sample_rate: int = 128,
+                   response_type: str = "gaussian",
                    right_padding: float = 0.,
                    ) -> torch.Tensor:
     """
@@ -48,18 +62,23 @@ def response_model(stim: Stimulus,
                      size=(int(np.ceil(t_max * sample_rate)), num_sensors))
 
     # Sample a standardized response, which will be scaled by per-word surprisal.
-    # TODO check that window size is sufficient to cover this
-    window_std = params.b / 4
-    window_center = params.a + window_std / 2
-    unit_response_xs, unit_response_ys = gaussian_window(window_center.item(), window_std.item(),
-                                                         sample_rate=sample_rate)
-    response_width = len(unit_response_xs)
-    unit_response_ys = torch.tensor(unit_response_ys).view(-1, 1).tile((1, num_sensors))
+    if response_type == "gaussian":
+        # TODO check that window size is sufficient to cover this
+        window_std = params.b / 4
+        window_center = params.a + window_std / 2
+        _, unit_response_ys = gaussian_window(window_center.item(), window_std.item(),
+                                              sample_rate=sample_rate)
+        unit_response_ys = torch.tensor(unit_response_ys).view(-1, 1).tile((1, num_sensors))
+    elif response_type == "square":
+        _, unit_response_ys = simple_peak(width=params.b, delay=params.a, sample_rate=sample_rate)
+        unit_response_ys = unit_response_ys.view(-1, 1).tile((1, num_sensors))
+    else:
+        raise ValueError("Unknown response type: {}".format(response_type))
 
     # Add characteristic response after each recognition onset.
     for word_surp, rec_onset_samp in zip(stim.word_surprisals, recognition_onsets_global_samp):
         start_idx = rec_onset_samp
-        end_idx = start_idx + response_width
+        end_idx = start_idx + len(unit_response_ys)
         Y[start_idx:end_idx] += params.coef[1] * word_surp * unit_response_ys
 
     return Y
@@ -70,6 +89,7 @@ def sample_dataset(params: rr.ModelParameters,
                    stimulus_generator: Union[StimulusGenerator, Callable[[], Stimulus]],
                    num_sensors: int = 1,
                    sample_rate: int = 128,
+                   response_type: str = "gaussian",
                    epoch_window: Tuple[float, float] = (-0.1, 1.0)
                    ) -> rr.RRDataset:
     
@@ -92,6 +112,7 @@ def sample_dataset(params: rr.ModelParameters,
 
     epoch_width = epoch_window[1] - epoch_window[0]
     Y = response_model(stim, recognition_onsets, params, num_sensors, sample_rate,
+                       response_type=response_type,
                        right_padding=epoch_width)
 
     #############

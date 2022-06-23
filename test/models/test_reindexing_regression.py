@@ -1,8 +1,10 @@
 from functools import partial
 from pathlib import Path
+from pprint import pprint
 import re
 from typing import Dict, Callable
 
+from colorama import Fore, Back, Style
 from icecream import ic
 import numpy as np
 import pyro
@@ -24,8 +26,8 @@ def get_parameters():
         lambda_=torch.tensor(1.0),
         confusion=generator.phoneme_confusion,
         threshold=pyro.deterministic("threshold", torch.tensor(0.7)),
-        a=torch.tensor(0.4),
-        b=torch.tensor(0.1),
+        a=pyro.deterministic("a", torch.tensor(0.4)),
+        b=pyro.deterministic("b", torch.tensor(0.1)),
         coef=pyro.deterministic("coef", coef_mean),
         sigma=torch.tensor(1.0),
     )
@@ -51,7 +53,8 @@ def soundness_dataset1():
     stim = stimulus.RandomStimulusGenerator(phoneme_voc_size=len(generator.phoneme2idx))
     dataset = generator.sample_dataset(
         get_parameters(),
-        stim)
+        stim,
+        response_type="square")
     return (dataset, get_parameters)
 
 
@@ -121,7 +124,8 @@ def _run_soundness_check(conditions, background_condition,
                     for key in condition_dict.keys())
     for condition in conditions:
         condition.update(background_condition)
-        print(condition)
+        print(f"{Style.BRIGHT}{Fore.YELLOW}Condition:{Style.RESET_ALL} {condition}")
+
         trace = model_forward(parameters, dataset, condition)
         log_joint = trace.log_prob_sum()
 
@@ -131,18 +135,20 @@ def _run_soundness_check(conditions, background_condition,
         condition_logprobs.append(log_joint)
         condition_traces.append(trace)
 
-    # Renormalize+exponentiate.
-    from pprint import pprint
-    
     condition_logprobs = torch.stack(condition_logprobs)
-    pprint(sorted(zip(conditions, condition_logprobs.numpy()),
+
+    # Remove background condition keys from condition specs for printing
+    conditions_to_print = [{k: v for k, v in condition.items()
+                            if k not in background_condition}
+                           for condition in conditions]
+    pprint(sorted(zip(conditions_to_print, condition_logprobs.numpy()),
                   key=lambda x: -x[1]))
 
+    # Exponentiate and renormalize
     condition_logprobs = (condition_logprobs - condition_logprobs.max()).exp()
     condition_logprobs /= condition_logprobs.sum()
 
-    from pprint import pprint
-    result = sorted(zip(conditions, condition_logprobs.numpy()),
+    result = sorted(zip(conditions_to_print, condition_logprobs.numpy()),
                     key=lambda x: -x[1])
     pprint(result)
 
@@ -159,7 +165,9 @@ def _run_soundness_check(conditions, background_condition,
 def test_soundness_threshold(request, dataset_fixture):
     dataset, parameters = request.getfixturevalue(dataset_fixture)
 
-    background_condition = {"coef": dataset.params.coef}
+    background_condition = {"coef": dataset.params.coef,
+                            "a": dataset.params.a,
+                            "b": dataset.params.b}
 
     gt_condition = {"threshold": dataset.params.threshold}
     alt_conditions = [{"threshold": x}
@@ -174,13 +182,32 @@ def test_soundness_threshold(request, dataset_fixture):
 def test_soundness_coef(request, dataset_fixture):
     dataset, parameters = request.getfixturevalue(dataset_fixture)
 
-    background_condition = {"threshold": dataset.params.threshold}
+    background_condition = {"threshold": dataset.params.threshold,
+                            "a": dataset.params.a,
+                            "b": dataset.params.b}
 
     gt_condition = {"coef": dataset.params.coef}
     alt_conditions = [{"coef": torch.tensor(x)}
                       for x in [[1., 1.],
                                 [1., -5.],
                                 [-1., -1.]]]
+    all_conditions = [gt_condition] + alt_conditions
+
+    _run_soundness_check(all_conditions, background_condition,
+                         dataset, parameters)
+
+
+def test_soundness_a(soundness_dataset1):
+    dataset, parameters = soundness_dataset1
+    background_condition = {"threshold": dataset.params.threshold,
+                            "coef": dataset.params.coef,
+                            "b": dataset.params.b}
+
+    gt_condition = {"a": dataset.params.a}
+    # a_min, a_max = 0.2, 0.6
+    # alt_conditions = [{"a": rand * (a_max - a_min) + a_min}
+    #                   for rand in torch.rand(10)]
+    alt_conditions = [{"a": torch.tensor(0.3697)}]
     all_conditions = [gt_condition] + alt_conditions
 
     _run_soundness_check(all_conditions, background_condition,
