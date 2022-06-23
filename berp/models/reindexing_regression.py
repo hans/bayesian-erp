@@ -254,7 +254,7 @@ def epoched_response_model(X: TensorType[B, N_F, float],
     q = sensor_reduction_fn(q, dim=2, keepdim=True)
     q = q.squeeze()
 
-    q_pred = torch.matmul(X, coef)
+    q_pred = pyro.deterministic("q_pred", torch.matmul(X, coef))
     # print("q_pred", q_pred[:5])
     # print("q", q[:5])
 
