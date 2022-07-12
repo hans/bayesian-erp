@@ -30,9 +30,10 @@ def time_to_sample(time: TensorType[float],
 
 
 @typechecked
-def variable_position_slice(x: torch.Tensor, idxs: torch.LongTensor,
-                            slice_width: int, padding_value=0.
-                            ) -> Tuple[torch.Tensor, TensorType[bool]]:
+def variable_position_slice(
+    x: torch.Tensor, idxs: torch.LongTensor,
+    slice_width: int, padding_value=0.
+    ) -> Tuple[torch.Tensor, TensorType[bool]]:
     """
     Extract fixed-width column slices from `x` with variable position by row,
     specified by `idxs`. Slices which are too close to the right edge of `x`
@@ -40,7 +41,7 @@ def variable_position_slice(x: torch.Tensor, idxs: torch.LongTensor,
     marked in the returned `mask`.
 
     Args:
-        x: B * T * ...
+        x: T * ...
         idxs: B
 
     Returns:
@@ -52,9 +53,9 @@ def variable_position_slice(x: torch.Tensor, idxs: torch.LongTensor,
 
     # Generate index range for each row.
     # TODO is there a better way to do this with real slice objects?
-    slice_idxs = torch.arange(slice_width).tile((x.shape[0], 1)) \
+    slice_idxs = torch.arange(slice_width).view(1, -1).tile((idxs.shape[0], 1)) \
         + idxs.unsqueeze(1)
-    mask = slice_idxs < x.shape[1]
+    mask = slice_idxs < x.shape[0]
     # For invalid cells, just retrieve the first item.
     slice_idxs[~mask] = 0
 

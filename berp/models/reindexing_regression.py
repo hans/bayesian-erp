@@ -203,7 +203,64 @@ def recognition_point_model(p_word_posterior: TensorType[B, N_P, is_probability]
 
 
 @typechecked
-def epoched_response_model(X: TensorType[B, N_F, float],
+def general_response_model(
+    X: TensorType[B, N_F, float],
+    recognition_points: TensorType[B, int],
+    phoneme_onsets: TensorType[B, N_P, float],
+    Y: TensorType[T, S, float],
+    irf_fn: Callable[[TensorType[N_F, float]],
+                     Tuple[TensorType["irf_times", S, float],
+                           TensorType["irf_times", S, bool]]],
+    sample_rate: int,
+    sigma: TensorType[float] = torch.tensor(0.1),
+    ) -> Tuple[TensorType[T, S, float],
+                TensorType[T, S, float]]:
+    """
+    Generate a response time series for the given stimulus and response parameters.
+    Accepts an arbitrary impulse response function `irf_fn`, which accepts a feature
+    vector and returns a tuple of a response time series and a mask over that time
+    series. The mask indicates which regions of the time series are considered
+    a commitment by the model; this response model will use the mask to assign log-prob
+    only to the un-masked regions.
+    """
+
+    # Compute recognition onset times.
+    recognition_onset = pyro.deterministic(
+        "recognition_onset",
+        torch.gather(phoneme_onsets, 1, recognition_points.unsqueeze(1)).squeeze(1))
+    assert recognition_onset[2] == phoneme_onsets[2, recognition_points[2]]
+
+    # Compute recognition onset as global index
+    recognition_onsets_global_samp = time_to_sample(recognition_onset, sample_rate)
+
+    # Generate continuous signal stream.
+    Y_pred = torch.normal(0, sigma, size=Y.shape)
+    # Which prediction indices do we actually mind?
+    # (Don't penalize the model for making predictions outside of the mask
+    # specified by the IRF.)
+    mask = torch.zeros(*Y.shape, dtype=torch.bool)
+
+    # Add characteristic response after each recognition onset.
+    for X_i, rec_onset_samp in zip(X, recognition_onsets_global_samp):
+        response_values, response_mask = irf_fn(X_i)
+        start_idx = rec_onset_samp
+        end_idx = start_idx + len(response_values)
+        Y_pred[start_idx:end_idx] += response_values
+
+        mask[start_idx:end_idx] = response_mask
+
+    Y_obs = pyro.sample(
+        "Y",
+        dist.Normal(Y_pred, sigma),
+        obs=Y,
+        obs_mask=mask
+    )
+
+    return (Y_obs, Y_pred)
+
+
+@typechecked
+def response_model(X: TensorType[B, N_F, float],
                            coef: TensorType[N_F, float],
                            recognition_points: TensorType[B, int],
                            phoneme_onsets: TensorType[B, N_P, float],
