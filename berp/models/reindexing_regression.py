@@ -203,6 +203,41 @@ def recognition_point_model(p_word_posterior: TensorType[B, N_P, is_probability]
 
 
 @typechecked
+def scatter_response_model(
+    X: TensorType[B, N_F, float],
+    recognition_points: TensorType[B, int],
+    phoneme_onsets: TensorType[B, N_P, float],
+    sample_rate: int,
+    total_samples: int,
+    ) -> TensorType[T, N_F, float]:
+    """
+    Shallow response model which simply generates a design matrix
+    to be fed to e.g. a receptive field estimator.
+    Scatters word-level features onto their respective recognition onset point.
+
+    In the case of two words with the same recognition point, their features are
+    added in the resulting design matrix.
+    """
+
+    # Compute recognition onset times.
+    recognition_onset = pyro.deterministic(
+        "recognition_onset",
+        torch.gather(phoneme_onsets, 1, recognition_points.unsqueeze(1)).squeeze(1))
+    assert recognition_onset[2] == phoneme_onsets[2, recognition_points[2]]
+
+    # Compute recognition onset as global index
+    recognition_onsets_global_samp = time_to_sample(recognition_onset, sample_rate)
+
+    num_features = X.shape[1]
+    ret = torch.zeros(total_samples, num_features, dtype=X.dtype)
+
+    for X_i, rec_onset_samp in zip(X, recognition_onsets_global_samp):
+        ret[rec_onset_samp] += X_i
+
+    return ret
+
+
+@typechecked
 def general_response_model(
     X: TensorType[B, N_F, float],
     recognition_points: TensorType[B, int],
@@ -214,7 +249,7 @@ def general_response_model(
     sample_rate: int,
     sigma: TensorType[float] = torch.tensor(0.1),
     ) -> Tuple[TensorType[T, S, float],
-                TensorType[T, S, float]]:
+               TensorType[T, S, float]]:
     """
     Generate a response time series for the given stimulus and response parameters.
     Accepts an arbitrary impulse response function `irf_fn`, which accepts a feature
@@ -340,10 +375,12 @@ def response_model(X: TensorType[B, N_F, float],
     return (q, q_pred)
 
 
-def model(params: ModelParameters,
-          dataset: RRDataset) -> RRResult:
+def scatter_model(params: ModelParameters,
+                  dataset: RRDataset
+                  ) -> Tuple[ModelParameters, RRDataset, TensorType[T, N_F, float]]:
     """
-    Execute full forward model.
+    Execute scatter model forward pass. Returns a design matrix to be fed
+    to a receptive field estimator.
     """
     p_word_posterior = predictive_model(
         dataset.p_word, dataset.candidate_phonemes,
@@ -351,29 +388,21 @@ def model(params: ModelParameters,
     rec = recognition_point_model(
         p_word_posterior, dataset.word_lengths,
         params.threshold)
-    q_obs, q_pred = epoched_response_model(
+    scatter = scatter_response_model(
         X=dataset.X_epoch,
-        coef=params.coef,
         recognition_points=rec,
         phoneme_onsets=dataset.phoneme_onsets,
-        Y=dataset.Y_epoch,
-        a=params.a, b=params.b,
-        sigma=params.sigma,
         sample_rate=dataset.sample_rate,
-        epoch_window=dataset.epoch_window)
-
-    return RRResult(
-        params=params,
-        dataset=dataset,
-        q_pred=q_pred,
-        q_obs=q_obs,
+        total_samples=dataset.Y.shape[0],  # type: ignore
     )
 
+    return params, dataset, scatter
 
-def model_wrapped(params: Callable[[], ModelParameters],
-                  dataset: RRDataset) -> RRResult:
-    """
-    Execute full forward model, wrapped in a function that allows for
-    parameterization.
-    """
-    return model(params(), dataset)
+
+# def model_wrapped(params: Callable[[], ModelParameters],
+#                   dataset: RRDataset) -> RRResult:
+#     """
+#     Execute full forward model, wrapped in a function that allows for
+#     parameterization.
+#     """
+#     return model(params(), dataset)
