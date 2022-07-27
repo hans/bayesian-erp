@@ -19,4 +19,6 @@ def test_trf_dummy():
                                  fit_intercept=False)
     trf.fit(X, Y)
 
-    print(trf.coef_)
+    expected_coef = torch.tensor([[0, 0], [1, -1], [0, 0]]).float()
+
+    torch.allclose(trf.coef_, expected_coef)
