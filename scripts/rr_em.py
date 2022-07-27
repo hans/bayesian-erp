@@ -18,7 +18,7 @@ import pyro
 from pyro import poutine
 import pyro.distributions as dist
 from sklearn.base import clone, BaseEstimator
-from tqdm import tqdm, trange
+from tqdm.auto import tqdm, trange
 
 from berp.generators import stimulus
 from berp.generators import thresholded_recognition_simple as generator
@@ -98,11 +98,9 @@ def e_step_grid(encoder: TemporalReceptiveField, dataset: rr.RRDataset,
         results[i] = test_ll
 
     # Convert to probabilities
-    print(results)
     results -= results.max()
     results = results.exp()
     weights = results / results.sum()
-    print(weights)
 
     return weights
 
@@ -117,7 +115,8 @@ def m_step(encoder: TemporalReceptiveField, weights: torch.Tensor, dataset: rr.R
 
 
 def fit_em(dataset: rr.RRDataset, param_grid: List[rr.ModelParameters],
-           test_dataset=None, n_iter=10, trf_alpha=None):
+           val_dataset=None, n_iter=10, trf_alpha=None,
+           early_stopping_patience=None):
     # TODO generalize
     tmin, tmax = 0.1, 0.4
     encoder = TemporalReceptiveField(
@@ -132,12 +131,11 @@ def fit_em(dataset: rr.RRDataset, param_grid: List[rr.ModelParameters],
             Y_pred = encoder.predict(X_mixed)
 
         mse = (Y_pred - dataset.Y).pow(2).mean()
-        corrs = []
-        for sensor_pred_obs in torch.stack([Y_pred, dataset.Y]).transpose(0, 2):
-            # corrs.append(torch.corrcoef(sensor_pred_obs)[0, 1])
-            corrs.append(torch.tensor(0.))
-        corr = torch.stack(corrs).mean()
-        return [mse, corr]
+        # for sensor_pred_obs in torch.stack([Y_pred, dataset.Y]).transpose(0, 2):
+        #     # corrs.append(torch.corrcoef(sensor_pred_obs)[0, 1])
+        #     corrs.append(torch.tensor(0.))
+        # corr = torch.stack(corrs).mean()
+        return mse
 
     point_estimate_keys = ["threshold", "lambda_"]
     metric_names = ["mse", "corr"]
@@ -157,14 +155,31 @@ def fit_em(dataset: rr.RRDataset, param_grid: List[rr.ModelParameters],
 
     weights = torch.zeros((n_iter, len(param_grid)))
     coefs = [encoder.coef_]
-    for i in range(n_iter):
-        weights[i] = e_step_grid(encoder, dataset, param_grid)
-        encoder = m_step(encoder, weights[i], dataset, param_grid)
-        coefs.append(encoder.coef_)
 
-        print("Train:", evaluate(weights[i], encoder, dataset))
-        if test_dataset is not None:
-            print("Test:", evaluate(weights[i], encoder, test_dataset))
+    best_val_loss = np.inf
+    patience_counter = 0
+    with trange(n_iter) as titer:
+        for i in titer:
+            weights[i] = e_step_grid(encoder, dataset, param_grid)
+            encoder = m_step(encoder, weights[i], dataset, param_grid)
+            coefs.append(encoder.coef_)
+
+            train_loss = evaluate(weights[i], encoder, dataset)
+            iter_results = dict(train_loss=train_loss.item())
+            if val_dataset is not None:
+                val_loss = evaluate(weights[i], encoder, val_dataset)
+                iter_results["val_loss"] = val_loss.item()
+
+                if early_stopping_patience is not None:
+                    if val_loss < best_val_loss:
+                        best_val_loss = val_loss
+                        patience_counter = 0
+                    else:
+                        patience_counter += 1
+                        if patience_counter >= early_stopping_patience:
+                            break
+
+            titer.set_postfix(**iter_results)
 
     # importance, slice_means = berp.infer.fit_importance(
     #     model, guide=None, num_samples=5000)
