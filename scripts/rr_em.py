@@ -181,23 +181,8 @@ def fit_em(dataset: rr.RRDataset, param_grid: List[rr.ModelParameters],
 
             titer.set_postfix(**iter_results)
 
-    # importance, slice_means = berp.infer.fit_importance(
-    #     model, guide=None, num_samples=5000)
-
-    # result_labels = point_estimate_keys
-    # if test_dataset is not None:
-    #     result_labels += metric_names
-    
-    # slice_means = [(idx, dict(zip(result_labels, values.numpy())))
-    #                for idx, values in slice_means]
-
-    # # Evaluate parameter estimate on a sliding window of samples to
-    # # understand how many samples we actually needed.
-    # df = pd.DataFrame.from_dict(dict(slice_means), orient="index")
-    # df.index.name = "num_samples"
-    # print(df)
-
-    # return importance
+    # Trim weights if we stopped early.
+    weights = weights[:i + 1]
 
     return weights, coefs
 
