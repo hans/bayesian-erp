@@ -8,7 +8,6 @@ from pprint import pprint
 import re
 from typing import List, Tuple, NamedTuple, Callable
 
-from mne.decoding import ReceptiveField
 import numpy as np
 import pandas as pd
 import torch
@@ -23,8 +22,8 @@ from tqdm import tqdm, trange
 
 from berp.generators import stimulus
 from berp.generators import thresholded_recognition_simple as generator
-import berp.infer
 from berp.models import reindexing_regression as rr
+from berp.models.trf import TemporalReceptiveField
 
 
 def generate_sentences() -> List[str]:
@@ -70,33 +69,7 @@ def get_parameters():
     )
 
 
-class Encoder(object):
-
-    def __init__(self, base_encoder: BaseEstimator):
-        self.base_encoder = base_encoder
-
-    def fit(self, X: TensorType, Y: TensorType) -> "Encoder":
-        X, Y = X.numpy(), Y.numpy()
-        self.encoder = clone(self.base_encoder).fit(X, Y)
-        Y_pred = self.encoder.predict(X)
-        self._residuals = Y_pred - Y
-        return self
-
-    @property
-    def sigma(self):
-        # Estimate forward model sigma from variance of residuals
-        return self._residuals.std()
-
-    def predict(self, *args, **kwargs) -> TensorType:
-        return torch.tensor(self.encoder.predict(*args, **kwargs))
-
-    def log_prob(self, X, Y):
-        Y_pred = self.predict(X)
-        Y_dist = dist.Normal(Y_pred, self.sigma)
-        return Y_dist.log_prob(Y)
-
-
-def forward(params: rr.ModelParameters, encoder: Encoder,
+def forward(params: rr.ModelParameters, encoder: TemporalReceptiveField,
             dataset: rr.RRDataset):
     _, _, design_matrix = rr.scatter_model(params, dataset)
     Y_pred = encoder.predict(design_matrix)
@@ -113,7 +86,8 @@ def weighted_design_matrix(weights: torch.Tensor, param_grid: List[rr.ModelParam
     return X_mixed
 
 
-def e_step_grid(encoder: Encoder, dataset: rr.RRDataset, param_grid: List[rr.ModelParameters]):
+def e_step_grid(encoder: TemporalReceptiveField, dataset: rr.RRDataset,
+                param_grid: List[rr.ModelParameters]):
     """
     Compute distribution over latent parameters conditioned on regression model.
     """
@@ -124,54 +98,38 @@ def e_step_grid(encoder: Encoder, dataset: rr.RRDataset, param_grid: List[rr.Mod
         results[i] = test_ll
 
     # Convert to probabilities
+    print(results)
     results -= results.max()
     results = results.exp()
     weights = results / results.sum()
+    print(weights)
 
     return weights
 
 
-def m_step(encoder: Encoder, weights: torch.Tensor, dataset: rr.RRDataset,
+def m_step(encoder: TemporalReceptiveField, weights: torch.Tensor, dataset: rr.RRDataset,
            param_grid: List[rr.ModelParameters]):
     """
     Estimate encoder which maximizes likelihood of data under expected design matrix.
     """
-    if not isinstance(encoder, Encoder):
-        raise
     X_mixed = weighted_design_matrix(weights, param_grid, dataset)
-
-    print(X_mixed.shape, dataset.Y.shape)
     return encoder.fit(X_mixed, dataset.Y)
 
 
 def fit_em(dataset: rr.RRDataset, param_grid: List[rr.ModelParameters],
-           test_dataset=None, n_iter=10, rf_estimator=None):
+           test_dataset=None, n_iter=10, trf_alpha=None):
     # TODO generalize
-    n_times, n_channels = dataset.Y.shape
-    n_features = dataset.X_epoch.shape[1]
     tmin, tmax = 0.1, 0.4
-    n_delays = int((tmax - tmin) * dataset.sample_rate) + 1
-    base_rf: ReceptiveField = ReceptiveField(
+    encoder = TemporalReceptiveField(
         tmin, tmax, dataset.sample_rate,
         feature_names=[str(x) for x in range(dataset.X_epoch.shape[1])],
-        estimator=rf_estimator,
-        scoring="corrcoef",
-        n_jobs=1,
-        verbose=True
-    )
+        alpha=trf_alpha)
 
-    encoder = Encoder(base_rf)
-
-    # Fit with random parameters.
-    one_hot = torch.zeros(len(param_grid))
-    one_hot[0] += 1
-    encoder = m_step(encoder, one_hot, dataset, param_grid)
-
-    def evaluate(weights: torch.Tensor, encoder: Encoder,
+    def evaluate(weights: torch.Tensor, encoder: TemporalReceptiveField,
                  dataset: rr.RRDataset):
         with poutine.block():
             X_mixed = weighted_design_matrix(weights, param_grid, dataset)
-            Y_pred = torch.tensor(encoder.predict(X_mixed))
+            Y_pred = encoder.predict(X_mixed)
 
         mse = (Y_pred - dataset.Y).pow(2).mean()
         corrs = []
@@ -198,11 +156,11 @@ def fit_em(dataset: rr.RRDataset, param_grid: List[rr.ModelParameters],
     #     pprint(list(zip(metric_names, metrics.mean(axis=0))))
 
     weights = torch.zeros((n_iter, len(param_grid)))
-    encoders = []
+    coefs = [encoder.coef_]
     for i in range(n_iter):
         weights[i] = e_step_grid(encoder, dataset, param_grid)
         encoder = m_step(encoder, weights[i], dataset, param_grid)
-        encoders.append(encoder)
+        coefs.append(encoder.coef_)
 
         print("Train:", evaluate(weights[i], encoder, dataset))
         if test_dataset is not None:
@@ -226,7 +184,7 @@ def fit_em(dataset: rr.RRDataset, param_grid: List[rr.ModelParameters],
 
     # return importance
 
-    return weights, encoders
+    return weights, coefs
 
 
 def main(args):

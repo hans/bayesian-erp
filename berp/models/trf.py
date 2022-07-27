@@ -21,8 +21,11 @@ class TemporalReceptiveField(object):
         self.fit_intercept = fit_intercept
         self.alpha = alpha
 
+        self.delays_ = _times_to_delays(self.tmin, self.tmax, self.sfreq)
+        self.coef_ = torch.randn(len(self.delays_), len(self.feature_names)) * 1e-2
+
     def fit(self, X: TensorType["n_times", "n_features"],
-            Y: TensorType["n_times", "n_outputs"],
+            Y: TensorType["n_times", "n_outputs"]
             ) -> "TemporalReceptiveField":
         
         # Initialize delays.
@@ -53,8 +56,11 @@ class TemporalReceptiveField(object):
 
     @property
     def sigma(self):
-        # Estimate forward model sigma from variance of residuals
-        return self.residuals_.std()
+        if hasattr(self, "residuals_"):
+            # Estimate forward model sigma from variance of residuals
+            return self.residuals_.std()
+        else:
+            return torch.tensor(1.)
 
     def predict(self, X: TensorType["n_times", "n_features"]
                 ) -> TensorType["n_times", "n_outputs"]:
