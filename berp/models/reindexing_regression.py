@@ -391,7 +391,7 @@ def scatter_model(params: ModelParameters,
     scatter = scatter_response_model(
         X=dataset.X_epoch,
         recognition_points=rec,
-        phoneme_onsets=dataset.phoneme_onsets,
+        phoneme_onsets=dataset.phoneme_onsets + dataset.word_onsets.unsqueeze(1),
         sample_rate=dataset.sample_rate,
         total_samples=dataset.Y.shape[0],  # type: ignore
     )
