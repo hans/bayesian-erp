@@ -52,8 +52,8 @@ Alice had no idea what Latitude was, or Longitude either, but thought they were 
 
 def get_parameters():
     # Sample model parameters.
-    coef_mean = torch.tensor([0., -1.])
-    coef_sigma = torch.tensor([1e-6, 0.1])
+    coef_mean = torch.tensor([-1.])
+    coef_sigma = torch.tensor([0.1])
     return rr.ModelParameters(
         # lambda_=pyro.sample("lambda", dist.Uniform(0.8, 1.2)),  # torch.tensor(1.0),
         lambda_=pyro.deterministic("lambda", torch.tensor(1.0)),

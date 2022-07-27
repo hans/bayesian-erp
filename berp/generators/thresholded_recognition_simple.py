@@ -61,10 +61,10 @@ def response_model(stim: Stimulus,
     # Sample a standardized response, which will be scaled by per-word surprisal.
     if response_type == "gaussian":
         _, unit_response_ys = response.simple_gaussian(params.b, params.a, sample_rate)
-        response_fn = lambda surprisal: params.coef[1] * unit_response_ys * surprisal
+        response_fn = lambda surprisal: params.coef[-1] * unit_response_ys * surprisal
     elif response_type == "square":
         _, unit_response_ys = response.simple_peak(params.b, params.a, sample_rate)
-        response_fn = lambda surprisal: params.coef[1] * unit_response_ys * surprisal
+        response_fn = lambda surprisal: params.coef[-1] * unit_response_ys * surprisal
     elif response_type == "n400":
         response_fn = lambda surprisal: response.n400_like(surprisal, sample_rate=sample_rate)[1]
     else:
@@ -90,7 +90,8 @@ def sample_dataset(params: rr.ModelParameters,
                    num_sensors: int = 1,
                    sample_rate: int = 128,
                    response_type: str = "gaussian",
-                   epoch_window: Tuple[float, float] = (-0.1, 1.0)
+                   epoch_window: Tuple[float, float] = (-0.1, 1.0),
+                   include_intercept=True,
                    ) -> rr.RRDataset:
     
     stim = stimulus_generator()
@@ -121,7 +122,12 @@ def sample_dataset(params: rr.ModelParameters,
     epoch_tmin, epoch_tmax = torch.tensor(epoch_window)
     epoch_samples = time_to_sample(epoch_tmax - epoch_tmin, sample_rate)
     num_words = stim.word_lengths.shape[0]
-    X_epoch = torch.stack([torch.ones(num_words), stim.word_surprisals], dim=1)
+
+    if include_intercept:
+        X_epoch = torch.stack([torch.ones(num_words), stim.word_surprisals], dim=1)
+    else:
+        X_epoch = stim.word_surprisals[:, None]
+
     Y_epoch = torch.empty(num_words, epoch_samples, num_sensors)
     for i, word_onset in enumerate(stim.word_onsets):
         start_idx = time_to_sample(word_onset + epoch_tmin, sample_rate)
