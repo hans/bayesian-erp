@@ -78,7 +78,8 @@ def forward(params: rr.ModelParameters, encoder: TemporalReceptiveField,
 
 def weighted_design_matrix(weights: torch.Tensor, param_grid: List[rr.ModelParameters],
                            dataset: rr.RRDataset):
-    X_mixed = torch.zeros((dataset.Y.shape[0], dataset.X_epoch.shape[1]))
+    num_features = dataset.X_variable.shape[1] + dataset.X_ts.shape[1]
+    X_mixed = torch.zeros((dataset.Y.shape[0], num_features))
     for weight, params in zip(weights, param_grid):
         _, _, design_matrix = rr.scatter_model(params, dataset)
         X_mixed += weight * design_matrix
@@ -119,9 +120,12 @@ def fit_em(dataset: rr.RRDataset, param_grid: List[rr.ModelParameters],
            early_stopping_patience=None):
     # TODO generalize
     tmin, tmax = 0.1, 0.4
+    all_features = \
+        [f"var_{i}" for i in range(dataset.X_variable.shape[1])] + \
+        [f"ts_{i}" for i in range(dataset.X_ts.shape[1])]
     encoder = TemporalReceptiveField(
         tmin, tmax, dataset.sample_rate,
-        feature_names=[str(x) for x in range(dataset.X_epoch.shape[1])],
+        feature_names=all_features,
         alpha=trf_alpha)
 
     def evaluate(weights: torch.Tensor, encoder: TemporalReceptiveField,
@@ -224,7 +228,7 @@ def main(args):
     param_grid = [get_parameters() for _ in range(args.grid_size)]
 
     if args.mode == "fit":
-        fit_em(dataset, param_grid, test_dataset=test_dataset)
+        fit_em(dataset, param_grid, val_dataset=test_dataset)
 
 
 if __name__ == "__main__":

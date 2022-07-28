@@ -24,9 +24,15 @@ class DIMS:
     The number of live candidate words represented in a given context.
     """
 
-    N_F = n_features = "n_features"
+    N_F = n_variable_features = "n_variable_features"
     """
-    Number of features (IVs) used to predict response values (DVs).
+    Number of variable-onset features (V-IVs) used to predict response values (DVs).
+    """
+
+    N_F_T = n_time_series_features = "n_time_series_features"
+    """
+    Number of time-series features (sampled at same rate as EEG signal) used to predict
+    response values (DVs).
     """
 
     N_P = n_phonemes = "n_phonemes"

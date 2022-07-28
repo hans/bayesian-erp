@@ -18,8 +18,8 @@ from berp.util import sample_to_time, time_to_sample, variable_position_slice
 
 
 # Define TensorType axis labels
-B, N_C, N_P, N_F, V_P, T, S = \
-    DIMS.B, DIMS.N_C, DIMS.N_P, DIMS.N_F, DIMS.V_P, DIMS.T, DIMS.S
+B, N_C, N_P, N_F, N_F_T, V_P, T, S = \
+    DIMS.B, DIMS.N_C, DIMS.N_P, DIMS.N_F, DIMS.N_F_T, DIMS.V_P, DIMS.T, DIMS.S
 
 
 class ModelParameters(NamedTuple):
@@ -35,11 +35,14 @@ class ModelParameters(NamedTuple):
 
 class RRDataset(NamedTuple):
     """
-    Defines an epoched dataset for reindexing regression, generated with the given
+    Defines a time series dataset for reindexing regression, generated with the given
     ground-truth parameters ``params``.
 
-    Each element on the batch axis corresponds to a single word within a single
-    item.
+    The predictors are stored in two groups:
+
+    1. `X_ts`: Time-series predictors, which are sampled at the same rate as `Y`.
+    2. `X_variable`: Latent-onset predictors, `batch` many whose onset is to be inferred
+       by the model.
 
     All tensors are padded on the N_P axis on the right to the maximum word length.
     """
@@ -81,19 +84,16 @@ class RRDataset(NamedTuple):
     the corresponding word.
     """
 
-    X_epoch: TensorType[B, N_F, float]
+    X_ts: TensorType[T, N_F_T, float]
+
+    X_variable: TensorType[B, N_F, float]
     """
-    Epoch features.
+    Word-level features whose onset is to be determined by the model.
     """
 
-    Y_epoch: TensorType[B, T, S, float]
+    Y: TensorType[T, S, float]
     """
-    Epoched response data (raw; not baselined).
-    """
-
-    Y: Optional[TensorType[..., S, float]] = None
-    """
-    Original response data stream.
+    Response data.
     """
 
     recognition_points: Optional[TensorType[B, int]] = None
@@ -204,7 +204,8 @@ def recognition_point_model(p_word_posterior: TensorType[B, N_P, is_probability]
 
 @typechecked
 def scatter_response_model(
-    X: TensorType[B, N_F, float],
+    X_variable: TensorType[B, N_F, float],
+    X_ts: TensorType[T, N_F_T, float],
     recognition_points: TensorType[B, int],
     phoneme_onsets: TensorType[B, N_P, float],
     sample_rate: int,
@@ -228,11 +229,14 @@ def scatter_response_model(
     # Compute recognition onset as global index
     recognition_onsets_global_samp = time_to_sample(recognition_onset, sample_rate)
 
-    num_features = X.shape[1]
-    ret = torch.zeros(total_samples, num_features, dtype=X.dtype)
+    # Scatter variable-onset data.
+    ret_variable = torch.zeros(total_samples, X_variable.shape[1],
+                               dtype=X_variable.dtype)
+    for X_variable_i, rec_onset_samp in zip(X_variable, recognition_onsets_global_samp):
+        ret_variable[rec_onset_samp] += X_variable_i
 
-    for X_i, rec_onset_samp in zip(X, recognition_onsets_global_samp):
-        ret[rec_onset_samp] += X_i
+    # Concatenate with time-series data.
+    ret = torch.concat([ret_variable, X_ts], dim=1)
 
     return ret
 
@@ -389,7 +393,8 @@ def scatter_model(params: ModelParameters,
         p_word_posterior, dataset.word_lengths,
         params.threshold)
     scatter = scatter_response_model(
-        X=dataset.X_epoch,
+        X_variable=dataset.X_variable,
+        X_ts=dataset.X_ts,
         recognition_points=rec,
         phoneme_onsets=dataset.phoneme_onsets + dataset.word_onsets.unsqueeze(1),
         sample_rate=dataset.sample_rate,

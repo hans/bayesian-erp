@@ -124,24 +124,12 @@ def sample_dataset(params: rr.ModelParameters,
     num_words = stim.word_lengths.shape[0]
 
     if include_intercept:
-        X_epoch = torch.stack([torch.ones(num_words), stim.word_surprisals], dim=1)
+        X_variable = torch.stack([torch.ones(num_words), stim.word_surprisals], dim=1)
     else:
-        X_epoch = stim.word_surprisals[:, None]
+        X_variable = stim.word_surprisals[:, None]
 
-    Y_epoch = torch.empty(num_words, epoch_samples, num_sensors)
-    for i, word_onset in enumerate(stim.word_onsets):
-        start_idx = time_to_sample(word_onset + epoch_tmin, sample_rate)
-        end_idx = time_to_sample(word_onset + epoch_tmax, sample_rate)
-
-        val = Y[start_idx:end_idx, :]
-        # Crop / pad if necessary
-        if val.shape[0] > epoch_samples:
-            val = val[(val.shape[0] - epoch_samples):, :]
-        elif val.shape[0] < epoch_samples:
-            # Pad on right.
-            val = pad(val, (0, 0, 0, epoch_samples - val.shape[0]))
-
-        Y_epoch[i, :, :] = val
+    # TODO any features to add here?
+    X_ts = torch.zeros((Y.shape[0], 1))
 
     return rr.RRDataset(
         params=params,
@@ -160,6 +148,6 @@ def sample_dataset(params: rr.ModelParameters,
         recognition_onsets=recognition_onsets,
 
         Y=Y,
-        X_epoch=X_epoch,
-        Y_epoch=Y_epoch,
+        X_variable=X_variable,
+        X_ts=X_ts,
     )
