@@ -3,6 +3,7 @@ import numpy as np
 import torch
 import torch.distributions as dist
 from torchtyping import TensorType
+from tqdm.auto import tqdm, trange
 
 
 class TemporalReceptiveField(object):
@@ -28,11 +29,15 @@ class TemporalReceptiveField(object):
         self.n_outputs_ = n_outputs
 
         self.coef_ = torch.randn(len(self.feature_names), len(self.delays_),
-                                 self.n_outputs_) * 1e-2
+                                 self.n_outputs_) * 1e-1
 
     def fit(self, X: TensorType["n_times", "n_features"],
             Y: TensorType["n_times", "n_outputs"]
             ) -> "TemporalReceptiveField":
+        """
+        Fit the TRF encoder with least squares.
+        """
+        
         assert self.n_outputs_ == Y.shape[-1]
 
         # TODO valid_samples_
@@ -62,6 +67,55 @@ class TemporalReceptiveField(object):
         self.residuals_ = Y_pred - Y
         return self
 
+    def partial_fit(self, X: TensorType["n_times", "n_features"],
+                    Y: TensorType["n_times", "n_outputs"]
+                    ) -> "TemporalReceptiveField":
+        """
+        Update the TRF encoder weights with gradient descent.
+        """
+
+        assert self.n_outputs_ == Y.shape[-1]
+
+        X_orig = X
+
+        # Preprocess X
+        X = _delay_time_series(X, self.tmin, self.tmax, self.sfreq,
+                               fill_mean=self.fit_intercept)
+        n_times, self.n_feats_, self.n_delays_ = X.shape
+        X = _reshape_for_est(X)
+        # Preprocess coef
+        coef = self.coef_.view((-1, self.n_outputs_)).requires_grad_()
+
+        def loss_fn(batch_onset, batch_offset):
+            X_b, Y_b = X[batch_onset:batch_offset], Y[batch_onset:batch_offset]
+            Y_b_pred = X_b @ coef
+
+            loss = (Y_b_pred - Y_b).pow(2).sum(axis=1).mean()
+            # Add ridge term.
+            loss += self.alpha * torch.norm(coef, p=2)
+
+            return loss
+
+        # TODO remove magic numbers
+        n_epochs = 2
+        optimizer = torch.optim.Adam([coef], lr=0.05)
+        batch_size = 512
+        for i in trange(n_epochs, leave=False):
+            losses = []
+            for batch_offset in torch.arange(0, X.shape[0], batch_size):
+                optimizer.zero_grad()
+                loss = loss_fn(batch_offset, batch_offset + batch_size)
+                loss.backward()
+                losses.append(loss)
+                optimizer.step()
+
+        self.coef_ = coef.detach().view((self.n_feats_, self.n_delays_, self.n_outputs_))
+
+        Y_pred = self.predict(X_orig)
+        self.residuals_ = Y_pred - Y
+
+        return self
+
     @property
     def sigma(self):
         if hasattr(self, "residuals_"):
@@ -79,6 +133,7 @@ class TemporalReceptiveField(object):
         return X @ coef
 
     def log_prob(self, X, Y):
+        # TODO this is log likelihood, not posterior -- make that clear
         Y_pred = self.predict(X)
         Y_dist = dist.Normal(Y_pred, self.sigma)
         return Y_dist.log_prob(Y)
