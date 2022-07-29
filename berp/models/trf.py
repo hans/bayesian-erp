@@ -7,11 +7,10 @@ from torchtyping import TensorType
 
 class TemporalReceptiveField(object):
 
-    def __init__(self, tmin, tmax, sfreq,
-                 feature_names,
-                 fit_intercept=True,
-                 alpha=None):
-        self.feature_names = feature_names
+    def __init__(self, tmin, tmax, sfreq, n_outputs,
+                feature_names=None,
+                fit_intercept=True,
+                alpha=None):
         self.sfreq = float(sfreq)
 
         self.tmin = tmin
@@ -22,12 +21,19 @@ class TemporalReceptiveField(object):
         self.alpha = alpha
 
         self.delays_ = _times_to_delays(self.tmin, self.tmax, self.sfreq)
-        self.coef_ = torch.randn(len(self.delays_), len(self.feature_names)) * 1e-2
+
+        if isinstance(feature_names, int):
+            feature_names = [str(x) for x in range(feature_names)]
+        self.feature_names = feature_names
+        self.n_outputs_ = n_outputs
+
+        self.coef_ = torch.randn(len(self.feature_names), len(self.delays_),
+                                 self.n_outputs_) * 1e-2
 
     def fit(self, X: TensorType["n_times", "n_features"],
             Y: TensorType["n_times", "n_outputs"]
             ) -> "TemporalReceptiveField":
-        
+        assert self.n_outputs_ == Y.shape[-1]
         # Initialize delays.
         self.delays_ = _times_to_delays(self.tmin, self.tmax, self.sfreq)
 
@@ -37,6 +43,7 @@ class TemporalReceptiveField(object):
         X_del: TensorType["n_times", "n_features", "n_delays"] = \
             _delay_time_series(X, self.tmin, self.tmax, self.sfreq,
                                fill_mean=self.fit_intercept)
+        n_times, self.n_feats_, self.n_delays_ = X_del.shape
         X_est = _reshape_for_est(X_del)
 
         # Find ridge regression solution.
@@ -49,6 +56,9 @@ class TemporalReceptiveField(object):
         else:
             ridge = self.alpha * torch.eye(lhs.shape[0])
             self.coef_ = torch.linalg.lstsq(lhs + ridge, rhs).solution
+
+        # Reshape resulting coefficients
+        self.coef_ = self.coef_.reshape((self.n_feats_, self.n_delays_, self.n_outputs_))
 
         Y_pred = self.predict(X)
         self.residuals_ = Y_pred - Y
@@ -67,7 +77,8 @@ class TemporalReceptiveField(object):
         X = _delay_time_series(X, self.tmin, self.tmax, self.sfreq,
                                fill_mean=self.fit_intercept)
         X = _reshape_for_est(X)
-        return X @ self.coef_
+        coef = self.coef_.reshape((-1, self.n_outputs_))
+        return X @ coef
 
     def log_prob(self, X, Y):
         Y_pred = self.predict(X)
@@ -79,7 +90,7 @@ def _times_to_delays(tmin, tmax, sfreq) -> torch.Tensor:
     """Convert a tmin/tmax in seconds to delays."""
     # Convert seconds to samples
     delays = torch.arange(int(np.round(tmin * sfreq)),
-                          int(np.round(tmax * sfreq) + 1))
+                        int(np.round(tmax * sfreq) + 1))
     return delays
 
 
@@ -114,10 +125,10 @@ def _delay_time_series(X, tmin, tmax, sfreq, fill_mean=False):
     >>> x_del = _delay_time_series(x, tmin, tmax, sfreq)
     >>> print(x_del)  # doctest:+SKIP
     [[2. 1. 0. 0.]
-     [3. 2. 1. 0.]
-     [4. 3. 2. 1.]
-     [5. 4. 3. 2.]
-     [0. 5. 4. 3.]]
+    [3. 2. 1. 0.]
+    [4. 3. 2. 1.]
+    [5. 4. 3. 2.]
+    [0. 5. 4. 3.]]
     """
     delays = _times_to_delays(tmin, tmax, sfreq)
     # Iterate through indices and append

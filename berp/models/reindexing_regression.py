@@ -210,7 +210,7 @@ def scatter_response_model(
     phoneme_onsets: TensorType[B, N_P, float],
     sample_rate: int,
     total_samples: int,
-    ) -> TensorType[T, N_F, float]:
+    ) -> TensorType[T, "n_total_features", float]:
     """
     Shallow response model which simply generates a design matrix
     to be fed to e.g. a receptive field estimator.

@@ -117,14 +117,15 @@ def m_step(encoder: TemporalReceptiveField, weights: torch.Tensor, dataset: rr.R
 
 def fit_em(dataset: rr.RRDataset, param_grid: List[rr.ModelParameters],
            val_dataset=None, n_iter=10, trf_alpha=None,
+           epoch_window=(0.0, 1.0),
            early_stopping_patience=None):
-    # TODO generalize
-    tmin, tmax = 0.1, 0.4
+    tmin, tmax = epoch_window
     all_features = \
         [f"var_{i}" for i in range(dataset.X_variable.shape[1])] + \
         [f"ts_{i}" for i in range(dataset.X_ts.shape[1])]
     encoder = TemporalReceptiveField(
         tmin, tmax, dataset.sample_rate,
+        n_outputs=dataset.Y.shape[-1],
         feature_names=all_features,
         alpha=trf_alpha)
 
