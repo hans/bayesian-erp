@@ -34,8 +34,6 @@ class TemporalReceptiveField(object):
             Y: TensorType["n_times", "n_outputs"]
             ) -> "TemporalReceptiveField":
         assert self.n_outputs_ == Y.shape[-1]
-        # Initialize delays.
-        self.delays_ = _times_to_delays(self.tmin, self.tmax, self.sfreq)
 
         # TODO valid_samples_
 
