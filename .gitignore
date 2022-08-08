@@ -3,3 +3,5 @@ __pycache__
 .dmypy.json
 .vscode
 .devcontainer
+
+data
