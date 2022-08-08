@@ -106,17 +106,29 @@ def e_step_grid(encoder: TemporalReceptiveField, dataset: rr.RRDataset,
     return weights
 
 
-def m_step(encoder: TemporalReceptiveField, weights: torch.Tensor, dataset: rr.RRDataset,
-           param_grid: List[rr.ModelParameters]):
+def m_step_lstsq(encoder: TemporalReceptiveField, weights: torch.Tensor, dataset: rr.RRDataset,
+                 param_grid: List[rr.ModelParameters]):
     """
-    Estimate encoder which maximizes likelihood of data under expected design matrix.
+    Estimate encoder which maximizes likelihood of data under expected design matrix
+    by least squares.
     """
     X_mixed = weighted_design_matrix(weights, param_grid, dataset)
     return encoder.fit(X_mixed, dataset.Y)
 
 
+def m_step_sgd(encoder: TemporalReceptiveField, weights: torch.Tensor, dataset: rr.RRDataset,
+               param_grid: List[rr.ModelParameters]):
+    """
+    Estimate encoder which maximizes likelihood of data under expected design matrix
+    by stochastic gradient descent.
+    """
+    X_mixed = weighted_design_matrix(weights, param_grid, dataset)
+    return encoder.partial_fit(X_mixed, dataset.Y)
+
+
 def fit_em(dataset: rr.RRDataset, param_grid: List[rr.ModelParameters],
            val_dataset=None, n_iter=10, trf_alpha=None,
+           solver="sgd",
            epoch_window=(0.0, 1.0),
            early_stopping_patience=None):
     tmin, tmax = epoch_window
@@ -135,7 +147,7 @@ def fit_em(dataset: rr.RRDataset, param_grid: List[rr.ModelParameters],
             X_mixed = weighted_design_matrix(weights, param_grid, dataset)
             Y_pred = encoder.predict(X_mixed)
 
-        mse = (Y_pred - dataset.Y).pow(2).mean()
+        mse = (Y_pred - dataset.Y).pow(2).sum(axis=1).mean()
         # for sensor_pred_obs in torch.stack([Y_pred, dataset.Y]).transpose(0, 2):
         #     # corrs.append(torch.corrcoef(sensor_pred_obs)[0, 1])
         #     corrs.append(torch.tensor(0.))
@@ -159,7 +171,15 @@ def fit_em(dataset: rr.RRDataset, param_grid: List[rr.ModelParameters],
     #     pprint(list(zip(metric_names, metrics.mean(axis=0))))
 
     weights = torch.zeros((n_iter, len(param_grid)))
-    coefs = [encoder.coef_]
+    coefs = [encoder.coef_.clone()]
+
+    # Prepare M-step solver.
+    if solver == "sgd":
+        m_step = m_step_sgd
+    elif solver == "lstsq":
+        m_step = m_step_lstsq
+    else:
+        raise ValueError(f"Unknown solver: {solver}")
 
     best_val_loss = np.inf
     patience_counter = 0
@@ -167,7 +187,7 @@ def fit_em(dataset: rr.RRDataset, param_grid: List[rr.ModelParameters],
         for i in titer:
             weights[i] = e_step_grid(encoder, dataset, param_grid)
             encoder = m_step(encoder, weights[i], dataset, param_grid)
-            coefs.append(encoder.coef_)
+            coefs.append(encoder.coef_.clone())
 
             train_loss = evaluate(weights[i], encoder, dataset)
             iter_results = dict(train_loss=train_loss.item())
