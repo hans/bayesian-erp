@@ -5,3 +5,6 @@ __pycache__
 .devcontainer
 
 data
+work
+.nextflow
+.nextflow*
