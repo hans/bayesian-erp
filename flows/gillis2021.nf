@@ -40,8 +40,6 @@ process convertTextgrid {
  *   - tok_idx: token idx in tokenized text
  */
 process alignWithRawText {
-    // TODO. For the moment we'll just use ground-truth surprisals.
-
     input:
     path "*.csv" from force_aligned
     path raw_text
@@ -55,8 +53,7 @@ process alignWithRawText {
     python ${baseDir}/scripts/gillis2021/align_with_raw_text.py \
         -m ${params.model} \
         ${raw_text} \
-        ${textgrids} \
-        > aligned_text.csv
+        ${textgrids}
     """
 }
 
