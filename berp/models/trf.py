@@ -11,6 +11,7 @@ class TemporalReceptiveField(object):
     def __init__(self, tmin, tmax, sfreq, n_outputs,
                 feature_names=None,
                 fit_intercept=True,
+                warm_start=False,
                 alpha=None):
         self.sfreq = float(sfreq)
 
@@ -19,6 +20,7 @@ class TemporalReceptiveField(object):
         assert self.tmin < self.tmax
 
         self.fit_intercept = fit_intercept
+        self.warm_start = warm_start
         self.alpha = alpha
 
         self.delays_ = _times_to_delays(self.tmin, self.tmax, self.sfreq)
@@ -28,6 +30,9 @@ class TemporalReceptiveField(object):
         self.feature_names = feature_names
         self.n_outputs_ = n_outputs
 
+        self._init_coef()
+
+    def _init_coef(self):
         self.coef_ = torch.randn(len(self.feature_names), len(self.delays_),
                                  self.n_outputs_) * 1e-1
 
@@ -75,6 +80,9 @@ class TemporalReceptiveField(object):
         """
 
         assert self.n_outputs_ == Y.shape[-1]
+
+        if not self.warm_start:
+            self._init_coef()
 
         X_orig = X
 

@@ -139,6 +139,7 @@ def fit_em(dataset: rr.RRDataset, param_grid: List[rr.ModelParameters],
         tmin, tmax, dataset.sample_rate,
         n_outputs=dataset.Y.shape[-1],
         feature_names=all_features,
+        warm_start=True,
         alpha=trf_alpha)
 
     def evaluate(weights: torch.Tensor, encoder: TemporalReceptiveField,
