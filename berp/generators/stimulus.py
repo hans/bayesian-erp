@@ -190,7 +190,6 @@ class NaturalLanguageStimulusGenerator(StimulusGenerator):
         """
 
         with torch.no_grad():
-            print(input_ids.shape, self._model(input_ids)[0].shape)
             model_outputs = self._model(input_ids)[0].log_softmax(dim=2)
 
         # Ignore disallowed tokens.
@@ -334,9 +333,9 @@ class NaturalLanguageStimulusGenerator(StimulusGenerator):
         for i in trange(0, len(token_inputs), self.batch_size):
             batch = token_inputs[i:i+self.batch_size]
             # Keep track of which token indices are in the batch.
-            token_idxs = torch.arange(i * max_len, (i + self.batch_size) * max_len)
+            batch_token_idxs = torch.arange(i * max_len, (i + self.batch_size) * max_len)
             # Extract relevant token masks. First token will be missed.
-            batch_mask = token_mask[token_idxs].reshape((self.batch_size, max_len))
+            batch_mask = token_mask[batch_token_idxs].reshape((self.batch_size, max_len))
             batch_mask = batch_mask[:, 1:]
 
             batch_p_word, batch_candidate_ids = self.get_predictive_topk(batch)
@@ -352,7 +351,7 @@ class NaturalLanguageStimulusGenerator(StimulusGenerator):
             batch_candidate_phonemes = batch_candidate_phonemes[batch_mask]
 
             # Track which token idxs were retained.
-            batch_retained_token_idxs = token_idxs.reshape((self.batch_size, max_len))
+            batch_retained_token_idxs = batch_token_idxs.reshape((self.batch_size, max_len))
             # First token is skipped.
             batch_retained_token_idxs = batch_retained_token_idxs[:, 1:]
             # Incorporate batch mask
@@ -360,10 +359,9 @@ class NaturalLanguageStimulusGenerator(StimulusGenerator):
             # Flatten so one word/token per first dim.
             batch_retained_token_idxs = batch_retained_token_idxs.reshape(-1)
 
-            print(batch_retained_token_idxs.shape, batch_word_lengths.shape)
-
             batch_num_samples = batch_candidate_phonemes.shape[0]
             assert batch_p_word.shape[0] == batch_num_samples
+            assert batch_word_lengths.shape[0] == batch_num_samples
             start, end = i, i + batch_num_samples
 
             word_lengths[start:end] = batch_word_lengths
