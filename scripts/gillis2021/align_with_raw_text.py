@@ -3,6 +3,7 @@ from pathlib import Path
 import re
 import sys
 import unicodedata
+import warnings
 
 import pandas as pd
 import requests
@@ -257,13 +258,47 @@ def process_story(name):
     fa_words = fa_df[fa_df.tier == "words"]
     fa_words = patch_story(fa_words, name)
     
-    aligned = pd.DataFrame(align_corpora(fa_words, tokens_flat),
-                           columns=["textgrid_idx", "tok_idx", "flags"])
-    return tokens_flat, aligned
+    alignment = pd.DataFrame(align_corpora(fa_words, tokens_flat),
+                             columns=["textgrid_idx", "tok_idx", "flags"])
+    
+    # Merge with existing words df.
+    fa_words = pd.merge(
+        fa_words,
+        alignment.rename(columns={"textgrid_idx": "original_idx"}).drop(columns=["flags"]),
+        on="original_idx")
+    
+    # Asof merge to store FA word + token index data in phoneme data.
+    fa_phonemes = fa_df[fa_df.tier == "phonemes"]
+    fa_phonemes = pd.merge_asof(fa_phonemes, fa_words[["start", "original_idx", "tok_idx"]],
+                                on="start", direction="backward")
+    
+    # Annotate with story name.
+    for df in [fa_words, fa_phonemes]:
+        df["story"] = name
+        df.set_index("story", append=True, inplace=True)
+        df.index = df.index.reorder_levels((1, 0))
+    
+    return tokens_flat, fa_words, fa_phonemes
 
 
-tokens_flat, aligned = process_story("DKZ_1")
+all_tokens, all_aligned_words, all_aligned_phonemes = [], [], []
+stories = sorted(aligned_corpora)
+for story in stories:
+    try:
+        tokens_flat, aligned_words, aligned_phonemes = process_story(story)
+    except KeyError:
+        warnings.warn(f"Story {story} not yet prepared.")
+    else:
+        all_tokens.append(tokens_flat)
+        all_aligned_words.append(aligned_words)
+        all_aligned_phonemes.append(aligned_phonemes)
 
-" ".join(tokens_flat)
+tok_dir = Path("tokenized")
+tok_dir.mkdir(exist_ok=True)
+for story, tokens in zip(stories, all_tokens):
+    with (tok_dir / f"{story}.txt").open("w") as f:
+        f.write(" ".join(tokens))
 
-process_story("DKZ_2")
+pd.concat(all_aligned_words).to_csv("aligned_words.csv")
+
+pd.concat(all_aligned_phonemes).to_csv("aligned_phonemes.csv")
