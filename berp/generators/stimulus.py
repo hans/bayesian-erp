@@ -1,7 +1,7 @@
 import itertools
 import logging
 import re
-from typing import List, NamedTuple, Tuple
+from typing import Callable, List, NamedTuple, Tuple, Optional
 
 import numpy as np
 import pyro.distributions as dist
@@ -11,7 +11,7 @@ from torchtyping import TensorType
 import transformers
 from transformers import AutoModelForCausalLM, AutoTokenizer  # type: ignore
 from transformers.tokenization_utils_base import BatchEncoding
-from tqdm.auto import tqdm
+from tqdm.auto import tqdm, trange
 
 from berp.typing import DIMS, is_probability, is_log_probability
 
@@ -126,18 +126,27 @@ class RandomStimulusGenerator(StimulusGenerator):
                         word_onsets, word_surprisals, p_word, candidate_phonemes)
 
 
+Phoneme = str
+
+def default_phonemizer(string) -> List[Phoneme]:
+    return list(string)
+
+
 class NaturalLanguageStimulusGenerator(StimulusGenerator):
 
     def __init__(self,
-                 phonemes: List[str],
+                 phonemes: List[Phoneme],
                  hf_model: str,
+                 phonemizer: Optional[Callable[[str], List[Phoneme]]] = None,
                  num_candidates: int = 10,
                  batch_size=8,
+                 disallowed_re=r"[^a-z]",
                  **kwargs):
         super().__init__(**kwargs)
 
         self.phonemes = np.array(phonemes)
         self.phoneme2idx = {p: idx for idx, p in enumerate(self.phonemes)}
+        self.phonemizer = phonemizer or default_phonemizer
 
         self.num_candidates = num_candidates
 
@@ -151,19 +160,20 @@ class NaturalLanguageStimulusGenerator(StimulusGenerator):
             self._tokenizer.pad_token = self._tokenizer.eos_token
 
         # Pre-compute mask of allowed tokens (== which have content after cleaning)
+        self.disallowed_re = disallowed_re
         self.vocab_mask = torch.ones(self._tokenizer.vocab_size, dtype=torch.bool)
         for token, idx in self._tokenizer.vocab.items():  # type: ignore
             if self._clean_word(token) == "":
                 self.vocab_mask[idx] = False
 
     def _clean_word(self, word: str) -> str:
-        return re.sub(r"[^a-z]", "", word.lower())
+        return re.sub(self.disallowed_re, "", word.lower())
 
     def _clean_sentences(self, sentences: List[str]) -> List[str]:
         return [re.sub(r"[^a-z\s]", "", sentence.lower()).strip()
                 for sentence in sentences]
 
-    def get_predictive_topk(self, batch_tok: BatchEncoding,
+    def get_predictive_topk(self, input_ids: TensorType[B, "n_times", torch.long],
                             ) -> Tuple[TensorType[B, N_W, N_C, is_probability],
                                        TensorType[B, N_W, N_C, int]]:
         """
@@ -180,7 +190,8 @@ class NaturalLanguageStimulusGenerator(StimulusGenerator):
         """
 
         with torch.no_grad():
-            model_outputs = self._model(batch_tok["input_ids"])[0].log_softmax(dim=2)
+            print(input_ids.shape, self._model(input_ids)[0].shape)
+            model_outputs = self._model(input_ids)[0].log_softmax(dim=2)
 
         # Ignore disallowed tokens.
         model_outputs[:, :, ~self.vocab_mask] = -torch.inf
@@ -190,7 +201,7 @@ class NaturalLanguageStimulusGenerator(StimulusGenerator):
                                       dim=2)
 
         # NB we start at t=1 because that is where predictions start.
-        gt_token_ids = batch_tok["input_ids"][:, 1:]  # type: ignore
+        gt_token_ids = input_ids[:, 1:]
 
         # Prepend ground truth token as top candidate. If it already exists elsewhere,
         # drop it; otherwise, drop the lowest-probability candidate.
@@ -228,7 +239,8 @@ class NaturalLanguageStimulusGenerator(StimulusGenerator):
         return p_word, candidate_ids
 
     def get_candidate_phonemes(self, candidate_ids: TensorType[B, N_W, N_C, int],
-                               max_num_phonemes: int
+                               max_num_phonemes: int,
+                               ground_truth_phonemes: Optional[List[List[Phoneme]]] = None
                                ) -> Tuple[TensorType[B, N_W, N_C, N_P, torch.long],
                                           TensorType[B, N_W, int]]:
         """
@@ -236,101 +248,119 @@ class NaturalLanguageStimulusGenerator(StimulusGenerator):
         each candidate word, padded to length ``max_num_phonemes`` on the last
         dimension.
 
+        Args:
+            ground_truth_phonemes: Phoneme sequences for the ground-truth
+                words. If not provided, standard phonemizer is used.
+
         Returns:
             candidate_phonemes:
             word_lengths: lengths of ground truth word
         """
         candidate_tokens = self._tokenizer.convert_ids_to_tokens(
             candidate_ids.reshape(-1).tolist())
-        candidate_tokens = [self._clean_word(tok) for tok in candidate_tokens]
 
-        word_lengths = torch.tensor([len(tok) for tok in candidate_tokens]) \
+        # Convert tokens to phoneme sequences.
+        candidate_phoneme_seqs = []
+        for i, tok in enumerate(candidate_tokens):
+            tok = self._clean_word(tok)
+
+            # If we are looking at a ground-truth token and there is a reference
+            # phonemization, use that. Otherwise automate.
+            if ground_truth_phonemes is not None and i % candidate_ids.shape[2] == 0:
+                phoneme_seq = ground_truth_phonemes[i // candidate_ids.shape[2]]
+            else:
+                phoneme_seq = self.phonemizer(tok)
+
+            candidate_phoneme_seqs.append(phoneme_seq)
+        
+        word_lengths = torch.tensor([len(tok) for tok in candidate_phoneme_seqs]) \
             .reshape(*candidate_ids.shape)[:, :, 0]
 
         candidate_phonemes = torch.stack([
-            pad(torch.tensor([self.phoneme2idx[p] for p in token]),
-                (0, max_num_phonemes - len(token)),
+            pad(torch.tensor([self.phoneme2idx[p] for p in phoneme_seq]),
+                (0, max_num_phonemes - len(phoneme_seq)),
                 value=self.phoneme2idx["_"])
-            for token in candidate_tokens
+            for phoneme_seq in candidate_phoneme_seqs
         ])
         candidate_phonemes = candidate_phonemes.reshape(
             *candidate_ids.shape, max_num_phonemes).long()
 
         return candidate_phonemes, word_lengths
 
-    def __call__(self, sentences: List[str]) -> Stimulus:
-        sentences = self._clean_sentences(sentences)
+    def __call__(self, tokens: List[str],
+                 token_mask: List[bool],
+                 ground_truth_phonemes: Optional[List[List[Phoneme]]] = None
+                 ) -> Stimulus:
+        """
+        Args:
+            token_mask: While all tokens need to be used to compute surprisals,
+                only some tokens will have corresponding neural data. This boolean
+                mask specifies which tokens should be included in the returned
+                dataset.
+        """
+        # Split text into distinct inputs based on model maxlen
+        # and then batch.
+        # TODO overlap for better contextual predictions
+        token_ids = self._tokenizer.convert_tokens_to_ids(tokens)
+        max_len = 10  # DEV self._model.config.n_positions
+        token_inputs = [token_ids[i:i+max_len]
+                        for i in range(0, len(token_ids), max_len)]
 
-        # Pre-tokenize sentences and split into batches.
-        # Also pre-compute relevant size parameters:
-        # - total number of words, collapsing over sentences
-        # - maximum number of phonemes (in ground-truth word -- we don't care about
-        #   truncating candidates, since we'll never be indexing past the ground-truth
-        #   final phoneme -- there are no defined time onsets for non-ground-truth
-        #   phonemes anyway)
-        batches = []
-        num_words = 0
-        max_num_phonemes = 0
-        for i in range(0, len(sentences), self.batch_size):
-            batch_sentences = sentences[i:i + self.batch_size]
-            batch = self._tokenizer(batch_sentences, padding=True, 
-                                    return_tensors="pt", truncation=True,
-                                    max_length=self._model.config.max_length)
+        token_mask = torch.tensor(token_mask)
 
-            # TODO refactor. The function of this code is to heuristically compute how many
-            # words in total we have in the final output matrices. To do so, we re-code
-            # all of the logic in other methods of this class here. That's not good for
-            # sustainability. Ideally we'd use exactly the core logic to compute the number
-            # of words as well. In the worst case, could just do a dry run of the whole data
-            # prep in order to compute the number of words.
-            for encoding in batch.encodings:  # type: ignore
-                for i, token_word_id in enumerate(encoding.word_ids):  # type: ignore
-                    # Skip first token of each sentence -- no predictions.
-                    if i == 0:
-                        continue
+        # Pad to max_len.
+        token_inputs = torch.stack([
+            pad(torch.tensor(tok_ids),
+                (0, max_len - len(tok_ids)),
+                value=self._tokenizer.pad_token_id)
+            for tok_ids in token_inputs
+        ])
 
-                    # Count only tokens which have corresponding words in input.
-                    # Tokens for which this is not the case have value `None` in
-                    # encoding.word_ids
-                    if token_word_id is None:
-                        continue
+        # Pre-compute maximum number of phonemes.
+        # TODO use ground truth phonemes here
+        max_num_phonemes = max(len(self.phonemizer(tok)) for tok in tokens)
 
-                    cleaned_word = self._clean_word(encoding.tokens[i])  # type: ignore
-                    # Will be dropped by masking later on.
-                    # TODO would be great to not have coupled separate parts of code
-                    if len(cleaned_word) == 0:
-                        continue
+        # TODO skip first word of each sentence?
+        num_words = len(token_ids)
 
-                    num_words += 1
-                    max_num_phonemes = max(max_num_phonemes, len(cleaned_word))
-
-            batches.append(batch)
+        print(token_inputs.shape)
 
         i = 0
         word_lengths = torch.zeros(num_words, dtype=torch.long)
         p_word = torch.zeros((num_words, self.num_candidates), dtype=torch.float)
         candidate_phonemes = torch.zeros((num_words, self.num_candidates, max_num_phonemes), dtype=torch.long)
-        for batch in tqdm(batches):
+        # Track the token idx that produced each sample.
+        token_idxs = torch.zeros(num_words, dtype=torch.long)
+        for i in trange(0, len(token_inputs), self.batch_size):
+            batch = token_inputs[i:i+self.batch_size]
+            # Keep track of which token indices are in the batch.
+            token_idxs = torch.arange(i * max_len, (i + self.batch_size) * max_len)
+            # Extract relevant token masks. First token will be missed.
+            batch_mask = token_mask[token_idxs].reshape((self.batch_size, max_len))
+            batch_mask = batch_mask[:, 1:]
+
             batch_p_word, batch_candidate_ids = self.get_predictive_topk(batch)
             batch_candidate_phonemes, batch_word_lengths = self.get_candidate_phonemes(
-                batch_candidate_ids, max_num_phonemes)
+                batch_candidate_ids, max_num_phonemes, ground_truth_phonemes)
 
-            # Compute a mask which is `True` iff a word within item
-            # corresponds to a real word in the input string (i.e. not special token/padding).
-            # Skip BOS token since we don't have data on that in the above variables.
-            word_mask: TensorType[B, N_W, bool] = torch.tensor([
-                [word_id is not None for word_id in encoding.word_ids[1:]]
-                for encoding in batch.encodings
-            ])
             # Also ignore words with zero length.
-            word_mask = word_mask & (batch_word_lengths > 0)
+            batch_mask = batch_mask & (batch_word_lengths > 0)
 
             # Drop rows which correspond to non-words. Flattens first two axes in the process.
-            # TODO track retained indices -- will be important when we have non-random
-            # onset data!
-            batch_word_lengths = batch_word_lengths[word_mask]
-            batch_p_word = batch_p_word[word_mask]
-            batch_candidate_phonemes = batch_candidate_phonemes[word_mask]
+            batch_word_lengths = batch_word_lengths[batch_mask]
+            batch_p_word = batch_p_word[batch_mask]
+            batch_candidate_phonemes = batch_candidate_phonemes[batch_mask]
+
+            # Track which token idxs were retained.
+            batch_retained_token_idxs = token_idxs.reshape((self.batch_size, max_len))
+            # First token is skipped.
+            batch_retained_token_idxs = batch_retained_token_idxs[:, 1:]
+            # Incorporate batch mask
+            batch_retained_token_idxs = batch_retained_token_idxs[batch_mask]
+            # Flatten so one word/token per first dim.
+            batch_retained_token_idxs = batch_retained_token_idxs.reshape(-1)
+
+            print(batch_retained_token_idxs.shape, batch_word_lengths.shape)
 
             batch_num_samples = batch_candidate_phonemes.shape[0]
             assert batch_p_word.shape[0] == batch_num_samples
@@ -339,6 +369,7 @@ class NaturalLanguageStimulusGenerator(StimulusGenerator):
             word_lengths[start:end] = batch_word_lengths
             p_word[start:end] = batch_p_word
             candidate_phonemes[start:end] = batch_candidate_phonemes
+            token_idxs[start:end] = batch_retained_token_idxs
 
             i += batch_num_samples
 
