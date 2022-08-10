@@ -45,15 +45,16 @@ process alignWithRawText {
     path raw_text
 
     output:
-    path "tokenized.txt"
-    path "aligned.csv"
+    path "tokenized/*.txt"
+    path "aligned_words.csv"
+    path "aligned_phonemes.csv"
 
     script:
     """
     python ${baseDir}/scripts/gillis2021/align_with_raw_text.py \
         -m ${params.model} \
         ${raw_text} \
-        ${textgrids}
+        *.csv
     """
 }
 
@@ -63,8 +64,9 @@ process alignWithRawText {
 process produceDataset {
 
     input:
-    path tokenized_corpus
-    path alignment_df
+    path tokenized_corpus_dir
+    path aligned_words
+    path aligned_phonemes
     path eeg_data
 
     output:
@@ -75,8 +77,8 @@ process produceDataset {
     python ${baseDir}/scripts/gillis2021/produce_dataset.py \
         -m ${params.model} \
         -n ${params.n_candidates} \
-        ${tokenized_corpus} \
-        ${alignment_df} \
+        ${tokenized_corpus_dir} \
+        ${aligned_words} ${aligned_phonemes} \
         ${eeg_data} \
         > dataset.pkl
     """
