@@ -120,7 +120,91 @@ raw_text_replacements = {
     ],
     
     "DKZ_2": [
-        
+        ("'s Avonds", "ss Avonds"),
+        ("'s avonds", "ss avonds"),
+        ("'s morgens", "ss morgens"),
+        ("'s nachts", "ss nachts"),
+        ("'s Nachts", "ss nachts"),
+
+        ("gebouw en er kwamen", "gebouw en kwamen"),
+        ("Ze bedekte heur haar", "Ze bedekte haar haar"),
+        ("wie en naar", "wie er naar"),
+        ("de arme prins roe kwam", "de arme prins toe kwam"),  # typo
+        ("haalde ze er andere", "haalde ze de andere"),
+        ("andere mensen bij", "andere mensen erbij"),
+        ("vroegen haar war", "vroegen haar wat"),
+        ("in de ruin rijpten", "in de tuin rijpten"),
+        ("zag ze niet een", "zag ze niet en"),
+        ("bladeren naakten", "bladeren raakten"),
+        ("ze het meteen allemaal", "ze het allemaal"),
+        ("zeemeerminnen, dat het", "zeemeerminnen, die het"),
+        ("verder vertelden", "verder vertellen"),
+        ("wist waar hij vandaan", "wist hij waar vandaan"),
+        ("Nu wist ze waar", "Nu ook ze wist waar"),  # TODO check is this a good substitution? there's a SKIP and I don't know what belongs
+        ("woonde en ss", "woonde kwam ze ss"),
+        ("ss nachts kwam ze vaak op die plek boven", "ss nachts vaak boven op die plek"),
+        ("zwom veel dichten", "zwom veel dichter"),
+        ("schaduw oven", "schaduw over"),
+        ("heldere maneschijn", "heldere manezon"),
+        ("wapperden. Zij", "wapperden. Ze"),
+        ("goeds oven", "goeds over"),
+        ("hem toen had gekust", "hem had gekust"),
+        ("niets van, bij", "niets van, hij"),
+        ("leek haar veel groten dan de bare", "leek veel groter dan de hare"),
+        ("schepen oven", "schepen over"),
+        ("met hun bossen", "met bossen"),
+        ("En was zoveel", "Er was zoveel"),
+        ("aan baar oma", "aan haar oma"),
+        ("veel oven", "veel over"),
+        ("dood en bun leven", "dood en hun leven"),
+        ("jaar wonden", "jaar worden"),
+        ("bestaan, wonden", "bestaan, worden"),
+        ("graf hier bij onze dienbaren", "graf bij onze dierbaren"),
+        ("is gewonden", "is geworden"),
+        ("het maar een dag", "het maar voor een dag"),
+        ("schuim op de zee drijven", "schuim op het water drijven"),
+        ("lief zou krijgen", "lief zou hebben"),
+        ("hier in de zee nou juist", "hier in zee juist"),
+        ("Wij zullen", "We zullen"),
+        ("ronddartelen, dat is", "ronddartelen, en dat is"),
+        ("genoeglijken", "genoeglijker"),
+        ("grote balzaal", "grote zaal"),
+        ("van dik, helden glas. En stonden", "van dik, helder glas. Er stonden"),
+        ("dansten zeemeermannen", "dansten de zeemeermannen"),
+        ("eigen lieflijke", "eigen lieflijk"),
+        ("Maar algauw", "Maar al gauw"),
+        ("dat ze nier net", "dat ze niet net"),
+        ("haar vader in en terwijl het daar", "haar vader uit en terwijl daar"),
+        ("ik meer hou dan", "ik meer houd dan"),
+        ("En groeiden geen", "Er groeiden geen"),
+        ("En was alleen maar", "Er was alleen maar"),
+        ("water rond wentelde", "water rondwervelde"),
+        ("meesleurde, de diepte in.", "meesleurde, diep de zee in."),
+        ("noemde dat haar veengronden", "noemde dat veengronden"),
+        ("in de zee war ze maar te", "in de zee wat ze maar te"),
+        ("poliepen dat niet konden", "poliepen haar niet konden"),
+        ("Held ze op", "Hield ze op"),
+        ("het water kunnen schieten", "het water kunne schieten"),
+        ("kronkelende amen", "kronkelende armen"),
+        ("had war hij had", "had wat hij had"),
+        ("ijzeren handen", "ijzeren banden"),
+        ("tussen de amen", "tussen de armen"),
+        ("Scheepsmoeren", "Scheepsroeren"),
+        ("waar verre, glibberige", "waar vette, glibberige"),
+        ("buik lieren", "buik lieten"),
+        ("Midden op die open plek", "Midden op die plek"),
+        ("haar mond te laren", "haar mond te laten"),
+        ("hun mond laren", "hun mond laten"),
+        ("je in het ongeluk", "je in je ongeluk"),
+        ("het op het strand", "het op strand"),
+        ("Dan gaat je staart", "Daar gaat je staart"),
+        ("tot war de mensen mooie benen noemen, maar het doet", "tot wat de mensen mooie benen noemen, en het doet"),
+        ("net of er een scherp", "net of een scherp"),
+        ("door je been gaat", "door je heen gaat"),
+        ("is en de priester jullie handen in elkaar laat leggen, zodat jullie man en vrouw worden", "is en blablablablabla"), # ??? what happened in annotation here? TODO this might really mess things up -- probably best to drop
+        ("De ochtend nadat hij", "De morgen nadat hij"),
+        ("Maar mij moet je ook", "Maar je moet mij ook"),
+        ("wat je hebt, wil", "wat je bezit, wil"),
     ],
 }
 # -
@@ -140,10 +224,6 @@ only_punct_re = re.compile(r"^[^A-zÀ-ž]+$")
 
 our_skip_sentinel = "Ġ(SKIP)"
 
-# FA annotations
-skip_re = re.compile(r"\(SKIP(\d)\)")
-recap_re = re.compile(r"\(RECAP(\d+)\)")
-
 # NB this is GPT-2 specific!
 bpe_boundary_re = re.compile(r"^Ġ")
 
@@ -161,7 +241,8 @@ def align_corpora(fa_words, tokens_flat):
 
     def advance(tok_cursor, first_delta=1):
         next_token = None
-        while next_token is None or only_punct_re.match(next_token):
+        while tok_cursor + 1 < len(tokens_flat) and \
+            (next_token is None or only_punct_re.match(next_token)):
             tok_cursor += first_delta if next_token is None else 1
             
             next_token_raw = tokens_flat[tok_cursor]
@@ -176,12 +257,13 @@ def align_corpora(fa_words, tokens_flat):
         advance to bpe boundary, and also any punctuation at bpe boundary
         """
         next_token_raw, next_token = None, None
-        while next_token_raw is None or not boundary_re.match(next_token_raw):
+        while tok_cursor + 1 < len(tokens_flat) and \
+            (next_token_raw is None or not boundary_re.match(next_token_raw)):
             tok_cursor += 1
             next_token_raw = tokens_flat[tok_cursor]
             
         next_token = process_token(next_token_raw)
-        while only_punct_re.match(next_token):
+        while tok_cursor + 1 < len(tokens_flat) and  only_punct_re.match(next_token):
             tok_cursor += 1
             next_token = process_token(tokens_flat[tok_cursor])
             
@@ -255,33 +337,6 @@ def align_corpora(fa_words, tokens_flat):
     return alignment
 
 
-# +
-df = pd.read_csv(aligned_corpora["DKZ_1"])
-df = df[df.tier == "words"]
-
-# Drop rows that are not useful to us.
-df = df[~df.text.isin(("GBG-LOOP", "STUT"))]
-to_add_idxs = []
-to_add = []
-
-for idx in df[df.text.str.contains(r"\(SKIP\d\)")].index:
-    # Hack: we want this to appear just before the SKIP element in the sort order.
-    count = int(re.search(r"SKIP(\d)", df.loc[idx].text).group(1))
-    for _ in range(count):
-        to_add_idxs.append(idx - 0.1)
-        to_add.append(("words", 0, -1, -1, "(SKIP)"))
-
-df["text"] = df.text.str.replace(r"\(SKIP\d\)", "", regex=True)
-    
-newdf = pd.concat([df, pd.DataFrame(to_add, columns=df.columns, index=to_add_idxs)]).sort_index()
-
-######## 
-
-# Recap logic. Recaps never happen more than once in the dataset
-df["is_recap"] = df.text.shift(-1).str.contains("RECAP")
-df.loc[1720:1730]
-
-
 # -
 
 def patch_story(fa_words, name):
@@ -290,7 +345,8 @@ def patch_story(fa_words, name):
     matching with raw text stimulus.
     """
     
-    # Skip some annotation mistakes
+    # Skip some annotation mistakes / force things to match up easily with our
+    # raw text.
     if name == "DKZ_1":
         assert fa_words.loc[995].text == "ons(SKIP1)"
         fa_words.loc[995, "text"] = "ons(SKIP2)"
@@ -301,7 +357,8 @@ def patch_story(fa_words, name):
         fa_words.loc[1928, "text"] = "er"
         fa_words.loc[1929, "text"] = "stegen(RECAP1)"
     elif name == "DKZ_2":
-        pass
+        assert fa_words.loc[390, "text"] == "vertellen(SKIP1)"
+        fa_words.loc[390, "text"] = "vertellen"
     else:
         raise ValueError(f"unknown story name {name}")
     
@@ -375,25 +432,7 @@ def process_story(name):
 
 _, x, _ = process_story("DKZ_1") 
 
-# +
-raw_text_replacements["DKZ_2"] = [
-    ("'s Avonds", "ss Avonds"),
-    ("'s morgens", "ss morgens"),
-    
-    ("gebouw en er kwamen", "gebouw en kwamen"),
-    ("Ze bedekte heur haar", "Ze bedekte haar haar"),
-    ("wie en naar", "wie er naar"),
-    ("de arme prins roe kwam", "de arme prins toe kwam"),  # typo
-    ("haalde ze er andere", "haalde ze de andere"),
-    ("andere mensen bij", "andere mensen erbij"),
-    ("vroegen haar war", "vroegen haar wat"),
-    ("in de ruin rijpten", "in de tuin rijpten"),
-    ("zag ze niet een", "zag ze niet en"),
-    ("bladeren naakten", "bladeren raakten"),
-    
-]
-process_story("DKZ_2")
-# -
+_, x, _ = process_story("DKZ_2")
 
 all_tokens, all_aligned_words, all_aligned_phonemes = [], [], []
 stories = sorted(aligned_corpora)
