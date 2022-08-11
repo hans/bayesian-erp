@@ -1,5 +1,5 @@
 # +
-from argparse import ArgumentParser
+from argparse import ArgumentParser, Namespace
 from pathlib import Path
 import re
 import sys
@@ -13,12 +13,25 @@ from tqdm.auto import tqdm
 import transformers
 # -
 
+IS_INTERACTIVE = False
+try:
+    get_ipython()
+except NameError: pass
+else: IS_INTERACTIVE = True
+IS_INTERACTIVE
+
 p = ArgumentParser()
 p.add_argument("raw_text_dir", type=Path)
 p.add_argument("aligned_corpora", type=Path, nargs="+")
-p.add_argument("-m", "--model", default="GroNLP/gpt2-small-dutch")
+p.add_argument("-m", "--model", default="GroNLP/gpt2-small-dutch",
+               help="Huggingface model ref. NB this processing is GPT2 specific at the moment (see code comments).")
 
-args = p.parse_args()
+if IS_INTERACTIVE:
+    args = Namespace(raw_text_dir=Path("../../data/gillis2021/raw_text/"),
+                     aligned_corpora=list(Path(".").glob("DKZ_*.csv")),
+                     model="GroNLP/gpt2-small-dutch")
+else:
+    args = p.parse_args()
 
 raw_text = {}
 for text_file in args.raw_text_dir.glob("*.txt"):
@@ -28,7 +41,7 @@ aligned_corpora = {p.stem: p for p in args.aligned_corpora}
 
 # assert set(aligned_corpora.keys()) == set(raw_text.keys())
 
-######
+# #####
 
 tokenizer = transformers.AutoTokenizer.from_pretrained(args.model)
 
@@ -104,7 +117,11 @@ raw_text_replacements = {
         ("op het marmeren", "op het mooie marmeren"),
         ("fijn, wit zand", "fijn, zacht zand"),
         ("zorgde en", "zorgde er"),
-    ]
+    ],
+    
+    "DKZ_2": [
+        
+    ],
 }
 # -
 
@@ -115,7 +132,6 @@ for story in raw_text:
 # -----
 
 # +
-
 def process_token(token):
     return token.replace("Ġ", "").lower()
 
@@ -125,6 +141,9 @@ only_punct_re = re.compile(r"^[^A-zÀ-ž]+$")
 # FA annotations
 skip_re = re.compile(r"\(SKIP(\d)\)")
 recap_re = re.compile(r"\(RECAP(\d+)\)")
+
+# NB this is GPT-2 specific!
+subword_re = re.compile(r"^[^Ġ]")
 
 def align_corpora(fa_words, tokens_flat):
     tok_cursor = 0
@@ -138,11 +157,18 @@ def align_corpora(fa_words, tokens_flat):
         "recap": 0,  # the word was repeated one or more times in the FA
     }
 
-    def advance(tok_cursor, first_delta=1):
-        next_token = None
-        while next_token is None or only_punct_re.match(next_token):
+    def advance(tok_cursor, first_delta=1, skip_subwords=False):
+        """
+        If `skip_subwords` is `True`, will advance until we reach a BPE
+        sentinel.
+        """
+        next_token_raw, next_token = None, None
+        while next_token is None or only_punct_re.match(next_token) or (skip_subwords and subword_re.match(next_token_raw)):
+            print(next_token, next_token and subword_re.match(next_token))
             tok_cursor += first_delta if next_token is None else 1
-            next_token = process_token(tokens_flat[tok_cursor])
+            
+            next_token_raw = tokens_flat[tok_cursor]
+            next_token = process_token(next_token_raw)
 
         # print("///", tok_cursor, next_token)
 
@@ -177,7 +203,7 @@ def align_corpora(fa_words, tokens_flat):
                 # FA corpus indicates that we are missing transcriptions for the preceding `n` words.
                 # First try: blindly advance the same number of tokens.
                 skip_n = int(skip_re.search(fa_el).group(1))
-                tok_cursor, tok_el = advance(tok_cursor, skip_n)
+                tok_cursor, tok_el = advance(tok_cursor, skip_n, skip_subwords=True)
 
                 # Now proceed.
                 fa_el = skip_re.sub("", fa_el)
@@ -243,6 +269,8 @@ def patch_story(fa_words, name):
         assert fa_words.loc[1929].text == "stegen"
         fa_words.loc[1928, "text"] = "er"
         fa_words.loc[1929, "text"] = "stegen(RECAP1)"
+    elif name == "DKZ_2":
+        pass
     else:
         raise ValueError(f"unknown story name {name}")
         
@@ -293,6 +321,11 @@ def process_story(name):
     
     return tokens_flat, fa_words, fa_phonemes
 
+
+raw_text_replacements["DKZ_2"] = [
+    ("gebouw en er kwamen", "gebouw en kwamen"),
+]
+process_story("DKZ_2")
 
 all_tokens, all_aligned_words, all_aligned_phonemes = [], [], []
 stories = sorted(aligned_corpora)
