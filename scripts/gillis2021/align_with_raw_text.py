@@ -138,12 +138,14 @@ def process_token(token):
 punct_re = re.compile(r"[^A-zÀ-ž]")
 only_punct_re = re.compile(r"^[^A-zÀ-ž]+$")
 
+our_skip_sentinel = "Ġ(SKIP)"
+
 # FA annotations
 skip_re = re.compile(r"\(SKIP(\d)\)")
 recap_re = re.compile(r"\(RECAP(\d+)\)")
 
 # NB this is GPT-2 specific!
-subword_re = re.compile(r"^[^Ġ]")
+bpe_boundary_re = re.compile(r"^Ġ")
 
 def align_corpora(fa_words, tokens_flat):
     tok_cursor = 0
@@ -157,13 +159,9 @@ def align_corpora(fa_words, tokens_flat):
         "recap": 0,  # the word was repeated one or more times in the FA
     }
 
-    def advance(tok_cursor, first_delta=1, skip_subwords=False):
-        """
-        If `skip_subwords` is `True`, will advance until we reach a BPE
-        sentinel.
-        """
-        next_token_raw, next_token = None, None
-        while next_token is None or only_punct_re.match(next_token) or (skip_subwords and subword_re.match(next_token_raw)):
+    def advance(tok_cursor, first_delta=1):
+        next_token = None
+        while next_token is None or only_punct_re.match(next_token):
             tok_cursor += first_delta if next_token is None else 1
             
             next_token_raw = tokens_flat[tok_cursor]
@@ -171,6 +169,18 @@ def align_corpora(fa_words, tokens_flat):
 
         # print("///", tok_cursor, next_token)
 
+        return tok_cursor, next_token
+    
+    def advance_to_bpe_boundary(tok_cursor, boundary_re=bpe_boundary_re):
+        """
+        advance to bpe boundary, and also any punctuation at bpe boundary
+        """
+        next_token_raw, next_token = None, None
+        while next_token_raw is None or not boundary_re.match(next_token_raw):
+            tok_cursor += 1
+            next_token_raw = tokens_flat[tok_cursor]
+            
+        next_token = process_token(next_token_raw)
         return tok_cursor, next_token
 
     def commit(fa_row, tok_cursor, flags=None, do_advance=True):
@@ -198,14 +208,10 @@ def align_corpora(fa_words, tokens_flat):
                 break
 
             fa_el = row.text
-            if skip_re.search(fa_el):
-                # FA corpus indicates that we are missing transcriptions for the preceding `n` words.
-                # First try: blindly advance the same number of tokens.
-                skip_n = int(skip_re.search(fa_el).group(1))
-                tok_cursor, tok_el = advance(tok_cursor, skip_n, skip_subwords=True)
+            if fa_el == our_skip_sentinel:
+                tok_cursor, tok_el = advance_to_bpe_boundary(tok_cursor)
+                continue
 
-                # Now proceed.
-                fa_el = skip_re.sub("", fa_el)
             if recap_re.search(fa_el):
                 # This was handled in the previous iteration. Drop.
                 fa_el = recap_re.sub("", fa_el)
@@ -252,6 +258,30 @@ def align_corpora(fa_words, tokens_flat):
     return alignment
 
 
+# +
+df = pd.read_csv(aligned_corpora["DKZ_1"])
+df = df[df.tier == "words"]
+
+print(df.loc[990:1000])
+
+# Drop rows that are not useful to us.
+df = df[~df.text.isin(("GBG-LOOP", "STUT"))]
+to_add_idxs = []
+to_add = []
+
+for idx in df[df.text.str.contains(r"\(SKIP\d\)")].index:
+    # Hack: we want this to appear just before the SKIP element in the sort order.
+    count = int(re.search(r"SKIP(\d)", df.loc[idx].text).group(1))
+    for _ in range(count):
+        to_add_idxs.append(idx - 0.1)
+        to_add.append(("words", 0, -1, -1, "(SKIP)"))
+
+df["text"] = df.text.str.replace(r"\(SKIP\d\)", "", regex=True)
+    
+newdf = pd.concat([df, pd.DataFrame(to_add, columns=df.columns, index=to_add_idxs)]).sort_index()
+newdf.loc[990:1000].reset_index()
+
+
 # -
 
 def patch_story(fa_words, name):
@@ -259,6 +289,8 @@ def patch_story(fa_words, name):
     Perform manual fixes on transcription data in order to facilitate
     matching with raw text stimulus.
     """
+    
+    # Skip some annotation mistakes
     if name == "DKZ_1":
         assert fa_words.loc[995].text == "ons(SKIP1)"
         fa_words.loc[995, "text"] = "ons(SKIP2)"
@@ -273,12 +305,28 @@ def patch_story(fa_words, name):
         # I may have learned from a mistaken row in the beginning
         # In any case, keeping this consistent :)
         fa_words.loc[347, "text"] = "het"
-        fa_words.loc[350, "text"] = "kon(SKIP1)(RECAP1)"
+        fa_words.loc[350, "text"] = "kon(RECAP1)"
     else:
         raise ValueError(f"unknown story name {name}")
-        
+    
     # Drop rows that are not useful to us.
-    fa_words = fa_words[~fa_words.text.isin(("GBG-LOOP", "STUT"))]
+    fa_words = fa_words.copy()[~fa_words.text.isin(("GBG-LOOP", "STUT"))]
+    
+    # Manually handle SKIP logic: add dummy words for skipped words
+    to_add_idxs = []
+    to_add = []
+    for idx, row in fa_words[fa_words.text.str.contains(r"\(SKIP\d\)")].iterrows():
+        # Hack: we want this to appear just before the SKIP element in the sort order.
+        count = int(re.search(r"SKIP(\d)", row.text).group(1))
+        for _ in range(count):
+            to_add_idxs.append(idx - 0.1)
+            to_add.append(("words", 0, -1, -1, our_skip_sentinel))
+
+    # Remove original skip annotations
+    fa_words["text"] = fa_words.text.str.replace(r"\(SKIP\d\)", "", regex=True)
+    # Now place the new "skip" items just behind the original sentinels
+    skip_items = pd.DataFrame(to_add, columns=fa_words.columns, index=to_add_idxs)
+    fa_words = pd.concat([fa_words, skip_items]).sort_index()
 
     # Reset indexing after dropping 
     fa_words = fa_words.reset_index().rename(columns={"index": "original_idx"})
@@ -324,6 +372,8 @@ def process_story(name):
     
     return tokens_flat, fa_words, fa_phonemes
 
+
+process_story("DKZ_1")
 
 # +
 raw_text_replacements["DKZ_2"] = [
