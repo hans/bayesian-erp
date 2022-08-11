@@ -145,10 +145,7 @@ class NaturalLanguageStimulusProcessor(object):
         """
 
         with torch.no_grad():
-            # model_outputs = self._model(input_ids)[0].log_softmax(dim=2)
-            # DEV
-            model_outputs = torch.randn(input_ids.shape[0], input_ids.shape[1], self._model.transformer.wte.num_embeddings) \
-                .abs().log_softmax(dim=2)
+            model_outputs = self._model(input_ids)[0].log_softmax(dim=2)
 
         # Ignore disallowed tokens.
         model_outputs[:, :, ~self.vocab_mask] = -torch.inf
