@@ -191,7 +191,10 @@ class NaturalLanguageStimulusGenerator(StimulusGenerator):
         """
 
         with torch.no_grad():
-            model_outputs = self._model(input_ids)[0].log_softmax(dim=2)
+            # model_outputs = self._model(input_ids)[0].log_softmax(dim=2)
+            # DEV
+            model_outputs = torch.randn(input_ids.shape[0], input_ids.shape[1], self._model.transformer.wte.num_embeddings) \
+                .abs().log_softmax(dim=2)
 
         # Ignore disallowed tokens.
         model_outputs[:, :, ~self.vocab_mask] = -torch.inf
@@ -312,9 +315,11 @@ class NaturalLanguageStimulusGenerator(StimulusGenerator):
         assert len(word_to_token) == len(ground_truth_phonemes)
 
         token_to_word = torch.zeros(len(tokens)).long()
-        for word_idx, token_idxs in word_to_token.items():
+        for word_id, token_idxs in word_to_token.items():
             for token_idx in token_idxs:
-                token_to_word[token_idx] = word_idx
+                token_to_word[token_idx] = word_id
+        # Words are not contiguous necessarily -- prepare to convert IDs to indices.
+        word_id_to_idx = {word_id: idx for idx, word_id in enumerate(sorted(word_to_token.keys()))}
         
         # Split text into distinct inputs based on model maxlen
         # and then batch.
@@ -339,7 +344,7 @@ class NaturalLanguageStimulusGenerator(StimulusGenerator):
         max_num_phonemes = max(len(self.phonemizer(tok)) for tok in tokens)
 
         num_words = len(word_to_token)
-
+        print(num_words)
         print(token_inputs.shape)
 
         i = 0
@@ -384,7 +389,6 @@ class NaturalLanguageStimulusGenerator(StimulusGenerator):
 
             # Extract relevant token masks and combine with subword mask.
             batch_mask = token_mask[batch_token_idxs] & drop_subword_mask
-            print(batch_mask.sum(), len(set(batch_word_ids.numpy()) - {0}))
             assert batch_mask.sum() == len(set(batch_word_ids.numpy()) - {0})
             batch_word_ids_pad = batch_word_ids[:]
             if batch_mask.shape[0] % max_len > 0:
@@ -411,23 +415,29 @@ class NaturalLanguageStimulusGenerator(StimulusGenerator):
             batch_word_lengths = batch_word_lengths[batch_mask]
             batch_p_token = batch_p_token[batch_mask]
             batch_candidate_phonemes = batch_candidate_phonemes[batch_mask]
-            
+
             # Track which word idxs were retained.
             batch_retained_word_ids = batch_word_ids_pad[batch_mask].flatten()
 
             batch_num_samples = batch_candidate_phonemes.shape[0]
+            assert batch_num_samples == len(batch_retained_word_ids)
             assert batch_p_token.shape[0] == batch_num_samples
             assert batch_word_lengths.shape[0] == batch_num_samples
-            start, end = i, i + batch_num_samples
 
-            word_lengths[start:end] = batch_word_lengths
-            p_word[start:end] = batch_p_token
-            candidate_phonemes[start:end] = batch_candidate_phonemes
-            word_ids[start:end] = batch_retained_word_ids
+            # Get target indices in contiguous output arrays. (NB word IDs are not
+            # contiguous.)
+            batch_word_idxs = torch.tensor([word_id_to_idx[word_id.item()]
+                                            for word_id in batch_retained_word_ids])
 
-            i += batch_num_samples
+            word_lengths[batch_word_idxs] = batch_word_lengths
+            p_word[batch_word_idxs] = batch_p_token
+            candidate_phonemes[batch_word_idxs] = batch_candidate_phonemes
+            word_ids[batch_word_idxs] = batch_retained_word_ids
 
         word_surprisals = -p_word[:, 0].log() / np.log(2)
+
+        # TODO include in return
+        print(word_ids)
 
         phoneme_onsets, phoneme_onsets_global, word_onsets = \
             self.sample_stream(word_lengths, max_num_phonemes)
