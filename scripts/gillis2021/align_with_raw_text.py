@@ -181,6 +181,10 @@ def align_corpora(fa_words, tokens_flat):
             next_token_raw = tokens_flat[tok_cursor]
             
         next_token = process_token(next_token_raw)
+        while only_punct_re.match(next_token):
+            tok_cursor += 1
+            next_token = process_token(tokens_flat[tok_cursor])
+            
         return tok_cursor, next_token
 
     def commit(fa_row, tok_cursor, flags=None, do_advance=True):
@@ -210,13 +214,23 @@ def align_corpora(fa_words, tokens_flat):
             fa_el = row.text
             if fa_el == our_skip_sentinel:
                 tok_cursor, tok_el = advance_to_bpe_boundary(tok_cursor)
-                continue
+            elif row.is_recap:
+                # This word is a repeat of the previous. Simply repeat the token map
+                # of the previous word.
+                prev_commits = []
+                target_original_id = alignment[-1][0]
+                for prev_fa_idx, tok_idx, _ in alignment[::-1]:
+                    if prev_fa_idx != target_original_id:
+                        break
 
-            if recap_re.search(fa_el):
-                # This was handled in the previous iteration. Drop.
-                fa_el = recap_re.sub("", fa_el)
+                    prev_commits.append(tok_idx)
 
-            if fa_el == tok_el:
+                for tok_idx in prev_commits:
+                    commit(row, tok_idx, flags=flag_types["recap"],
+                           do_advance=False)
+                    
+                # NB that token cursor is not advanced.
+            elif fa_el == tok_el:
                 tok_cursor, tok_el = commit(row, tok_cursor)
             elif fa_el.startswith(tok_el):
                 while fa_el.startswith(tok_el):
@@ -229,23 +243,6 @@ def align_corpora(fa_words, tokens_flat):
                     print(tokens_flat[tok_cursor - 5:tok_cursor + 5])
                     raise ValueError(str((fa_el, tok_el)))
                     break
-            elif recap_re.search(fa_words.loc[idx + 1].text):
-                # Next row indicates that the current FA row was a repetition
-                # of the previous.
-
-                # Find all tokens associated with previous FA and duplicate them.
-                prev_commits = []
-                for prev_fa_idx, tok_idx, _ in alignment[::-1]:
-                    if prev_fa_idx != idx - 1:
-                        break
-
-                    prev_commits.append(tok_idx)
-
-                for tok_idx in prev_commits:
-                    commit(row, tok_idx, flags=flag_types["recap"],
-                           do_advance=False)
-
-                # NB don't advance token cursor.
             else:
                 print(fa_words.iloc[idx - 5:idx + 5])
                 print(tokens_flat[tok_cursor - 5:tok_cursor])
@@ -262,8 +259,6 @@ def align_corpora(fa_words, tokens_flat):
 df = pd.read_csv(aligned_corpora["DKZ_1"])
 df = df[df.tier == "words"]
 
-print(df.loc[990:1000])
-
 # Drop rows that are not useful to us.
 df = df[~df.text.isin(("GBG-LOOP", "STUT"))]
 to_add_idxs = []
@@ -279,7 +274,12 @@ for idx in df[df.text.str.contains(r"\(SKIP\d\)")].index:
 df["text"] = df.text.str.replace(r"\(SKIP\d\)", "", regex=True)
     
 newdf = pd.concat([df, pd.DataFrame(to_add, columns=df.columns, index=to_add_idxs)]).sort_index()
-newdf.loc[990:1000].reset_index()
+
+######## 
+
+# Recap logic. Recaps never happen more than once in the dataset
+df["is_recap"] = df.text.shift(-1).str.contains("RECAP")
+df.loc[1720:1730]
 
 
 # -
@@ -301,16 +301,16 @@ def patch_story(fa_words, name):
         fa_words.loc[1928, "text"] = "er"
         fa_words.loc[1929, "text"] = "stegen(RECAP1)"
     elif name == "DKZ_2":
-        # Fix mistake in recap semantics
-        # I may have learned from a mistaken row in the beginning
-        # In any case, keeping this consistent :)
-        fa_words.loc[347, "text"] = "het"
-        fa_words.loc[350, "text"] = "kon(RECAP1)"
+        pass
     else:
         raise ValueError(f"unknown story name {name}")
     
     # Drop rows that are not useful to us.
     fa_words = fa_words.copy()[~fa_words.text.isin(("GBG-LOOP", "STUT"))]
+    
+    # Handle recap logic. There is only ever RECAP1 in this dataset, which makes it easy.
+    fa_words["is_recap"] = fa_words.text.shift(-1).str.contains("\(RECAP\d\)")
+    fa_words["text"] = fa_words.text.str.replace(r"\(RECAP\d\)", "", regex=True)
     
     # Manually handle SKIP logic: add dummy words for skipped words
     to_add_idxs = []
@@ -320,7 +320,7 @@ def patch_story(fa_words, name):
         count = int(re.search(r"SKIP(\d)", row.text).group(1))
         for _ in range(count):
             to_add_idxs.append(idx - 0.1)
-            to_add.append(("words", 0, -1, -1, our_skip_sentinel))
+            to_add.append(("words", 0, -1, -1, our_skip_sentinel, False))
 
     # Remove original skip annotations
     fa_words["text"] = fa_words.text.str.replace(r"\(SKIP\d\)", "", regex=True)
@@ -373,7 +373,7 @@ def process_story(name):
     return tokens_flat, fa_words, fa_phonemes
 
 
-process_story("DKZ_1")
+_, x, _ = process_story("DKZ_1") 
 
 # +
 raw_text_replacements["DKZ_2"] = [
