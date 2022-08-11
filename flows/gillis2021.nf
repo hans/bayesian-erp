@@ -7,10 +7,13 @@ baseDir = projectDir.parent
 params.data_dir = "${baseDir}/data/gillis2021"
 eeg_dir = file("${params.data_dir}/eeg")
 textgrid_dir = file("${params.data_dir}/textgrids")
+stim_dir = file("${params.data_dir}/predictors")
 
 params.model = "GroNLP/gpt2-small-dutch"
 // Number of word candidates to consider in predictive model.
 params.n_candidates = 10
+
+params.eelbrain_env = "/home/jgauthie/.conda/envs/eeldev"
 
 process convertTextgrid {
     input:
@@ -22,6 +25,26 @@ process convertTextgrid {
     script:
     outfile = textgrid.getName().replace(".TextGrid", ".csv")
     "python ${baseDir}/scripts/gillis2021/convert_textgrid.py ${textgrid} > ${outfile}"
+}
+
+/**
+ * Convert Gillis' features from Eelbrain representation to numpy representation.
+ */
+process convertStimulusFeatures {
+    conda params.eelbrain_env
+    container null
+
+    input:
+    path stim_dir
+
+    output:
+    path "stimuli.npz"
+
+    script:
+    """
+    python ${baseDir}/scripts/gillis2021/convert_features.py \
+        ${stim_dir} stimuli.npz
+    """
 }
 
 /**
@@ -107,4 +130,7 @@ process produceDataset {
 workflow {
     // Collect data from all three force-aligned corpora.
     force_aligned_data = (Channel.fromPath(textgrid_dir / "DKZ_*.TextGrid") | convertTextgrid).collect()
+
+    // Prepare stimulus features.
+    stimulus_features = convertStimulusFeatures(stim_dir)
 }
