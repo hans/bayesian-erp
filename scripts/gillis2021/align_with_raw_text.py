@@ -164,7 +164,6 @@ def align_corpora(fa_words, tokens_flat):
         """
         next_token_raw, next_token = None, None
         while next_token is None or only_punct_re.match(next_token) or (skip_subwords and subword_re.match(next_token_raw)):
-            print(next_token, next_token and subword_re.match(next_token))
             tok_cursor += first_delta if next_token is None else 1
             
             next_token_raw = tokens_flat[tok_cursor]
@@ -207,7 +206,7 @@ def align_corpora(fa_words, tokens_flat):
 
                 # Now proceed.
                 fa_el = skip_re.sub("", fa_el)
-            elif recap_re.search(fa_el):
+            if recap_re.search(fa_el):
                 # This was handled in the previous iteration. Drop.
                 fa_el = recap_re.sub("", fa_el)
 
@@ -270,7 +269,11 @@ def patch_story(fa_words, name):
         fa_words.loc[1928, "text"] = "er"
         fa_words.loc[1929, "text"] = "stegen(RECAP1)"
     elif name == "DKZ_2":
-        pass
+        # Fix mistake in recap semantics
+        # I may have learned from a mistaken row in the beginning
+        # In any case, keeping this consistent :)
+        fa_words.loc[347, "text"] = "het"
+        fa_words.loc[350, "text"] = "kon(SKIP1)(RECAP1)"
     else:
         raise ValueError(f"unknown story name {name}")
         
@@ -322,10 +325,25 @@ def process_story(name):
     return tokens_flat, fa_words, fa_phonemes
 
 
+# +
 raw_text_replacements["DKZ_2"] = [
+    ("'s Avonds", "ss Avonds"),
+    ("'s morgens", "ss morgens"),
+    
     ("gebouw en er kwamen", "gebouw en kwamen"),
+    ("Ze bedekte heur haar", "Ze bedekte haar haar"),
+    ("wie en naar", "wie er naar"),
+    ("de arme prins roe kwam", "de arme prins toe kwam"),  # typo
+    ("haalde ze er andere", "haalde ze de andere"),
+    ("andere mensen bij", "andere mensen erbij"),
+    ("vroegen haar war", "vroegen haar wat"),
+    ("in de ruin rijpten", "in de tuin rijpten"),
+    ("zag ze niet een", "zag ze niet en"),
+    ("bladeren naakten", "bladeren raakten"),
+    
 ]
 process_story("DKZ_2")
+# -
 
 all_tokens, all_aligned_words, all_aligned_phonemes = [], [], []
 stories = sorted(aligned_corpora)
