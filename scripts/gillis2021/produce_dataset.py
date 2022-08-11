@@ -1,104 +1,212 @@
 # +
+from argparse import ArgumentParser
+from collections import defaultdict
+import itertools
 from pathlib import Path
+import pickle
 import re
 import sys
 sys.path.append(str(Path(".").resolve().parent.parent))
 
+import h5py
+import mne
 import numpy as np
 import pandas as pd
 import torch
+from torch.nn.functional import pad
 from tqdm.auto import tqdm
 import transformers
+from typeguard import check_return_type
 # -
 
 # %load_ext autoreload
 # %autoreload 2
 
-from berp.generators.stimulus import NaturalLanguageStimulusGenerator
+from berp.datasets import NaturalLanguageStimulusProcessor
 from berp.models.reindexing_regression import RRDataset
 
 # +
-# TODO update with argv
-model = "GroNLP/gpt2-small-dutch"
-n_candidates = 10
-tokenized_dir = Path("tokenized")
-words_path = Path("aligned_words.csv")
-phonemes_path = Path("aligned_phonemes.csv")
+p = ArgumentParser()
+p.add_argument("tokenized_corpus_dir", type=Path)
+p.add_argument("aligned_words_path", type=Path)
+p.add_argument("aligned_phonemes_path", type=Path)
+p.add_argument("eeg_dir", type=Path)
+p.add_argument("stim_path", type=Path)
+p.add_argument("-m", "--model", default="GroNLP/gpt2-small-dutch")
+p.add_argument("-n", "--n_candidates", type=int, default=10)
 
-PAD_PHONEME = "_"
+args = p.parse_args()
 # -
 
+PAD_PHONEME = "_"
+EEG_SUFFIX = "_1_256_8_average_4_128"
+
+eeg_paths = {story: list(paths)
+             for story, paths in itertools.groupby(args.eeg_dir.glob("*/*.mat"),
+                                                   key=lambda path: path.parent.name)}
+
+# DEV
+eeg_paths = {k: [vs[0]] for k, vs in eeg_paths.items()}
+
+subjects = [p.name.replace(f"{EEG_SUFFIX}.mat", "")
+            for p in next(iter(eeg_paths.values()))]
+
 tokenized = {}
-for tokenized_path in tokenized_dir.glob("*.txt"):
+for tokenized_path in args.tokenized_corpus_dir.glob("*.txt"):
     with tokenized_path.open() as f:
         tokenized[tokenized_path.stem] = f.read().strip()
 
-words_df = pd.read_csv(words_path)
-words_df.head(10)
-
-phonemes_df = pd.read_csv(phonemes_path)
-phonemes_df
+words_df = pd.read_csv(args.aligned_words_path)
+phonemes_df = pd.read_csv(args.aligned_phonemes_path)
 
 
 # ----
+
+# ## Process story language data
 
 # +
 # TODO casing
 # -
 
 # Dumb phonemizer which just drops characters not in the phon vocabulary
-# TODO make not dumb
+# TODO make not dumb. Use a model or build your own model from the corpus.
 def phonemizer(string):
     return [phon for phon in string if phon in phonemes]
 
 
+# +
 phonemes = sorted(phonemes_df.text.unique()) + [PAD_PHONEME]
-gen = NaturalLanguageStimulusGenerator(phonemes=phonemes, hf_model=model,
-                                       num_candidates=n_candidates,
-                                       phonemizer=phonemizer)
 
-tokens = tokenized["DKZ_1"].split(" ")
-# Find all tokens that are not covered by row(s) of words_df.
-mask_token_ids = set(np.arange(len(tokens))) - set(words_df.tok_idx)
-token_mask = np.ones(len(tokens), dtype=bool)
-token_mask[list(mask_token_ids)] = False
+proc = NaturalLanguageStimulusProcessor(phonemes=phonemes, hf_model=args.model,
+                                        num_candidates=args.n_candidates,
+                                        phonemizer=phonemizer)
 
-# Also mask tokens which are not the first for a word.
-secondary_subword = words_df.original_idx.diff(1) == 0
-token_mask[words_df[secondary_subword].tok_idx.to_numpy()] = False
 
-word_to_token = words_df.groupby("original_idx").apply(lambda x: list(x.tok_idx)).to_dict()
-ground_truth_phonemes = phonemes_df[~phonemes_df.original_idx.isna()].astype({"original_idx": int}) \
-    .groupby("original_idx").apply(lambda xs: list(xs.text)).to_dict()
-
-gen(tokens, token_mask, word_to_token,
-    ground_truth_phonemes=ground_truth_phonemes)
-
-# +
-input_ids = torch.tensor(gen._tokenizer.convert_tokens_to_ids(tokenized["DKZ_1"].split(" "))).unsqueeze(0)
-# dumb truncation
-input_ids = input_ids[:, :100]  # gen._model.config.n_positions]
-print(input_ids.shape)
-
-# TODO pad, truncate, batch, etc.
-candidate_ids = gen.get_predictive_topk({"input_ids": input_ids})
-# gen.get_candidate_phonemes(input_ids, 10)
-
-# +
-# TODO is _clean_word dropping necessary diacritics?
 # -
 
-[gen._tokenizer.convert_ids_to_tokens(cand_i[:5])
- for cand_i in candidate_ids[1][0, :20]]
+def process_story_language(story):
+    # Prepare token mask.
+    tokens = tokenized[story].split(" ")
+    # Find all tokens that are not covered by row(s) of words_df.
+    mask_token_ids = set(np.arange(len(tokens))) - set(words_df.tok_idx)
+    token_mask = np.ones(len(tokens), dtype=bool)
+    token_mask[list(mask_token_ids)] = False
+    
+    # Also mask tokens which are not the first for a word.
+    secondary_subword = words_df.original_idx.diff(1) == 0
+    token_mask[words_df[secondary_subword].tok_idx.to_numpy()] = False
+    
+    # Prepare proc metadata input.
+    word_to_token = words_df.groupby("original_idx").apply(lambda x: list(x.tok_idx)).to_dict()
+    ground_truth_phonemes = phonemes_df[~phonemes_df.original_idx.isna()].astype({"original_idx": int}) \
+        .groupby("original_idx").apply(lambda xs: list(xs.text)).to_dict()
+    
+    return proc(tokens, token_mask, word_to_token, ground_truth_phonemes)
 
-ground_truth_phonemes = phonemes_df.iloc[:1000].groupby("tok_idx").apply(lambda xs: list(xs.text)).tolist()
-ground_truth_phonemes[:3]
 
-candidate_phonemes = gen.get_candidate_phonemes(candidate_ids[1], max_num_phonemes=5,
-                                                ground_truth_phonemes=ground_truth_phonemes)
+processed_stories = {story: process_story_language(story)
+                     for story in tqdm(tokenized)}
 
-[phonemes[i] for i in candidate_phonemes[0][0, 0, 5]]
+# ## Load and process stimulus features
+
+stimulus_features = np.load(args.stim_path)
 
 
-def produce_dataset(story, subject) -> RRDataset:
-    pass
+# ## Load and process EEG data
+
+def load_eeg(path, info: mne.Info,
+             trim_n_samples=None):
+    """
+    Load EEG data from the given path.
+    
+    Returns:
+        an mne.io.RawArray
+    """
+    
+    fid = h5py.File(path, "r")
+    
+    sample_rate = fid["fs"][0, 0]
+    assert sample_rate == info["sfreq"]
+    
+    raw_eeg = fid[fid["epochs"][0, 0]][:64, :]
+    
+    if trim_n_samples is not None:
+        # Trim to match other data source.
+        raw_eeg = raw_eeg[:trim_n_samples, :]
+    
+    return mne.io.RawArray(raw_eeg, info, verbose=False)
+
+
+montage = mne.channels.make_standard_montage("biosemi64")
+info = mne.create_info(ch_names=montage.ch_names,
+                       sfreq=128, ch_types="eeg").set_montage(montage)
+
+
+def produce_dataset(story, subject, mne_info: mne.Info,
+                    eeg_suffix=EEG_SUFFIX,
+                    features=None,
+                   ) -> RRDataset:
+    eeg_path = args.eeg_dir / story / f"{subject}{eeg_suffix}.mat"
+    if not eeg_path.exists():
+        raise ValueError(f"Cannot find EEG data at path {eeg_path}")
+    eeg = load_eeg(eeg_path, info)
+        
+    story_stim = processed_stories[story]
+    # Variable onset features are simply word surprisals.
+    X_variable = story_stim.word_surprisals.unsqueeze(1)
+    
+    # Load other stimulus time-series features.
+    X_ts = torch.tensor(stimulus_features[story])
+    
+    # Retrieve onset information.
+    word_onsets = words_df[words_df.story == story] \
+        .groupby("original_idx").start.min().to_dict()
+    word_onsets = torch.tensor([word_onsets[word_id.item()]
+                                for word_id in story_stim.word_ids])
+    
+    # Phoneme onsets.
+    # TODO these can be precomputed
+    phoneme_onsets = phonemes_df[phonemes_df.story == story] \
+        .groupby("original_idx") \
+        .apply(lambda xs: list(xs.start)).to_dict()
+    phoneme_onsets = [torch.tensor(phoneme_onsets[word_id.item()])
+                      for word_id in story_stim.word_ids]
+    # TODO this fails. why? check that the data match? probably an
+    # indexing bug somewhere.
+    # max_num_phonemes = max(len(onsets) for onsets in phoneme_onsets)
+    # assert max_num_phonemes == story_stim.candidate_phonemes.shape[2]
+    max_num_phonemes = story_stim.candidate_phonemes.shape[2]
+    phoneme_onsets = torch.stack([
+        pad(onsets, (0, max_num_phonemes - len(onsets)), value=0.)
+        if len(onsets) < max_num_phonemes
+        else onsets[:max_num_phonemes]
+        for onsets in phoneme_onsets
+    ])
+    
+    ret = RRDataset(
+        params=None,
+        sample_rate=info["sfreq"],
+        epoch_window=None,
+        
+        phonemes=story_stim.phonemes,
+        p_word=story_stim.p_word,
+        word_lengths=story_stim.word_lengths,
+        candidate_phonemes=story_stim.candidate_phonemes,
+        
+        word_onsets=word_onsets,
+        phoneme_onsets=phoneme_onsets,
+        
+        X_ts=X_ts,
+        X_variable=X_variable,
+        
+        Y=eeg.get_data().T
+    )
+    
+    return ret
+
+
+for story_name in tokenized:
+    for subject in subjects:
+        ds = produce_dataset(story_name, subject, info)
+        with open(f"{subject}.{story_name}.pkl", "wb") as f:
+            pickle.dump(ds, f)

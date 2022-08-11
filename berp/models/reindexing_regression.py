@@ -81,7 +81,7 @@ class RRDataset(NamedTuple):
     phoneme_onsets: TensorType[B, N_P, float]
     """
     Onset of each phoneme within each word in seconds, relative to the start of
-    the corresponding word.
+    the corresponding word. Column axis should be padded with 0s.
     """
 
     X_ts: TensorType[T, N_F_T, float]

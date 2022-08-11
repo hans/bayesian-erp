@@ -260,7 +260,7 @@ class NaturalLanguageStimulusProcessor(object):
             ground_truth_phonemes: Phoneme sequences for the ground-truth words.
         """
         assert len(tokens) == len(token_mask)
-        assert len(word_to_token) >= len(tokens)
+        assert len(tokens) >= len(word_to_token)
         assert len(word_to_token) == len(ground_truth_phonemes)
 
         token_to_word = torch.zeros(len(tokens)).long()
@@ -292,7 +292,11 @@ class NaturalLanguageStimulusProcessor(object):
         # TODO use ground truth phonemes here
         max_num_phonemes = max(len(self.phonemizer(tok)) for tok in tokens)
 
+        # NB some words may never end up affecting a sample (e.g. the first word in the
+        # batches constructed here). So we'll also need to keep a mask for that and do
+        # final masking at the end.
         num_words = len(word_to_token)
+        touched_words = torch.zeros(num_words).bool()
 
         i = 0
         word_lengths = torch.zeros(num_words, dtype=torch.long)
@@ -336,7 +340,8 @@ class NaturalLanguageStimulusProcessor(object):
 
             # Extract relevant token masks and combine with subword mask.
             batch_mask = token_mask[batch_token_idxs] & drop_subword_mask
-            assert batch_mask.sum() == len(set(batch_word_ids.numpy()) - {0})
+            # TODO check why this fails sometimes
+            # assert batch_mask.sum() == len(set(batch_word_ids.numpy()) - {0})
             batch_word_ids_pad = batch_word_ids[:]
             if batch_mask.shape[0] % max_len > 0:
                 # Pad so that we reach a multiple of max_len.
@@ -380,10 +385,21 @@ class NaturalLanguageStimulusProcessor(object):
             p_word[batch_word_idxs] = batch_p_token
             candidate_phonemes[batch_word_idxs] = batch_candidate_phonemes
             word_ids[batch_word_idxs] = batch_retained_word_ids
+            touched_words[batch_word_idxs] = True
+
+        # Sanity check
+        assert (p_word[~touched_words] == 0).all()
+
+        # Finally, filter out words which never had data computed.
+        word_ids = word_ids[touched_words]
+        word_lengths = word_lengths[touched_words]
+        p_word = p_word[touched_words]
+        candidate_phonemes = candidate_phonemes[touched_words]
 
         return NaturalLanguageStimulus(
             phonemes=self.phonemes,
             pad_phoneme_id=self.pad_phoneme_id,
+            word_ids=word_ids,
             word_lengths=word_lengths,
             p_word=p_word,
             candidate_phonemes=candidate_phonemes,

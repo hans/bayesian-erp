@@ -8,6 +8,7 @@ params.data_dir = "${baseDir}/data/gillis2021"
 eeg_dir = file("${params.data_dir}/eeg")
 textgrid_dir = file("${params.data_dir}/textgrids")
 stim_dir = file("${params.data_dir}/predictors")
+raw_text_dir = file("${params.data_dir}/raw_text")
 
 params.model = "GroNLP/gpt2-small-dutch"
 // Number of word candidates to consider in predictive model.
@@ -17,15 +18,16 @@ params.eelbrain_env = "/home/jgauthie/.conda/envs/eeldev"
 
 process convertTextgrid {
     input:
-    file textgrid
+    path textgrid
 
     output:
-    file "*.csv"
+    path "*.csv"
 
     script:
     outfile = textgrid.getName().replace(".TextGrid", ".csv")
     "python ${baseDir}/scripts/gillis2021/convert_textgrid.py ${textgrid} > ${outfile}"
 }
+
 
 /**
  * Convert Gillis' features from Eelbrain representation to numpy representation.
@@ -47,6 +49,7 @@ process convertStimulusFeatures {
     """
 }
 
+
 /**
  * Match up force-aligned corpus with raw text corpus on a token-to-token level.
  * This will allow us to use token-level features computed on the latter corpus
@@ -64,13 +67,13 @@ process convertStimulusFeatures {
  */
 process alignWithRawText {
     input:
-    path "*.csv" from force_aligned
+    path force_aligned_csvs
     path raw_text
 
     output:
-    path "tokenized/*.txt"
-    path "aligned_words.csv"
-    path "aligned_phonemes.csv"
+    path "tokenized", emit: tokenized
+    path "aligned_words.csv", emit: aligned_words
+    path "aligned_phonemes.csv", emit: aligned_phonemes
 
     script:
     """
@@ -81,56 +84,47 @@ process alignWithRawText {
     """
 }
 
+
 /**
  * Produce an RRDataset from the aligned corpora for a single subject.
  */
 process produceDataset {
 
     input:
-    path tokenized_corpus_dir
-    path aligned_words
-    path aligned_phonemes
+    path(tokenized_corpus_dir)
+    path(aligned_words)
+    path(aligned_phonemes)
     path eeg_data
+    path stim_path
 
     output:
-    path "dataset.pkl"
+    path "*.pkl"
 
     script:
     """
+    export PYTHONPATH=${baseDir}
     python ${baseDir}/scripts/gillis2021/produce_dataset.py \
-        -m ${params.model} \
-        -n ${params.n_candidates} \
+        --model ${params.model} \
+        --n_candidates ${params.n_candidates} \
         ${tokenized_corpus_dir} \
         ${aligned_words} ${aligned_phonemes} \
-        ${eeg_data} \
-        > dataset.pkl
+        ${eeg_data} ${stim_path}
     """
 
 }
 
-// /**
-//  * Compute token-level predictive distributions.
-//  *
-//  * The output CSV contains the following columns:
-//  *
-//  *   - tok_idx: token idx
-//  *   - candidate_idx: position in top-k predictive list. if 0, then this is the ground-truth
-//  */
-// process computePredictive {
-
-//     input:
-//     path "tokenized.txt"
-
-//     output:
-//     path "predictive.csv"
-
-// }
-
 
 workflow {
     // Collect data from all three force-aligned corpora.
-    force_aligned_data = (Channel.fromPath(textgrid_dir / "DKZ_*.TextGrid") | convertTextgrid).collect()
+    force_aligned_data = convertTextgrid(Channel.fromPath(textgrid_dir / "DKZ_*.TextGrid")) \
+        | collect
 
     // Prepare stimulus features.
     stimulus_features = convertStimulusFeatures(stim_dir)
+
+    produceDataset(
+        alignWithRawText(force_aligned_data, raw_text_dir),
+        Channel.fromPath(eeg_dir),
+        stimulus_features
+    )
 }
