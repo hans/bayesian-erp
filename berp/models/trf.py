@@ -37,6 +37,14 @@ class TemporalReceptiveField(BaseEstimator):
         self.coef_ = torch.randn(self.n_features_, len(self.delays_),
                                  self.n_outputs_) * 1e-1
 
+    def _check_shapes_types(self, X, Y):
+        assert X.shape[0] == Y.shape[0]
+        # May not be available if we haven't been called with fit() yet.
+        if hasattr(self, "n_features_"):
+            assert X.shape[1] == self.n_features_
+            assert Y.shape[1] == self.n_outputs_
+        return torch.tensor(X), torch.tensor(Y)
+
     def fit(self, X: TensorType["n_times", "n_features"],
             Y: TensorType["n_times", "n_outputs"]
             ) -> "TemporalReceptiveField":
@@ -80,6 +88,8 @@ class TemporalReceptiveField(BaseEstimator):
         """
         Update the TRF encoder weights with gradient descent.
         """
+
+        X, Y = self._check_shapes_types(X, Y)
 
         self.n_features_ = X.shape[-1]
         self.n_outputs_ = Y.shape[-1]

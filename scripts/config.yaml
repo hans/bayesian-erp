@@ -6,4 +6,4 @@ model_kwargs:
   alpha: 1
 solver: adam
 datasets:
-  - work/fb/ffb3cf5413512f0554be3ff73edf20/2019_C2DNN_11.DKZ_1.pkl 
+  - work/48/8bda1b4deefa757a3b06081798e1b9/2019_C2DNN_11.DKZ_1.pkl 
