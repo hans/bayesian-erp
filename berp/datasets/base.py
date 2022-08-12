@@ -323,10 +323,15 @@ class NaturalLanguageStimulusProcessor(object):
             ground_truth_phonemes: Phoneme sequences for the ground-truth words.
         """
         assert len(tokens) == len(token_mask)
-        assert len(tokens) >= len(word_to_token)
-        assert len(word_to_token) == len(ground_truth_phonemes)
+        assert len(tokens) >= len(word_to_token), \
+            str((len(tokens), len(word_to_token)))
+        assert len(word_to_token) == len(ground_truth_phonemes), \
+            str((len(word_to_token), len(ground_truth_phonemes)))
 
-        token_to_word = torch.zeros(len(tokens)).long()
+        # By default, map tokens to word ID -1. This helps us easily catch tokens
+        # that should be dropped.
+        nonword_id = -1
+        token_to_word = nonword_id * torch.ones(len(tokens)).long()
         for word_id, token_idxs in word_to_token.items():
             for token_idx in token_idxs:
                 token_to_word[token_idx] = word_id
@@ -403,13 +408,16 @@ class NaturalLanguageStimulusProcessor(object):
 
             # Extract relevant token masks and combine with subword mask.
             batch_mask = token_mask[batch_token_idxs] & drop_subword_mask
+            # Mask out any tokens which don't correspond to a word.
+            batch_mask = batch_mask & (batch_word_ids != nonword_id)
             # TODO check why this fails sometimes
             # assert batch_mask.sum() == len(set(batch_word_ids.numpy()) - {0})
             batch_word_ids_pad = batch_word_ids[:]
             if batch_mask.shape[0] % max_len > 0:
                 # Pad so that we reach a multiple of max_len.
                 batch_mask = pad(batch_mask, (0, max_len - batch_mask.shape[0] % max_len), value=False)
-                batch_word_ids_pad = pad(batch_word_ids, (0, max_len - batch_word_ids.shape[0] % max_len), value=0)
+                batch_word_ids_pad = pad(batch_word_ids, (0, max_len - batch_word_ids.shape[0] % max_len),
+                                         value=nonword_id)
             batch_mask = batch_mask.reshape((batch.shape[0], max_len))
             # Ignore mask on first token in each sample, since other methods won't
             # have outputs for this token.
