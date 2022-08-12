@@ -1,18 +1,22 @@
 from typing import Tuple
 import numpy as np
+from sklearn.base import BaseEstimator, TransformerMixin
 import torch
 import torch.distributions as dist
 from torchtyping import TensorType
 from tqdm.auto import tqdm, trange
 
+from berp.datasets.base import BerpDataset
+from berp.util import time_to_sample, PartialPipeline
 
-class TemporalReceptiveField(object):
 
-    def __init__(self, tmin, tmax, sfreq, n_outputs,
-                feature_names=None,
-                fit_intercept=True,
-                warm_start=False,
-                alpha=None):
+class TemporalReceptiveField(BaseEstimator):
+
+    def __init__(self, tmin, tmax, sfreq,
+                 feature_names=None,
+                 fit_intercept=True,
+                 warm_start=False,
+                 alpha=None):
         self.sfreq = float(sfreq)
 
         self.tmin = tmin
@@ -28,9 +32,6 @@ class TemporalReceptiveField(object):
         if isinstance(feature_names, int):
             feature_names = [str(x) for x in range(feature_names)]
         self.feature_names = feature_names
-        self.n_outputs_ = n_outputs
-
-        self._init_coef()
 
     def _init_coef(self):
         self.coef_ = torch.randn(len(self.feature_names), len(self.delays_),
@@ -43,7 +44,7 @@ class TemporalReceptiveField(object):
         Fit the TRF encoder with least squares.
         """
         
-        assert self.n_outputs_ == Y.shape[-1]
+        self.n_outputs_ == Y.shape[-1]
 
         # TODO valid_samples_
 
@@ -145,6 +146,33 @@ class TemporalReceptiveField(object):
         Y_pred = self.predict(X)
         Y_dist = dist.Normal(Y_pred, self.sigma)
         return Y_dist.log_prob(Y)
+
+
+class NaiveScatterTransform(TransformerMixin):
+    """
+    Simple transformer which removes the variable/time-series distinction
+    in the input data, assuming that word events happen at word onset.
+    """
+
+    def partial_fit(*args, **kwargs):
+        pass
+
+    def transform(self, dataset: BerpDataset):
+        target_samples = time_to_sample(dataset.word_onsets, dataset.sample_rate)
+
+        X = dataset.X_ts[:]
+
+        X_scattered = torch.zeros((X.shape[0], dataset.X_variable.shape[1]))
+        X_scattered[target_samples] = dataset.X_variable
+
+        X = torch.concat((X, X_scattered), dim=1)
+
+        return X, dataset.Y
+
+def BerpTRF(*args, **kwargs):
+    return PartialPipeline([
+        ("naive_scatter", NaiveScatterTransform()),
+        ("trf", TemporalReceptiveField(*args, **kwargs))])
 
 
 def _times_to_delays(tmin, tmax, sfreq) -> torch.Tensor:
