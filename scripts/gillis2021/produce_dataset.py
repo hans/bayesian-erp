@@ -1,5 +1,5 @@
 # +
-from argparse import ArgumentParser
+from argparse import ArgumentParser, Namespace
 from collections import defaultdict
 import itertools
 from pathlib import Path
@@ -19,13 +19,19 @@ import transformers
 from typeguard import check_return_type
 # -
 
+IS_INTERACTIVE = False
+try:
+    get_ipython()
+except NameError: pass
+else: IS_INTERACTIVE = True
+IS_INTERACTIVE
+
 # %load_ext autoreload
 # %autoreload 2
 
 from berp.datasets import BerpDataset
 from berp.datasets import NaturalLanguageStimulusProcessor
 
-# +
 p = ArgumentParser()
 p.add_argument("tokenized_corpus_dir", type=Path)
 p.add_argument("aligned_words_path", type=Path)
@@ -35,8 +41,16 @@ p.add_argument("stim_path", type=Path)
 p.add_argument("-m", "--model", default="GroNLP/gpt2-small-dutch")
 p.add_argument("-n", "--n_candidates", type=int, default=10)
 
-args = p.parse_args()
-# -
+if IS_INTERACTIVE:
+    args = Namespace(tokenized_corpus_dir=Path("."),
+                     aligned_words_path=Path("aligned_words.csv"),
+                     aligned_phonemes_path=Path("aligned_phonemes.csv"),
+                     eeg_dir=Path("../../data/gillis2021/eeg"),
+                     stim_path=Path("stimuli.npz"),
+                     model="GroNLP/gpt2-small-dutch",
+                     n_candidates=10)
+else:
+    args = p.parse_args()
 
 PAD_PHONEME = "_"
 EEG_SUFFIX = "_1_256_8_average_4_128"
