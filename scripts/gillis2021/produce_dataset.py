@@ -153,7 +153,7 @@ def load_eeg(path, info: mne.Info,
     
     if trim_n_samples is not None:
         # Trim to match other data source.
-        raw_eeg = raw_eeg[:trim_n_samples, :]
+        raw_eeg = raw_eeg[:, :trim_n_samples]
     
     return mne.io.RawArray(raw_eeg, info, verbose=False)
 
@@ -167,17 +167,18 @@ def produce_dataset(story, subject, mne_info: mne.Info,
                     eeg_suffix=EEG_SUFFIX,
                     features=None,
                    ) -> BerpDataset:
-    eeg_path = args.eeg_dir / story / f"{subject}{eeg_suffix}.mat"
-    if not eeg_path.exists():
-        raise ValueError(f"Cannot find EEG data at path {eeg_path}")
-    eeg = load_eeg(eeg_path, info)
-        
+    # Prepare predictors.
     story_stim = processed_stories[story]
     # Variable onset features are simply word surprisals.
     X_variable = story_stim.word_surprisals.unsqueeze(1)
-    
     # Load other stimulus time-series features.
     X_ts = torch.tensor(stimulus_features[story])
+
+    # Load EEG and trim.
+    eeg_path = args.eeg_dir / story / f"{subject}{eeg_suffix}.mat"
+    if not eeg_path.exists():
+        raise ValueError(f"Cannot find EEG data at path {eeg_path}")
+    eeg = load_eeg(eeg_path, info, trim_n_samples=X_ts.shape[0])
     
     # Retrieve onset information.
     word_onsets = words_df[words_df.story == story] \
