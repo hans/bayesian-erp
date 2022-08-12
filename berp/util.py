@@ -156,6 +156,13 @@ class PartialPipeline(Pipeline):
                 step.partial_fit(X, y, classes=classes, **kwargs)
             else:
                 step.partial_fit(X, y)
+                
             if hasattr(step, "transform"):
-                X = step.transform(X)
+                # NB breaking the sklearn API a bit here.
+                # Why can't transformers just work on Y too?
+                ret = step.transform(X)
+                if isinstance(ret, tuple):
+                    X, y = ret
+                else:
+                    X = ret
         return self

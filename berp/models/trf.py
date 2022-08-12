@@ -31,10 +31,10 @@ class TemporalReceptiveField(BaseEstimator):
 
         if isinstance(feature_names, int):
             feature_names = [str(x) for x in range(feature_names)]
-        self.feature_names = feature_names
+        self.feature_names_ = feature_names
 
     def _init_coef(self):
-        self.coef_ = torch.randn(len(self.feature_names), len(self.delays_),
+        self.coef_ = torch.randn(self.n_features_, len(self.delays_),
                                  self.n_outputs_) * 1e-1
 
     def fit(self, X: TensorType["n_times", "n_features"],
@@ -44,7 +44,8 @@ class TemporalReceptiveField(BaseEstimator):
         Fit the TRF encoder with least squares.
         """
         
-        self.n_outputs_ == Y.shape[-1]
+        self.n_features_ = X.shape[-1]
+        self.n_outputs_ = Y.shape[-1]
 
         # TODO valid_samples_
 
@@ -52,7 +53,7 @@ class TemporalReceptiveField(BaseEstimator):
         X_del: TensorType["n_times", "n_features", "n_delays"] = \
             _delay_time_series(X, self.tmin, self.tmax, self.sfreq,
                                fill_mean=self.fit_intercept)
-        n_times, self.n_feats_, self.n_delays_ = X_del.shape
+        n_times, _, self.n_delays_ = X_del.shape
         X_est = _reshape_for_est(X_del)
 
         # Find ridge regression solution.
@@ -67,21 +68,21 @@ class TemporalReceptiveField(BaseEstimator):
             self.coef_ = torch.linalg.lstsq(lhs + ridge, rhs).solution
 
         # Reshape resulting coefficients
-        self.coef_ = self.coef_.reshape((self.n_feats_, self.n_delays_, self.n_outputs_))
+        self.coef_ = self.coef_.reshape((self.n_features_, self.n_delays_, self.n_outputs_))
 
         Y_pred = self.predict(X)
         self.residuals_ = Y_pred - Y
         return self
 
     def partial_fit(self, X: TensorType["n_times", "n_features"],
-                    Y: TensorType["n_times", "n_outputs"]
-                    ) -> "TemporalReceptiveField":
+                    Y: TensorType["n_times", "n_outputs"],
+                    **kwargs) -> "TemporalReceptiveField":
         """
         Update the TRF encoder weights with gradient descent.
         """
 
-        assert self.n_outputs_ == Y.shape[-1]
-
+        self.n_features_ = X.shape[-1]
+        self.n_outputs_ = Y.shape[-1]
         if not self.warm_start:
             self._init_coef()
 
@@ -90,7 +91,7 @@ class TemporalReceptiveField(BaseEstimator):
         # Preprocess X
         X = _delay_time_series(X, self.tmin, self.tmax, self.sfreq,
                                fill_mean=self.fit_intercept)
-        n_times, self.n_feats_, self.n_delays_ = X.shape
+        n_times, _, self.n_delays_ = X.shape
         X = _reshape_for_est(X)
         # Preprocess coef
         coef = self.coef_.view((-1, self.n_outputs_)).requires_grad_()
@@ -118,7 +119,7 @@ class TemporalReceptiveField(BaseEstimator):
                 losses.append(loss)
                 optimizer.step()
 
-        self.coef_ = coef.detach().view((self.n_feats_, self.n_delays_, self.n_outputs_))
+        self.coef_ = coef.detach().view((self.n_features_, self.n_delays_, self.n_outputs_))
 
         Y_pred = self.predict(X_orig)
         self.residuals_ = Y_pred - Y
