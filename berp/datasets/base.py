@@ -15,7 +15,8 @@ from berp.typing import DIMS, is_probability, is_log_probability
 L = logging.getLogger(__name__)
 
 # Type variables
-B, N_W, N_C, N_F, N_P, V_W = DIMS.B, DIMS.N_W, DIMS.N_C, DIMS.N_F, DIMS.N_P, DIMS.V_W
+B, N_W, N_C, N_F, N_F_T, N_P, V_W = \
+    DIMS.B, DIMS.N_W, DIMS.N_C, DIMS.N_F, DIMS.N_F_T, DIMS.N_P, DIMS.V_W
 T, S = DIMS.T, DIMS.S
 
 
@@ -23,6 +24,68 @@ Phoneme = str
 
 def default_phonemizer(string) -> List[Phoneme]:
     return list(string)
+
+
+@dataclass
+class BerpDataset:
+    """
+    Defines a time series dataset for reindexing regression.
+
+    The predictors are stored in two groups:
+
+    1. `X_ts`: Time-series predictors, which are sampled at the same rate as `Y`.
+    2. `X_variable`: Latent-onset predictors, `batch` many whose onset is to be inferred
+       by the model.
+
+    All tensors are padded on the N_P axis on the right to the maximum word length.
+    """
+
+    sample_rate: int
+
+    phonemes: List[str]
+    """
+    Phoneme vocabulary.
+    """
+
+    p_word: TensorType[B, N_C, is_log_probability]
+    """
+    Predictive distribution over expected candidate words at each time step,
+    derived from a language model.
+    """
+
+    word_lengths: TensorType[B, int]
+    """
+    Length of ground-truth words in phonemes. Can be used to unpack padded
+    ``N_P`` axes.
+    """
+
+    candidate_phonemes: TensorType[B, N_C, N_P, int]
+    """
+    Phoneme ID sequence for each word and alternate candidate set.
+    """
+
+    word_onsets: TensorType[B, float]
+    """
+    Onset of each word in seconds, relative to the start of the sequence.
+    """
+
+    phoneme_onsets: TensorType[B, N_P, float]
+    """
+    Onset of each phoneme within each word in seconds, relative to the start of
+    the corresponding word. Column axis should be padded with 0s.
+    """
+
+    X_ts: TensorType[T, N_F_T, float]
+
+    X_variable: TensorType[B, N_F, float]
+    """
+    Word-level features whose onset is to be determined by the model.
+    """
+
+    Y: TensorType[T, S, float]
+    """
+    Response data.
+    """
 
 
 @dataclass

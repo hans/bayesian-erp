@@ -13,6 +13,7 @@ import torch
 from torchtyping import TensorType
 from typeguard import typechecked
 
+from berp.datasets import BerpDataset
 from berp.typing import Probability, is_probability, is_log_probability, is_positive, DIMS
 from berp.util import sample_to_time, time_to_sample, variable_position_slice
 
@@ -33,86 +34,10 @@ class ModelParameters(NamedTuple):
     sigma: TensorType[float]
 
 
-class RRDataset(NamedTuple):
-    """
-    Defines a time series dataset for reindexing regression, generated with the given
-    ground-truth parameters ``params``.
-
-    The predictors are stored in two groups:
-
-    1. `X_ts`: Time-series predictors, which are sampled at the same rate as `Y`.
-    2. `X_variable`: Latent-onset predictors, `batch` many whose onset is to be inferred
-       by the model.
-
-    All tensors are padded on the N_P axis on the right to the maximum word length.
-    """
-
-    params: ModelParameters
-    sample_rate: int
-    epoch_window: Tuple[float, float]
-
-    phonemes: List[str]
-    """
-    Phoneme vocabulary.
-    """
-
-    p_word: TensorType[B, N_C, is_log_probability]
-    """
-    Predictive distribution over expected candidate words at each time step,
-    derived from a language model.
-    """
-
-    word_lengths: TensorType[B, int]
-    """
-    Length of ground-truth words in phonemes. Can be used to unpack padded
-    ``N_P`` axes.
-    """
-
-    candidate_phonemes: TensorType[B, N_C, N_P, int]
-    """
-    Phoneme ID sequence for each word and alternate candidate set.
-    """
-
-    word_onsets: TensorType[B, float]
-    """
-    Onset of each word in seconds, relative to the start of the sequence.
-    """
-
-    phoneme_onsets: TensorType[B, N_P, float]
-    """
-    Onset of each phoneme within each word in seconds, relative to the start of
-    the corresponding word. Column axis should be padded with 0s.
-    """
-
-    X_ts: TensorType[T, N_F_T, float]
-
-    X_variable: TensorType[B, N_F, float]
-    """
-    Word-level features whose onset is to be determined by the model.
-    """
-
-    Y: TensorType[T, S, float]
-    """
-    Response data.
-    """
-
-    recognition_points: Optional[TensorType[B, int]] = None
-    """
-    Ground-truth recognition points (phoneme indices) for each word.
-    Useful for debugging.
-    """
-
-    recognition_onsets: Optional[TensorType[B, float]] = None
-    """
-    Ground-truth recognition onset (seconds, relative to word onset) for each
-    word. Useful for debugging.
-    """
-
-
 class RRResult(NamedTuple):
 
     params: ModelParameters
-    dataset: RRDataset
+    dataset: BerpDataset
 
     q_pred: TensorType[B, T, S, float]
     q_obs: TensorType[B, T, S, float]
@@ -380,8 +305,8 @@ def response_model(X: TensorType[B, N_F, float],
 
 
 def scatter_model(params: ModelParameters,
-                  dataset: RRDataset
-                  ) -> Tuple[ModelParameters, RRDataset, TensorType[T, N_F, float]]:
+                  dataset: BerpDataset
+                  ) -> Tuple[ModelParameters, BerpDataset, TensorType[T, N_F, float]]:
     """
     Execute scatter model forward pass. Returns a design matrix to be fed
     to a receptive field estimator.

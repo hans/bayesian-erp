@@ -22,8 +22,8 @@ from typeguard import check_return_type
 # %load_ext autoreload
 # %autoreload 2
 
+from berp.datasets import BerpDataset
 from berp.datasets import NaturalLanguageStimulusProcessor
-from berp.models.reindexing_regression import RRDataset
 
 # +
 p = ArgumentParser()
@@ -145,7 +145,7 @@ info = mne.create_info(ch_names=montage.ch_names,
 def produce_dataset(story, subject, mne_info: mne.Info,
                     eeg_suffix=EEG_SUFFIX,
                     features=None,
-                   ) -> RRDataset:
+                   ) -> BerpDataset:
     eeg_path = args.eeg_dir / story / f"{subject}{eeg_suffix}.mat"
     if not eeg_path.exists():
         raise ValueError(f"Cannot find EEG data at path {eeg_path}")
@@ -183,10 +183,8 @@ def produce_dataset(story, subject, mne_info: mne.Info,
         for onsets in phoneme_onsets
     ])
     
-    ret = RRDataset(
-        params=None,
+    ret = BerpDataset(
         sample_rate=info["sfreq"],
-        epoch_window=None,
         
         phonemes=story_stim.phonemes,
         p_word=story_stim.p_word,
