@@ -1,0 +1,9 @@
+model_class: trf
+model_kwargs:
+  tmin: 0
+  tmax: 1
+  sfreq: 128
+  alpha: 1
+solver: adam
+datasets:
+  - work/fb/ffb3cf5413512f0554be3ff73edf20/2019_C2DNN_11.DKZ_1.pkl 
