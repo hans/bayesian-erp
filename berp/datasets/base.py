@@ -137,7 +137,7 @@ class NaturalLanguageStimulus:
         """
         Get surprisals of ground-truth words (in bits; log-2).
         """
-        return -torch.log2(self.p_word)
+        return -torch.log2(self.p_word[:, 0])
 
 
 class NaturalLanguageStimulusProcessor(object):
