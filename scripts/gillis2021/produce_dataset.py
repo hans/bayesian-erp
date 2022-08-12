@@ -42,7 +42,7 @@ p.add_argument("-m", "--model", default="GroNLP/gpt2-small-dutch")
 p.add_argument("-n", "--n_candidates", type=int, default=10)
 
 if IS_INTERACTIVE:
-    args = Namespace(tokenized_corpus_dir=Path("."),
+    args = Namespace(tokenized_corpus_dir=Path("tokenized"),
                      aligned_words_path=Path("aligned_words.csv"),
                      aligned_phonemes_path=Path("aligned_phonemes.csv"),
                      eeg_dir=Path("../../data/gillis2021/eeg"),
@@ -99,20 +99,27 @@ proc = NaturalLanguageStimulusProcessor(phonemes=phonemes, hf_model=args.model,
 # -
 
 def process_story_language(story):
+    story_words_df = words_df[words_df.story == story]
+    story_phonemes_df = phonemes_df[phonemes_df.story == story]
+    
     # Prepare token mask.
     tokens = tokenized[story].split(" ")
-    # Find all tokens that are not covered by row(s) of words_df.
-    mask_token_ids = set(np.arange(len(tokens))) - set(words_df.tok_idx)
+    # Find all tokens that are not covered by row(s) of story_words_df.
+    mask_token_ids = set(np.arange(len(tokens))) - set(story_words_df.tok_idx)
     token_mask = np.ones(len(tokens), dtype=bool)
     token_mask[list(mask_token_ids)] = False
     
     # Also mask tokens which are not the first for a word.
-    secondary_subword = words_df.original_idx.diff(1) == 0
-    token_mask[words_df[secondary_subword].tok_idx.to_numpy()] = False
+    secondary_subword = story_words_df.original_idx.diff(1) == 0
+    token_mask[story_words_df[secondary_subword].tok_idx.to_numpy()] = False
     
     # Prepare proc metadata input.
-    word_to_token = words_df.groupby("original_idx").apply(lambda x: list(x.tok_idx)).to_dict()
-    ground_truth_phonemes = phonemes_df[~phonemes_df.original_idx.isna()].astype({"original_idx": int}) \
+    word_to_token = story_words_df \
+        .astype({"original_idx": int}) \
+        .groupby("original_idx") \
+        .apply(lambda x: list(x.tok_idx)).to_dict()
+    ground_truth_phonemes = story_phonemes_df[~story_phonemes_df.original_idx.isna()] \
+        .astype({"original_idx": int}) \
         .groupby("original_idx").apply(lambda xs: list(xs.text)).to_dict()
     
     return proc(tokens, token_mask, word_to_token, ground_truth_phonemes)

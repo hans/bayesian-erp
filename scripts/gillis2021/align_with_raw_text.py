@@ -421,18 +421,33 @@ def process_story(name):
     fa_phonemes = pd.merge_asof(fa_phonemes, fa_words[["start", "original_idx", "tok_idx"]],
                                 on="start", direction="backward")
     
+    # Left join the other way to make sure there are no words missing phoneme data.
+    fa_words = pd.merge(fa_words,
+                        # NB drop_duplicates because there are multiple phoneme rows
+                        # per phoneme.
+                        fa_phonemes[["original_idx", "tok_idx"]].drop_duplicates(),
+                        how="inner",
+                        on=["original_idx", "tok_idx"])
+    fa_phonemes = pd.merge(fa_phonemes, fa_words[["original_idx"]], how="inner")
+    
     # Annotate with story name.
     for df in [fa_words, fa_phonemes]:
         df["story"] = name
         df.set_index("story", append=True, inplace=True)
         df.index = df.index.reorder_levels((1, 0))
     
+    # TODO expand checks
+    # assert set(fa_words.original_idx) == set(fa_phonemes.original_idx)
+    
     return tokens_flat, fa_words, fa_phonemes
 
 
-_, x, _ = process_story("DKZ_1") 
+# +
+# tokens_flat, fa_words, fa_phonemes = process_story("DKZ_1") 
 
-_, x, _ = process_story("DKZ_2")
+# +
+# tokens_flat, fa_words, fa_phonemes = process_story("DKZ_2")
+# -
 
 all_tokens, all_aligned_words, all_aligned_phonemes = [], [], []
 stories = sorted(aligned_corpora)
@@ -455,3 +470,5 @@ for story, tokens in zip(stories, all_tokens):
 pd.concat(all_aligned_words).to_csv("aligned_words.csv")
 
 pd.concat(all_aligned_phonemes).to_csv("aligned_phonemes.csv")
+
+
