@@ -206,6 +206,7 @@ def produce_dataset(story, subject, mne_info: mne.Info,
     ])
     
     ret = BerpDataset(
+        name=f"{story}/{subject}",
         sample_rate=info["sfreq"],
         
         phonemes=story_stim.phonemes,

@@ -40,6 +40,8 @@ class BerpDataset:
     All tensors are padded on the N_P axis on the right to the maximum word length.
     """
 
+    name: str
+
     sample_rate: int
 
     phonemes: List[str]
