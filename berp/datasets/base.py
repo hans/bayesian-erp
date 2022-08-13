@@ -1,3 +1,4 @@
+import dataclasses
 from dataclasses import dataclass
 import logging
 import re
@@ -88,6 +89,53 @@ class BerpDataset:
     """
     Response data.
     """
+
+    def __getitem__(self, key):
+        """
+        Extract a number of samples from the dataset.
+        The resulting dataset has adjusted times to match the new sample start point.
+        """
+        if isinstance(key, slice):
+            if slice.step is not None:
+                raise ValueError("Step size not supported.")
+
+            start_sample = key.start or 0
+            end_sample = key.stop or self.Y.shape[0]
+
+            start_time = start_sample / self.sample_rate
+            end_time = end_sample / self.sample_rate
+
+            # Find which word indices should be retained for these time boundaries.
+            # TODO add some slack on end? we don't want to include words exactly at the right boundary
+            word_mask = (self.word_onsets >= start_time) & (self.word_onsets <= end_time)
+            keep_word_indices = torch.where(word_mask)[0]
+
+            # Subset word-level features.
+            word_onsets = self.word_onsets[keep_word_indices]
+            phoneme_onsets = self.phoneme_onsets[keep_word_indices]
+            X_variable = self.X_variable[keep_word_indices]
+
+            # Subtract onset data so that t=0 -> sample 0.
+            word_onsets = word_onsets - start_time
+            phoneme_onsets = phoneme_onsets - start_time
+
+            ret = dataclasses.replace(self,
+                p_word=self.p_word[keep_word_indices],
+                word_lengths=self.word_lengths[keep_word_indices],
+                candidate_phonemes=self.candidate_phonemes[keep_word_indices],
+
+                word_onsets=word_onsets,
+                phoneme_onsets=phoneme_onsets,
+
+                X_ts=self.X_ts[key],
+                X_variable=X_variable,
+
+                Y=self.Y[key],
+            )
+
+            return ret
+
+        return super().__getitem__(key)
 
 
 @dataclass

@@ -8,6 +8,7 @@ from omegaconf import DictConfig, OmegaConf
 import hydra
 
 from berp.config import Config
+from berp.datasets import BerpDatasetSplitter
 from berp.models import BerpTRFExpectationMaximization, BerpTRF
 
 
@@ -28,13 +29,13 @@ def main(cfg: Config):
 
     model = MODELS[cfg.model.type](cfg.model)
 
-    # TODO cross-validation
-    dataset = datasets[0]
+    splitter = BerpDatasetSplitter(cfg.train_test)
+    data_train, data_test = splitter.split(datasets)
 
-    if cfg.solver == "svd":
-        model.fit(dataset)
+    if cfg.solver.type == "svd":
+        model.fit(data_train)
     else:
-        model.partial_fit(dataset)
+        model.partial_fit(data_train)
 
 
 if __name__ == "__main__":
