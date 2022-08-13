@@ -6,32 +6,25 @@ import torch.distributions as dist
 from torchtyping import TensorType
 from tqdm.auto import tqdm, trange
 
+from berp.config.model import TRFModelConfig
 from berp.datasets.base import BerpDataset
 from berp.util import time_to_sample, PartialPipeline
 
 
 class TemporalReceptiveField(BaseEstimator):
 
-    def __init__(self, tmin, tmax, sfreq,
-                 feature_names=None,
-                 fit_intercept=True,
-                 warm_start=False,
-                 alpha=None):
-        self.sfreq = float(sfreq)
+    def __init__(self, cfg: TRFModelConfig):
+        self.sfreq = cfg.sfreq
 
-        self.tmin = tmin
-        self.tmax = tmax
+        self.tmin = cfg.tmin
+        self.tmax = cfg.tmax
         assert self.tmin < self.tmax
 
-        self.fit_intercept = fit_intercept
-        self.warm_start = warm_start
-        self.alpha = alpha
+        self.fit_intercept = cfg.fit_intercept
+        self.warm_start = cfg.warm_start
+        self.alpha = cfg.alpha
 
         self.delays_ = _times_to_delays(self.tmin, self.tmax, self.sfreq)
-
-        if isinstance(feature_names, int):
-            feature_names = [str(x) for x in range(feature_names)]
-        self.feature_names_ = feature_names
 
     def _init_coef(self):
         self.coef_ = torch.randn(self.n_features_, len(self.delays_),
@@ -180,10 +173,10 @@ class NaiveScatterTransform(TransformerMixin):
 
         return X, dataset.Y
 
-def BerpTRF(*args, **kwargs):
+def BerpTRF(cfg: TRFModelConfig):
     return PartialPipeline([
         ("naive_scatter", NaiveScatterTransform()),
-        ("trf", TemporalReceptiveField(*args, **kwargs))])
+        ("trf", TemporalReceptiveField(cfg))])
 
 
 def _times_to_delays(tmin, tmax, sfreq) -> torch.Tensor:

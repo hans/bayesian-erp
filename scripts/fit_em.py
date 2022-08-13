@@ -7,6 +7,7 @@ from typing import List, Dict, Any
 from omegaconf import DictConfig, OmegaConf
 import hydra
 
+from berp.config import Config
 from berp.models import BerpTRFExpectationMaximization, BerpTRF
 
 
@@ -15,22 +16,17 @@ MODELS = {
     "trf": BerpTRF,
 }
 
-@dataclass
-class FitConfig:
-    model_class: str
-    model_kwargs: Dict[str, Any]
-    solver: str
-    datasets: List[str]
 
-
-@hydra.main(version_base=None, config_path=".", config_name="config")
-def main(cfg: FitConfig):
+@hydra.main(version_base=None, config_path="../conf", config_name="config.yaml")
+def main(cfg: Config):
+    from pprint import pprint
+    pprint(cfg)
     datasets = []
     for dataset in cfg.datasets:
         with open(dataset, "rb") as f:
             datasets.append(pickle.load(f))
 
-    model = MODELS[cfg.model_class](**cfg.model_kwargs)
+    model = MODELS[cfg.model.type](cfg.model)
 
     # TODO cross-validation
     dataset = datasets[0]

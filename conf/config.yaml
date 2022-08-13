@@ -1,0 +1,6 @@
+defaults:
+  - model: trf
+  - solver: adam
+  - datasets: dkz_1_test
+  # - override hydra/job_logging: colorlog
+  # - override hydra/hydra_logging: colorlog
