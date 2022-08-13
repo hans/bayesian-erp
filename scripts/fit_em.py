@@ -19,8 +19,8 @@ MODELS = {
 
 @hydra.main(version_base=None, config_path="../conf", config_name="config.yaml")
 def main(cfg: Config):
-    from pprint import pprint
-    pprint(cfg)
+    print(OmegaConf.to_yaml(cfg))
+
     datasets = []
     for dataset in cfg.datasets:
         with open(dataset, "rb") as f:

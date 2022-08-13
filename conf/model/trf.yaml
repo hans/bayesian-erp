@@ -1,8 +1,8 @@
+defaults:
+  - base_trf
+
 type: trf
 tmin: 0
 tmax: 1
 sfreq: 128
 alpha: 1
-
-warm_start: True
-fit_intercept: True

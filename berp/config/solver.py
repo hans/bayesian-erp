@@ -16,11 +16,9 @@ class SGDSolverConfig(SolverConfig):
     learning_rate: float
     n_iter: int
 
-    type: str = "sgd"
-
 
 @dataclass
-class AdamSolverConfig(SolverConfig):
+class AdamSolverConfig(SGDSolverConfig):
     beta_1: float
     beta_2: float
     epsilon: float

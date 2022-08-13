@@ -17,8 +17,8 @@ class TRFModelConfig(ModelConfig):
     sfreq: float
     alpha: float
 
-    warm_start: bool
-    fit_intercept: bool
+    warm_start: bool = True
+    fit_intercept: bool = True
     type: str = "trf"
 
 
