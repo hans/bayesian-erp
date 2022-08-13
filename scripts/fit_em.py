@@ -8,7 +8,7 @@ from omegaconf import DictConfig, OmegaConf
 import hydra
 
 from berp.config import Config
-from berp.datasets import BerpDatasetSplitter
+from berp.datasets import BerpTrainTestSplitter
 from berp.models import BerpTRFExpectationMaximization, BerpTRF
 
 
@@ -29,7 +29,7 @@ def main(cfg: Config):
 
     model = MODELS[cfg.model.type](cfg.model)
 
-    splitter = BerpDatasetSplitter(cfg.train_test)
+    splitter = BerpTrainTestSplitter(cfg.train_test)
     data_train, data_test = splitter.split(datasets)
 
     if cfg.solver.type == "svd":

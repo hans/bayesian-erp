@@ -44,7 +44,7 @@ class BerpTrainTestSplitter(object):
         # Select subjects to hold out.
         dataset_idxs = np.arange(len(datasets))
         rng.shuffle(dataset_idxs)
-        datasets_holdout = dataset_idxs[:int(self.series_hold_pct * len(dataset_idxs))]
+        datasets_holdout = dataset_idxs[:int(self.cfg.series_hold_pct * len(dataset_idxs))]
 
         ret_train_datasets, ret_test_datasets = [], []
         for i, dataset in enumerate(datasets):
@@ -52,7 +52,7 @@ class BerpTrainTestSplitter(object):
                 # Hold out random portion of time series.
                 len_i = dataset.X_ts.shape[0]
 
-                slice_point = int(self.data_hold_pct * len_i)
+                slice_point = int(self.cfg.data_hold_pct * len_i)
                 if rng.random() < 0.5:
                     # Slice end to test set.
                     slice_train_i = slice(None, slice_point)
