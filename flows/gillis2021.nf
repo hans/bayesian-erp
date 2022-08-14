@@ -15,6 +15,7 @@ params.model = "GroNLP/gpt2-small-dutch"
 params.n_candidates = 10
 
 params.eelbrain_env = "/home/jgauthie/.conda/envs/eeldev"
+params.berp_env = "/home/jgauthie/.conda/envs/berp"
 
 process convertTextgrid {
     input:
@@ -89,6 +90,9 @@ process alignWithRawText {
  * Produce an RRDataset from the aligned corpora for a single subject.
  */
 process produceDataset {
+
+    container null
+    conda params.berp_env
 
     input:
     path(tokenized_corpus_dir)
