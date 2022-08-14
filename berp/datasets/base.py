@@ -91,17 +91,21 @@ class BerpDataset:
     Response data.
     """
 
+    @property
+    def n_samples(self):
+        return self.Y.shape[0]
+
     def __getitem__(self, key):
         """
         Extract a number of samples from the dataset.
         The resulting dataset has adjusted times to match the new sample start point.
         """
         if isinstance(key, slice):
-            if slice.step is not None:
+            if key.step is not None:
                 raise ValueError("Step size not supported.")
 
             start_sample = key.start or 0
-            end_sample = key.stop or self.Y.shape[0]
+            end_sample = key.stop or self.n_samples
 
             start_time = start_sample / self.sample_rate
             end_time = end_sample / self.sample_rate
@@ -121,6 +125,8 @@ class BerpDataset:
             phoneme_onsets = phoneme_onsets - start_time
 
             ret = dataclasses.replace(self,
+                name=f"{self.name}/slice:{start_sample}:{end_sample}",
+
                 p_word=self.p_word[keep_word_indices],
                 word_lengths=self.word_lengths[keep_word_indices],
                 candidate_phonemes=self.candidate_phonemes[keep_word_indices],
