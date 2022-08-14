@@ -4,5 +4,7 @@ defaults:
   - solver: adam
   - datasets: dkz_1_test
   - train_test: conservative
+  - cv: search_alpha
+
   - override hydra/job_logging: colorlog
   - override hydra/hydra_logging: colorlog

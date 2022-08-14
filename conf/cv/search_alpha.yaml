@@ -1,0 +1,13 @@
+n_outer_folds: 4
+n_inner_folds: 4
+
+param_sampler:
+  seed: 1234
+
+params:
+  # TODO fix name
+  alpha:
+    type: float
+    low: 0
+    high: 6
+    log: true

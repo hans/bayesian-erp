@@ -32,6 +32,9 @@ def main(cfg: Config):
     splitter = BerpTrainTestSplitter(cfg.train_test)
     data_train, data_test = splitter.split(datasets)
 
+    # Nested cross-validation. Outer CV loop error on test set;
+    # inner CV loop estimates optimal hyperparameters.
+
     if cfg.solver.type == "svd":
         model.fit(data_train)
     else:

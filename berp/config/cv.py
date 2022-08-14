@@ -1,6 +1,8 @@
 from dataclasses import dataclass
+from typing import Dict
 
 from hydra.core.config_store import ConfigStore
+from hydra_plugins.hydra_optuna_sweeper.config import RandomSamplerConfig, DistributionConfig
 
 
 @dataclass
@@ -18,7 +20,12 @@ class TrainTestConfig:
 
 @dataclass
 class CVConfig:
-    pass
+    n_outer_folds: int
+    n_inner_folds: int
+
+    # Parameters for inner-loop cross-validation.
+    param_sampler: RandomSamplerConfig
+    params: Dict[str, DistributionConfig]
 
 
 cs = ConfigStore.instance()
