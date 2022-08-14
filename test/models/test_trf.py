@@ -1,5 +1,6 @@
 import torch
 
+from berp.config import TRFModelConfig
 from berp.models.trf import TemporalReceptiveField
 
 
@@ -15,8 +16,8 @@ def test_trf_dummy():
                       [0, 0],
                       [1, -1]]).float()
 
-    trf = TemporalReceptiveField(tmin=0, tmax=2, sfreq=1, feature_names=["a"],
-                                 fit_intercept=False)
+    cfg = TRFModelConfig(sfreq=1, tmin=0, tmax=2, fit_intercept=False,
+    trf = TemporalReceptiveField(cfg)
     trf.fit(X, Y)
 
     expected_coef = torch.tensor([[0, 0], [1, -1], [0, 0]]).float()
