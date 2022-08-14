@@ -3,7 +3,7 @@ import dataclasses
 from dataclasses import dataclass
 import logging
 import re
-from typing import List, Optional, Callable, Dict, Tuple
+from typing import List, Optional, Callable, Dict, Tuple, Union
 
 import numpy as np
 import torch
@@ -22,8 +22,9 @@ B, N_W, N_C, N_F, N_F_T, N_P, V_W = \
     DIMS.B, DIMS.N_W, DIMS.N_C, DIMS.N_F, DIMS.N_F_T, DIMS.N_P, DIMS.V_W
 T, S = DIMS.T, DIMS.S
 
-
+# Type aliases
 Phoneme = str
+intQ = Optional[Union[int, np.integer]]
 
 def default_phonemizer(string) -> List[Phoneme]:
     return list(string)
@@ -92,9 +93,12 @@ class BerpDataset:
     Response data.
     """
 
+    def __len__(self):
+        return self.Y.shape[0]
+
     @property
     def n_samples(self):
-        return self.Y.shape[0]
+        return len(self)
 
     def __getitem__(self, key):
         """
@@ -164,16 +168,33 @@ class BerpDataset:
 class NestedBerpDataset(object):
 
     def __init__(self, datasets: List[BerpDataset]):
+        # Shape checks. Everything but batch axis should match across
+        # subjects. Batch axis should match within-subject between
+        # X and Y.
+        for dataset in datasets:
+            assert dataset.X_ts.shape[1:] == datasets[0].X_ts.shape[1:]
+            assert dataset.X_variable.shape[1:] == datasets[0].X_variable.shape[1:]
+            assert dataset.Y.shape[1:] == datasets[0].Y.shape[1:]
+            assert dataset.X_ts.shape[0] == dataset.Y.shape[0]
+
         self.datasets = datasets
-        self._flat_idxs = np.array([(i, j) for i in range(len(datasets)) for j in range(datasets[i].n_samples)])
+        self.n_datasets = len(datasets)
+
+        self.flat_idxs = np.array([(i, j) for i in range(len(datasets)) for j in range(datasets[i].n_samples)])
 
     # TODO will be super slow to always typecheck. remove once we know this works
-    @typeguard
-    def __getitem__(self, key: List[Tuple[int, int, int]]) -> NestedBerpDataset:
+    @typechecked
+    def __getitem__(self, key: List[Tuple[int, intQ, intQ]]) -> NestedBerpDataset:
         ret_datasets = []
         for dataset_idx, slice_start, slice_end in key:
-            ret_datasets.append(self.datasets[dataset_idx][slice_start:slice_end])
-        return ret_datasets
+            ret_datasets.append(self.datasets[dataset_idx][slice(slice_start, slice_end)])
+        return NestedBerpDataset(ret_datasets)
+
+    def __len__(self):
+        return sum(len(dataset) for dataset in self.datasets)
+
+    def iter_datasets(self):
+        return iter(self.datasets)
 
 
 @dataclass

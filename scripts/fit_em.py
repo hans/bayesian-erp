@@ -12,7 +12,7 @@ from sklearn.base import clone
 from sklearn.model_selection import KFold
 
 from berp.config import Config, CVConfig
-from berp.datasets import BerpTrainTestSplitter, BerpKFold
+from berp.datasets import BerpTrainTestSplitter, BerpKFold, NestedBerpDataset
 from berp.models import BerpTRFExpectationMaximization, BerpTRF
 
 
@@ -58,19 +58,21 @@ def main(cfg: Config):
     for dataset in cfg.datasets:
         with open(dataset, "rb") as f:
             datasets.append(pickle.load(f).ensure_torch())
+    dataset = NestedBerpDataset(datasets)
 
     model = MODELS[cfg.model.type](cfg.model)
 
     splitter = BerpTrainTestSplitter(cfg.train_test)
-    data_train, data_test = splitter.split(datasets)
+    train_idxs, test_idxs = splitter.split(dataset)
+    data_train = dataset[train_idxs]
 
     # Nested cross-validation. Outer CV loop error on test set;
     # inner CV loop estimates optimal hyperparameters.
     outer_cv = BerpKFold(n_splits=cfg.cv.n_outer_folds)
     fold_results = []
-    for i_split, (train, test) in enumerate(outer_cv.split(data_train)):
+    for i_split, (train_fold, test_fold) in enumerate(outer_cv.split(data_train)):
         inner_cv = make_cv(model, cfg.cv)
-        fold_results.append(inner_cv.fit(train))
+        fold_results.append(inner_cv.fit(data_train[train_fold]))
 
     if cfg.solver.type == "svd":
         model.fit(data_train)

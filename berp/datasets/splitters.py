@@ -7,7 +7,7 @@ usable.
 """
 
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List, Tuple, Optional, Iterator
 
 import numpy as np
 from sklearn.utils import check_random_state
@@ -15,7 +15,14 @@ from torchtyping import TensorType
 from typeguard import typechecked
 
 from berp.config import TrainTestConfig
-from berp.datasets.base import BerpDataset
+from berp.datasets.base import BerpDataset, NestedBerpDataset
+
+
+# Type alias
+intQ = Optional[int]
+SplitterRet = Tuple[List[Tuple[int, intQ, intQ]],
+                    List[Tuple[int, intQ, intQ]]]
+"""Train/test indices returned from splitters"""
 
 
 class BerpTrainTestSplitter(object):
@@ -25,30 +32,21 @@ class BerpTrainTestSplitter(object):
         self.random_state = random_state
 
     @typechecked
-    def split(self, datasets: List[BerpDataset]) -> Tuple[List[BerpDataset], List[BerpDataset]]:
+    def split(self, datasets: NestedBerpDataset) -> SplitterRet:
         """
         Returns:
-            (train, test)
+            (train_idxs, test_idxs)
         """
-
-        # Shape checks. Everything but batch axis should match across
-        # subjects. Batch axis should match within-subject between
-        # X and Y.
-        for dataset in datasets:
-            assert dataset.X_ts.shape[1:] == datasets[0].X_ts.shape[1:]
-            assert dataset.X_variable.shape[1:] == datasets[0].X_variable.shape[1:]
-            assert dataset.Y.shape[1:] == datasets[0].Y.shape[1:]
-            assert dataset.X_ts.shape[0] == dataset.Y.shape[0]
-
+        # NB we return ranges as int start/end because slices are not hashable
         rng = check_random_state(self.random_state)
         
         # Select subjects to hold out.
-        dataset_idxs = np.arange(len(datasets))
+        dataset_idxs = np.arange(datasets.n_datasets)
         rng.shuffle(dataset_idxs)
         datasets_holdout = dataset_idxs[:int(self.cfg.series_hold_pct * len(dataset_idxs))]
 
-        ret_train_datasets, ret_test_datasets = [], []
-        for i, dataset in enumerate(datasets):
+        train_slices, test_slices = [], []
+        for i, dataset in enumerate(datasets.iter_datasets()):
             if i in datasets_holdout:
                 # Hold out random portion of time series.
                 len_i = dataset.X_ts.shape[0]
@@ -56,19 +54,19 @@ class BerpTrainTestSplitter(object):
                 slice_point = int(self.cfg.data_hold_pct * len_i)
                 if rng.random() < 0.5:
                     # Slice end to test set.
-                    slice_train_i = slice(None, slice_point)
-                    slice_test_i = slice(slice_point, None)
+                    slice_train_i = (None, slice_point)
+                    slice_test_i = (slice_point, None)
                 else:
                     # Slice start to test set.
-                    slice_train_i = slice(slice_point, None)
-                    slice_test_i = slice(None, slice_point)
+                    slice_train_i = (slice_point, None)
+                    slice_test_i = (None, slice_point)
 
-                ret_train_datasets.append(dataset[slice_train_i])
-                ret_test_datasets.append(dataset[slice_test_i])
+                train_slices.append((i, *slice_train_i))
+                test_slices.append((i, *slice_test_i))
             else:
-                ret_train_datasets.append(dataset)
+                train_slices.append((i, None, None))
 
-        return ret_train_datasets, ret_test_datasets
+        return train_slices, test_slices
 
 
 class BerpKFold(object):
@@ -79,20 +77,19 @@ class BerpKFold(object):
     def __init__(self, n_splits: int):
         self.n_splits = n_splits
 
-    def split(self, datasets: List[BerpDataset], *args
-              ) -> Tuple[List[BerpDataset], List[BerpDataset]]:
+    @typechecked
+    def split(self, datasets: NestedBerpDataset, *args
+              ) -> Iterator[SplitterRet]:
         """
         Returns:
             (train, test)
         """
 
-        # Create a flat representation of the dataset which we'll pass to sklearn KFold.
-        flat_idxs = np.array([(i, j) for i, dataset in enumerate(datasets)
-                              for j in range(dataset.n_samples)])
+        flat_idxs: List[Tuple[int, int]] = datasets.flat_idxs
 
-        def flat_idxs_to_subdatasets(flat_idxs: np.ndarray) -> List[BerpDataset]:
+        def flat_idxs_to_ranges(flat_idxs: np.ndarray) -> List[Tuple[int, int, int]]:
             """
-            Convert a list of flat idxs back into a list of sliced datasets.
+            Convert a list of flat idxs back into a list of slice instructions.
             Assumes input is sorted by flat idx.
             """
             # Split sorted idxs (i, j) at points where i changes.
@@ -100,9 +97,8 @@ class BerpKFold(object):
 
             ret = []
             for idxs_i in idxs_grouped:
-                dataset_idx = idxs_i[0, 0]
-                sample_slice = slice(idxs_i[0, 1], idxs_i[-1, 1] + 1)
-                ret.append(datasets[dataset_idx][sample_slice])
+                dataset_idx = int(idxs_i[0, 0])
+                ret.append((dataset_idx, int(idxs_i[0, 1]), int(idxs_i[-1, 1] + 1)))
 
             return ret
 
@@ -113,10 +109,10 @@ class BerpKFold(object):
             test_idxs = flat_idxs[test_slice_start:test_slice_end]
             train_idxs = np.concatenate([flat_idxs[:test_slice_start], flat_idxs[test_slice_end:]])
 
-            train_datasets = flat_idxs_to_subdatasets(train_idxs)
-            test_datasets = flat_idxs_to_subdatasets(test_idxs)
+            train_slices = flat_idxs_to_ranges(train_idxs)
+            test_slices = flat_idxs_to_ranges(test_idxs)
 
-            yield train_datasets, test_datasets
+            yield train_slices, test_slices
 
     def get_n_splits(self, X=None, y=None, groups=None):
         return self.n_splits
