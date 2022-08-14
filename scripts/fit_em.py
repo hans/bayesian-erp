@@ -25,7 +25,7 @@ def main(cfg: Config):
     datasets = []
     for dataset in cfg.datasets:
         with open(dataset, "rb") as f:
-            datasets.append(pickle.load(f))
+            datasets.append(pickle.load(f).ensure_torch())
 
     model = MODELS[cfg.model.type](cfg.model)
 

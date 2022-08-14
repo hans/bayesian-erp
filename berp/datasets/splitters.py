@@ -12,6 +12,7 @@ from typing import List, Tuple
 import numpy as np
 from sklearn.utils import check_random_state
 from torchtyping import TensorType
+from typeguard import typechecked
 
 from berp.config import TrainTestConfig
 from berp.datasets.base import BerpDataset
@@ -24,6 +25,7 @@ class BerpTrainTestSplitter(object):
         self.cfg = cfg
         self.random_state = random_state
 
+    @typechecked
     def split(self, datasets: List[BerpDataset]) -> Tuple[List[BerpDataset], List[BerpDataset]]:
         """
         Returns:

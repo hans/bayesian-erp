@@ -1,3 +1,4 @@
+from __future__ import annotations
 import dataclasses
 from dataclasses import dataclass
 import logging
@@ -136,6 +137,21 @@ class BerpDataset:
             return ret
 
         return super().__getitem__(key)
+
+    def ensure_torch(self) -> BerpDataset:
+        """
+        Convert all tensors to torch tensors.
+        """
+        self.p_word = torch.as_tensor(self.p_word)
+        self.word_lengths = torch.as_tensor(self.word_lengths)
+        self.candidate_phonemes = torch.as_tensor(self.candidate_phonemes)
+        self.word_onsets = torch.as_tensor(self.word_onsets)
+        self.phoneme_onsets = torch.as_tensor(self.phoneme_onsets)
+        self.X_ts = torch.as_tensor(self.X_ts)
+        self.X_variable = torch.as_tensor(self.X_variable)
+        self.Y = torch.as_tensor(self.Y)
+
+        return self
 
 
 @dataclass

@@ -1,15 +1,22 @@
-from typing import Tuple
+from typing import Tuple, List, Optional
+
 import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin
 import torch
 import torch.distributions as dist
 from torchtyping import TensorType
+from typeguard import typechecked
 from tqdm.auto import tqdm, trange
 
 from berp.config.model import TRFModelConfig
 from berp.datasets.base import BerpDataset
 from berp.util import time_to_sample, PartialPipeline
 
+
+
+TRFPredictors = TensorType["n_times", "n_features"]
+TRFDesignMatrix = TensorType["n_times", "n_features", "n_delays"]
+TRFResponse = TensorType["n_times", "n_outputs"]
 
 class TemporalReceptiveField(BaseEstimator):
 
@@ -36,10 +43,9 @@ class TemporalReceptiveField(BaseEstimator):
         if hasattr(self, "n_features_"):
             assert X.shape[1] == self.n_features_
             assert Y.shape[1] == self.n_outputs_
-        return torch.tensor(X), torch.tensor(Y)
+        return torch.as_tensor(X), torch.as_tensor(Y)
 
-    def fit(self, X: TensorType["n_times", "n_features"],
-            Y: TensorType["n_times", "n_outputs"]
+    def fit(self, X: TRFPredictors, Y: TRFResponse
             ) -> "TemporalReceptiveField":
         """
         Fit the TRF encoder with least squares.
@@ -51,7 +57,7 @@ class TemporalReceptiveField(BaseEstimator):
         # TODO valid_samples_
 
         # Delay input features.
-        X_del: TensorType["n_times", "n_features", "n_delays"] = \
+        X_del: TRFDesignMatrix = \
             _delay_time_series(X, self.tmin, self.tmax, self.sfreq,
                                fill_mean=self.fit_intercept)
         n_times, _, self.n_delays_ = X_del.shape
@@ -75,8 +81,7 @@ class TemporalReceptiveField(BaseEstimator):
         self.residuals_ = Y_pred - Y
         return self
 
-    def partial_fit(self, X: TensorType["n_times", "n_features"],
-                    Y: TensorType["n_times", "n_outputs"],
+    def partial_fit(self, X: TRFPredictors, Y: TRFResponse,
                     **kwargs) -> "TemporalReceptiveField":
         """
         Update the TRF encoder weights with gradient descent.
@@ -86,7 +91,7 @@ class TemporalReceptiveField(BaseEstimator):
 
         self.n_features_ = X.shape[-1]
         self.n_outputs_ = Y.shape[-1]
-        if not self.warm_start:
+        if not self.warm_start or not hasattr(self, "coef_"):
             self._init_coef()
 
         X_orig = X
@@ -152,16 +157,44 @@ class TemporalReceptiveField(BaseEstimator):
         return Y_dist.log_prob(Y)
 
 
-class NaiveScatterTransform(TransformerMixin):
+# class GroupTemporalReceptiveField(BaseEstimator):
+#     """
+#     Temporal receptive field model estimated and scored at
+#     the group level, combining multiple independent datasets.
+#     """
+
+#     def __init__(self, cfg: TRFModelConfig):
+#         self.trf = TemporalReceptiveField(cfg)
+
+#     def _scatter(self, datasets: List[BerpDataset]
+#                  recognition_points: Optional[List[List[int]]] = None,
+#                  ) -> Tuple[TensorType["n_times", "n_features"],
+#                             TensorType["n_times", "n_outputs"]]:
+#         """
+#         Join group-level data into a single array, scattering 
+#         variable-onset data according to `recognition_points`.
+
+#         If `recognition_points` is none, all recognition points are
+#         assumed to be zero (i.e. at word-onset).
+#         """
+#         raise NotImplementedError()
+
+#     def fit(self, datasets: List[BerpDataset]):
+
+
+
+class GroupScatterTransform(TransformerMixin):
     """
-    Simple transformer which removes the variable/time-series distinction
-    in the input data, assuming that word events happen at word onset.
+    Simultaneously joins grouped time series data into a single array,
+    and scatters variable-onset features onto the time series.
+
+    TODO account for resulting invalid samples at join boundaries.
     """
 
     def partial_fit(*args, **kwargs):
         pass
 
-    def transform(self, dataset: BerpDataset):
+    def _scatter_single(self, dataset: BerpDataset):
         target_samples = time_to_sample(dataset.word_onsets, dataset.sample_rate)
 
         X = dataset.X_ts[:]
@@ -173,9 +206,16 @@ class NaiveScatterTransform(TransformerMixin):
 
         return X, dataset.Y
 
+    @typechecked
+    def transform(self, datasets: List[BerpDataset]
+                  ) -> Tuple[TRFPredictors, TRFResponse]:
+        X, Y = zip(*[self._scatter_single(dataset) for dataset in datasets])
+        return torch.cat(X, dim=0), torch.cat(Y, dim=0)
+
+
 def BerpTRF(cfg: TRFModelConfig):
     return PartialPipeline([
-        ("naive_scatter", NaiveScatterTransform()),
+        ("naive_scatter", GroupScatterTransform()),
         ("trf", TemporalReceptiveField(cfg))])
 
 
