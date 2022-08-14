@@ -4,11 +4,15 @@ from pathlib import Path
 import pickle
 from typing import List, Dict, Any
 
-from omegaconf import DictConfig, OmegaConf
 import hydra
+from hydra_plugins.hydra_optuna_sweeper._impl import create_optuna_distribution_from_config
+from omegaconf import DictConfig, OmegaConf
+import optuna
+from sklearn.base import clone
+from sklearn.model_selection import KFold
 
-from berp.config import Config
-from berp.datasets import BerpTrainTestSplitter
+from berp.config import Config, CVConfig
+from berp.datasets import BerpTrainTestSplitter, BerpKFold
 from berp.models import BerpTRFExpectationMaximization, BerpTRF
 
 
@@ -16,6 +20,34 @@ MODELS = {
     "em-trf": BerpTRFExpectationMaximization,
     "trf": BerpTRF,
 }
+
+
+def make_cv(model, cfg: CVConfig):
+    """
+    Make cross-validation object.
+    """
+    # TODO if we want to customize sampler, we have to set up a "study"
+    param_sampler = hydra.utils.instantiate(cfg.param_sampler)
+    param_distributions = {
+        k: create_optuna_distribution_from_config(v)
+        for k, v in cfg.params.items()
+    }
+    
+    def scoring(*args, **kwargs):
+        print("SCORING", args, kwargs)
+        return 0.0
+    
+    return optuna.integration.OptunaSearchCV(
+        estimator=clone(model),
+        # param_sampler=param_sampler,
+        # n_trials=cfg.n_trials,
+        # n_jobs=cfg.n_jobs,
+        n_jobs=1,
+        param_distributions=param_distributions,
+        scoring=scoring,
+        cv=BerpKFold(n_splits=cfg.n_inner_folds),
+        refit=True,
+        verbose=1,)
 
 
 @hydra.main(version_base=None, config_path="../conf", config_name="config.yaml")
@@ -34,6 +66,11 @@ def main(cfg: Config):
 
     # Nested cross-validation. Outer CV loop error on test set;
     # inner CV loop estimates optimal hyperparameters.
+    outer_cv = BerpKFold(n_splits=cfg.cv.n_outer_folds)
+    fold_results = []
+    for i_split, (train, test) in enumerate(outer_cv.split(data_train)):
+        inner_cv = make_cv(model, cfg.cv)
+        fold_results.append(inner_cv.fit(train))
 
     if cfg.solver.type == "svd":
         model.fit(data_train)

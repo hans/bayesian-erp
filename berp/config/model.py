@@ -21,6 +21,8 @@ class TRFModelConfig(ModelConfig):
     fit_intercept: bool = True
     type: str = "trf"
 
+    _target_: str = "berp.models.trf.TemporalReceptiveField"
+
 
 cs = ConfigStore.instance()
 cs.store(group=GROUP, name="base_trf", node=TRFModelConfig)

@@ -11,6 +11,7 @@ from torch.nn.functional import pad
 from torchtyping import TensorType
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from tqdm.auto import tqdm, trange
+from typeguard import typechecked
 
 from berp.typing import DIMS, is_probability, is_log_probability
 
@@ -158,6 +159,21 @@ class BerpDataset:
         self.Y = torch.as_tensor(self.Y)
 
         return self
+
+
+class NestedBerpDataset(object):
+
+    def __init__(self, datasets: List[BerpDataset]):
+        self.datasets = datasets
+        self._flat_idxs = np.array([(i, j) for i in range(len(datasets)) for j in range(datasets[i].n_samples)])
+
+    # TODO will be super slow to always typecheck. remove once we know this works
+    @typeguard
+    def __getitem__(self, key: List[Tuple[int, int, int]]) -> NestedBerpDataset:
+        ret_datasets = []
+        for dataset_idx, slice_start, slice_end in key:
+            ret_datasets.append(self.datasets[dataset_idx][slice_start:slice_end])
+        return ret_datasets
 
 
 @dataclass

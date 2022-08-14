@@ -18,7 +18,6 @@ from berp.config import TrainTestConfig
 from berp.datasets.base import BerpDataset
 
 
-@dataclass
 class BerpTrainTestSplitter(object):
 
     def __init__(self, cfg: TrainTestConfig, random_state=None):
@@ -70,3 +69,54 @@ class BerpTrainTestSplitter(object):
                 ret_train_datasets.append(dataset)
 
         return ret_train_datasets, ret_test_datasets
+
+
+class BerpKFold(object):
+    """
+    K-fold cross-validation over grouped time series datasets.
+    """
+
+    def __init__(self, n_splits: int):
+        self.n_splits = n_splits
+
+    def split(self, datasets: List[BerpDataset], *args
+              ) -> Tuple[List[BerpDataset], List[BerpDataset]]:
+        """
+        Returns:
+            (train, test)
+        """
+
+        # Create a flat representation of the dataset which we'll pass to sklearn KFold.
+        flat_idxs = np.array([(i, j) for i, dataset in enumerate(datasets)
+                              for j in range(dataset.n_samples)])
+
+        def flat_idxs_to_subdatasets(flat_idxs: np.ndarray) -> List[BerpDataset]:
+            """
+            Convert a list of flat idxs back into a list of sliced datasets.
+            Assumes input is sorted by flat idx.
+            """
+            # Split sorted idxs (i, j) at points where i changes.
+            idxs_grouped = np.split(flat_idxs, np.where(np.diff(flat_idxs[:, 0]) != 0)[0] + 1)
+
+            ret = []
+            for idxs_i in idxs_grouped:
+                dataset_idx = idxs_i[0, 0]
+                sample_slice = slice(idxs_i[0, 1], idxs_i[-1, 1] + 1)
+                ret.append(datasets[dataset_idx][sample_slice])
+
+            return ret
+
+        # TODO consider non contiguous folds, this may yield high variance estimates otherwise.
+        test_slice_size = int(flat_idxs.shape[0] / self.n_splits)
+        for test_slice_start in range(0, flat_idxs.shape[0], test_slice_size):
+            test_slice_end = test_slice_start + test_slice_size
+            test_idxs = flat_idxs[test_slice_start:test_slice_end]
+            train_idxs = np.concatenate([flat_idxs[:test_slice_start], flat_idxs[test_slice_end:]])
+
+            train_datasets = flat_idxs_to_subdatasets(train_idxs)
+            test_datasets = flat_idxs_to_subdatasets(test_idxs)
+
+            yield train_datasets, test_datasets
+
+    def get_n_splits(self, X=None, y=None, groups=None):
+        return self.n_splits

@@ -1,5 +1,7 @@
+import logging
 from typing import Tuple, List, Optional
 
+import hydra
 import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin
 import torch
@@ -20,18 +22,22 @@ TRFResponse = TensorType["n_times", "n_outputs"]
 
 class TemporalReceptiveField(BaseEstimator):
 
-    def __init__(self, cfg: TRFModelConfig):
-        self.sfreq = cfg.sfreq
+    def __init__(self, tmin, tmax, sfreq, fit_intercept=False,
+                 warm_start=True, alpha=1, **kwargs):
+        self.sfreq = sfreq
 
-        self.tmin = cfg.tmin
-        self.tmax = cfg.tmax
+        self.tmin = tmin
+        self.tmax = tmax
         assert self.tmin < self.tmax
 
-        self.fit_intercept = cfg.fit_intercept
-        self.warm_start = cfg.warm_start
-        self.alpha = cfg.alpha
+        self.fit_intercept = fit_intercept
+        self.warm_start = warm_start
+        self.alpha = alpha
 
         self.delays_ = _times_to_delays(self.tmin, self.tmax, self.sfreq)
+
+        if kwargs:
+            logging.warning(f"Unused arguments: {kwargs}")
 
     def _init_coef(self):
         self.coef_ = torch.randn(self.n_features_, len(self.delays_),
@@ -214,9 +220,11 @@ class GroupScatterTransform(TransformerMixin):
 
 
 def BerpTRF(cfg: TRFModelConfig):
+    trf = hydra.utils.instantiate(cfg)
+
     return PartialPipeline([
         ("naive_scatter", GroupScatterTransform()),
-        ("trf", TemporalReceptiveField(cfg))])
+        ("trf", trf)])
 
 
 def _times_to_delays(tmin, tmax, sfreq) -> torch.Tensor:

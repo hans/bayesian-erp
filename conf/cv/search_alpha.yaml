@@ -5,9 +5,8 @@ param_sampler:
   seed: 1234
 
 params:
-  # TODO fix name
-  alpha:
+  trf__alpha:
     type: float
-    low: 0
-    high: 6
+    low: 1
+    high: 1e10
     log: true
