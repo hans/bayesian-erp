@@ -166,8 +166,16 @@ class BerpDataset:
 
 
 class NestedBerpDataset(object):
+    """
+    Represents a grouped Berp dataset as a list of time series intervals.
+    This makes the data amenable to cross validation by the standard sklearn API --
+    can index via integer values.
 
-    def __init__(self, datasets: List[BerpDataset]):
+    Each element in the resulting dataset corresponds to a fraction of an original
+    subject's sub-dataset, `1/n_splits` large.
+    """
+
+    def __init__(self, datasets: List[BerpDataset], n_splits=2):
         # Shape checks. Everything but batch axis should match across
         # subjects. Batch axis should match within-subject between
         # X and Y.
@@ -179,19 +187,29 @@ class NestedBerpDataset(object):
 
         self.datasets = datasets
         self.n_datasets = len(datasets)
+        self.n_splits = n_splits
 
-        self.flat_idxs = np.array([(i, j) for i in range(len(datasets)) for j in range(datasets[i].n_samples)])
+        # Maps integer indices on this dataset into slices of individual sub-datasets.
+        self.flat_idxs: List[Tuple[int, slice]] = []
+        for i, dataset in enumerate(self.datasets):
+            split_size = int(np.ceil(len(dataset) / self.n_splits))
+            for split_offset in range(0, len(dataset), split_size):
+                self.flat_idxs.append((i, slice(split_offset, split_offset + split_size)))
 
     # TODO will be super slow to always typecheck. remove once we know this works
     @typechecked
-    def __getitem__(self, key: List[Tuple[int, intQ, intQ]]) -> NestedBerpDataset:
-        ret_datasets = []
-        for dataset_idx, slice_start, slice_end in key:
-            ret_datasets.append(self.datasets[dataset_idx][slice(slice_start, slice_end)])
-        return NestedBerpDataset(ret_datasets)
+    def __getitem__(self, key: Union[int, np.integer, np.ndarray]
+                    ) -> Union[BerpDataset, NestedBerpDataset]:
+        if isinstance(key, (int, np.integer)):
+            dataset, split = self.flat_idxs[key]
+            return self.datasets[dataset][split]
+        elif isinstance(key, np.ndarray):
+            return NestedBerpDataset([self[i] for i in key], n_splits=self.n_splits)
+        else:
+            raise NotImplementedError(f"Unsupported key type {type(key)}")
 
     def __len__(self):
-        return sum(len(dataset) for dataset in self.datasets)
+        return len(self.flat_idxs)
 
     def iter_datasets(self):
         return iter(self.datasets)

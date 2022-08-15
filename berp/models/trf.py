@@ -51,6 +51,7 @@ class TemporalReceptiveField(BaseEstimator):
             assert Y.shape[1] == self.n_outputs_
         return torch.as_tensor(X), torch.as_tensor(Y)
 
+    @typechecked
     def fit(self, X: TRFPredictors, Y: TRFResponse
             ) -> "TemporalReceptiveField":
         """
@@ -87,6 +88,7 @@ class TemporalReceptiveField(BaseEstimator):
         self.residuals_ = Y_pred - Y
         return self
 
+    @typechecked
     def partial_fit(self, X: TRFPredictors, Y: TRFResponse,
                     **kwargs) -> "TemporalReceptiveField":
         """
@@ -121,7 +123,7 @@ class TemporalReceptiveField(BaseEstimator):
             return loss
 
         # TODO remove magic numbers
-        n_epochs = 2
+        n_epochs = 1
         optimizer = torch.optim.Adam([coef], lr=0.05)
         batch_size = 512
         for i in trange(n_epochs, leave=False):
@@ -197,8 +199,11 @@ class GroupScatterTransform(TransformerMixin):
     TODO account for resulting invalid samples at join boundaries.
     """
 
-    def partial_fit(*args, **kwargs):
-        pass
+    def fit(self, *args, **kwargs):
+        return self
+
+    def partial_fit(self, *args, **kwargs):
+        return self
 
     def _scatter_single(self, dataset: BerpDataset):
         target_samples = time_to_sample(dataset.word_onsets, dataset.sample_rate)

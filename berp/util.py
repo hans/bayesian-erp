@@ -126,9 +126,37 @@ def gaussian_window(center: float, width: float,\
 #
 #     return padded_batch, mask
 
+from sklearn.utils import _print_elapsed_time
+from sklearn.utils.validation import check_memory
+
+
+def _fit_transform_one(
+    transformer, X, y, weight, message_clsname="", message=None, **fit_params
+):
+    """
+    Fits ``transformer`` to ``X`` and ``y``. The transformed result is returned
+    with the fitted transformer. If ``weight`` is not ``None``, the result will
+    be multiplied by ``weight``.
+    """
+    with _print_elapsed_time(message_clsname, message):
+        if hasattr(transformer, "fit_transform"):
+            res, y = transformer.fit_transform(X, y, **fit_params)
+        else:
+            res, y = transformer.fit(X, y, **fit_params).transform(X, y)
+
+    if weight is None:
+        return res, y, transformer
+    return res * weight, y, transformer
+
 
 class PartialPipeline(Pipeline):
     """
+    Modified Pipeline implementation which supports
+
+    1. partial fits
+    2. transformers which apply to both X and Y simultaneously
+
+
     Utility function to generate a `PartialPipeline`
     Arguments:
         steps: a collection of text-transformers
@@ -142,6 +170,122 @@ class PartialPipeline(Pipeline):
     assert results == expected
     ```
     """
+
+    # Estimator interface
+
+    def _fit(self, X, y=None, **fit_params_steps):
+        # shallow copy of steps - this should really be steps_
+        self.steps = list(self.steps)
+        self._validate_steps()
+        # Setup the memory
+        memory = check_memory(self.memory)
+
+        fit_transform_one_cached = memory.cache(_fit_transform_one)
+
+        for step_idx, name, transformer in self._iter(
+            with_final=False, filter_passthrough=False
+        ):
+            if transformer is None or transformer == "passthrough":
+                with _print_elapsed_time("Pipeline", self._log_message(step_idx)):
+                    continue
+
+            if hasattr(memory, "location") and memory.location is None:
+                # we do not clone when caching is disabled to
+                # preserve backward compatibility
+                cloned_transformer = transformer
+            else:
+                cloned_transformer = clone(transformer)
+            # Fit or load from cache the current transformer
+            X, y, fitted_transformer = fit_transform_one_cached(
+                cloned_transformer,
+                X,
+                y,
+                None,
+                message_clsname="Pipeline",
+                message=self._log_message(step_idx),
+                **fit_params_steps[name],
+            )
+            # Replace the transformer of the step with the fitted
+            # transformer. This is necessary when loading the transformer
+            # from the cache.
+            self.steps[step_idx] = (name, fitted_transformer)
+        return X, y
+
+    def fit(self, X, y=None, **fit_params):
+        """Fit the model.
+
+        Fit all the transformers one after the other and transform the
+        data. Finally, fit the transformed data using the final estimator.
+
+        Parameters
+        ----------
+        X : iterable
+            Training data. Must fulfill input requirements of first step of the
+            pipeline.
+
+        y : iterable, default=None
+            Training targets. Must fulfill label requirements for all steps of
+            the pipeline.
+
+        **fit_params : dict of string -> object
+            Parameters passed to the ``fit`` method of each step, where
+            each parameter name is prefixed such that parameter ``p`` for step
+            ``s`` has key ``s__p``.
+
+        Returns
+        -------
+        self : object
+            Pipeline with fitted steps.
+        """
+        fit_params_steps = self._check_fit_params(**fit_params)
+        Xt, y = self._fit(X, y, **fit_params_steps)
+        with _print_elapsed_time("Pipeline", self._log_message(len(self.steps) - 1)):
+            if self._final_estimator != "passthrough":
+                fit_params_last_step = fit_params_steps[self.steps[-1][0]]
+                self._final_estimator.fit(Xt, y, **fit_params_last_step)
+
+        return self
+
+    def fit_transform(self, X, y=None, **fit_params):
+        """Fit the model and transform with the final estimator.
+
+        Fits all the transformers one after the other and transform the
+        data. Then uses `fit_transform` on transformed data with the final
+        estimator.
+
+        Parameters
+        ----------
+        X : iterable
+            Training data. Must fulfill input requirements of first step of the
+            pipeline.
+
+        y : iterable, default=None
+            Training targets. Must fulfill label requirements for all steps of
+            the pipeline.
+
+        **fit_params : dict of string -> object
+            Parameters passed to the ``fit`` method of each step, where
+            each parameter name is prefixed such that parameter ``p`` for step
+            ``s`` has key ``s__p``.
+
+        Returns
+        -------
+        Xt : ndarray of shape (n_samples, n_transformed_features)
+            Transformed samples.
+        """
+        fit_params_steps = self._check_fit_params(**fit_params)
+        Xt, y = self._fit(X, y, **fit_params_steps)
+
+        last_step = self._final_estimator
+        with _print_elapsed_time("Pipeline", self._log_message(len(self.steps) - 1)):
+            if last_step == "passthrough":
+                return Xt, y
+            fit_params_last_step = fit_params_steps[self.steps[-1][0]]
+            if hasattr(last_step, "fit_transform"):
+                return last_step.fit_transform(Xt, y, **fit_params_last_step)
+            else:
+                return last_step.fit(Xt, y, **fit_params_last_step).transform(Xt)
+
     def partial_fit(self, X, y=None, classes=None, **kwargs):
         """
         Fits the components, but allow for batches.

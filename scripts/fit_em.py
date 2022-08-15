@@ -6,13 +6,15 @@ from typing import List, Dict, Any
 
 import hydra
 from hydra_plugins.hydra_optuna_sweeper._impl import create_optuna_distribution_from_config
+import numpy as np
 from omegaconf import DictConfig, OmegaConf
 import optuna
 from sklearn.base import clone
-from sklearn.model_selection import KFold
+from sklearn.model_selection import KFold, train_test_split
+from tqdm.auto import tqdm
 
 from berp.config import Config, CVConfig
-from berp.datasets import BerpTrainTestSplitter, BerpKFold, NestedBerpDataset
+from berp.datasets import NestedBerpDataset
 from berp.models import BerpTRFExpectationMaximization, BerpTRF
 
 
@@ -43,9 +45,11 @@ def make_cv(model, cfg: CVConfig):
         # n_trials=cfg.n_trials,
         # n_jobs=cfg.n_jobs,
         n_jobs=1,
+        enable_pruning=True,
+        max_iter=1,
         param_distributions=param_distributions,
         scoring=scoring,
-        cv=BerpKFold(n_splits=cfg.n_inner_folds),
+        cv=KFold(n_splits=cfg.n_inner_folds, shuffle=False),
         refit=True,
         verbose=1,)
 
@@ -58,19 +62,25 @@ def main(cfg: Config):
     for dataset in cfg.datasets:
         with open(dataset, "rb") as f:
             datasets.append(pickle.load(f).ensure_torch())
-    dataset = NestedBerpDataset(datasets)
+    dataset = NestedBerpDataset(datasets, n_splits=4)
 
     model = MODELS[cfg.model.type](cfg.model)
 
-    splitter = BerpTrainTestSplitter(cfg.train_test)
-    train_idxs, test_idxs = splitter.split(dataset)
-    data_train = dataset[train_idxs]
+    # TODO use cfg
+    # DEV: tiny training set
+    data_train, data_test = train_test_split(dataset, test_size=0.25, shuffle=False)
+    # Re-merge into nested datasets for further CV fun.
+    data_train = NestedBerpDataset(data_train)
+    data_test = NestedBerpDataset(data_test)
+
+    # TODO figure out shuffling. Can shuffle at the subject level ofc but not at the
+    # time series level.
 
     # Nested cross-validation. Outer CV loop error on test set;
     # inner CV loop estimates optimal hyperparameters.
-    outer_cv = BerpKFold(n_splits=cfg.cv.n_outer_folds)
+    outer_cv = KFold(n_splits=cfg.cv.n_outer_folds, shuffle=False)
     fold_results = []
-    for i_split, (train_fold, test_fold) in enumerate(outer_cv.split(data_train)):
+    for i_split, (train_fold, test_fold) in enumerate(tqdm(outer_cv.split(data_train))):
         inner_cv = make_cv(model, cfg.cv)
         fold_results.append(inner_cv.fit(data_train[train_fold]))
 
