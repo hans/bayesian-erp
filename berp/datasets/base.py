@@ -196,6 +196,13 @@ class NestedBerpDataset(object):
             for split_offset in range(0, len(dataset), split_size):
                 self.flat_idxs.append((i, slice(split_offset, split_offset + split_size)))
 
+    @property
+    def shape(self):
+        # Define shape property so that sklearn indexing thinks we're an ndarray,
+        # and will index with an ndarray of indices rather than scalars+concatenate.
+        # Then we can make sure the output is still a NestedBerpDataset :)
+        return (len(self),)
+
     # TODO will be super slow to always typecheck. remove once we know this works
     @typechecked
     def __getitem__(self, key: Union[int, np.integer, np.ndarray]

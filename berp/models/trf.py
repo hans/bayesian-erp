@@ -1,5 +1,5 @@
 import logging
-from typing import Tuple, List, Optional
+from typing import Tuple, List, Optional, Any, Union
 
 import hydra
 import numpy as np
@@ -11,7 +11,7 @@ from typeguard import typechecked
 from tqdm.auto import tqdm, trange
 
 from berp.config.model import TRFModelConfig
-from berp.datasets.base import BerpDataset
+from berp.datasets.base import BerpDataset, NestedBerpDataset
 from berp.util import time_to_sample, PartialPipeline
 
 
@@ -48,27 +48,22 @@ class TemporalReceptiveField(BaseEstimator):
         # May not be available if we haven't been called with fit() yet.
         if hasattr(self, "n_features_"):
             assert X.shape[1] == self.n_features_
+            assert X.shape[2] == self.n_delays_
             assert Y.shape[1] == self.n_outputs_
+        else:
+            _, self.n_features_, self.n_delays_ = X.shape
+            self.n_outputs_ = Y.shape[1]
         return torch.as_tensor(X), torch.as_tensor(Y)
 
     @typechecked
-    def fit(self, X: TRFPredictors, Y: TRFResponse
+    def fit(self, X: TRFDesignMatrix, Y: TRFResponse
             ) -> "TemporalReceptiveField":
         """
         Fit the TRF encoder with least squares.
         """
         
-        self.n_features_ = X.shape[-1]
-        self.n_outputs_ = Y.shape[-1]
-
-        # TODO valid_samples_
-
-        # Delay input features.
-        X_del: TRFDesignMatrix = \
-            _delay_time_series(X, self.tmin, self.tmax, self.sfreq,
-                               fill_mean=self.fit_intercept)
-        n_times, _, self.n_delays_ = X_del.shape
-        X_est = _reshape_for_est(X_del)
+        X, Y = self._check_shapes_types(X, Y)
+        X_est = _reshape_for_est(X)
 
         # Find ridge regression solution.
         # Solving X*w = y with Normal equations:
@@ -89,7 +84,7 @@ class TemporalReceptiveField(BaseEstimator):
         return self
 
     @typechecked
-    def partial_fit(self, X: TRFPredictors, Y: TRFResponse,
+    def partial_fit(self, X: TRFDesignMatrix, Y: TRFResponse,
                     **kwargs) -> "TemporalReceptiveField":
         """
         Update the TRF encoder weights with gradient descent.
@@ -97,17 +92,12 @@ class TemporalReceptiveField(BaseEstimator):
 
         X, Y = self._check_shapes_types(X, Y)
 
-        self.n_features_ = X.shape[-1]
-        self.n_outputs_ = Y.shape[-1]
         if not self.warm_start or not hasattr(self, "coef_"):
             self._init_coef()
 
         X_orig = X
 
         # Preprocess X
-        X = _delay_time_series(X, self.tmin, self.tmax, self.sfreq,
-                               fill_mean=self.fit_intercept)
-        n_times, _, self.n_delays_ = X.shape
         X = _reshape_for_est(X)
         # Preprocess coef
         coef = self.coef_.view((-1, self.n_outputs_)).requires_grad_()
@@ -150,15 +140,14 @@ class TemporalReceptiveField(BaseEstimator):
         else:
             return torch.tensor(1.)
 
-    def predict(self, X: TensorType["n_times", "n_features"]
-                ) -> TensorType["n_times", "n_outputs"]:
-        X = _delay_time_series(X, self.tmin, self.tmax, self.sfreq,
-                               fill_mean=self.fit_intercept)
+    @typechecked
+    def predict(self, X: TRFDesignMatrix) -> TRFResponse:
         X = _reshape_for_est(X)
         coef = self.coef_.reshape((-1, self.n_outputs_))
         return X @ coef
 
-    def log_prob(self, X, Y):
+    @typechecked
+    def log_prob(self, X: TRFDesignMatrix, Y: TRFResponse):
         # TODO this is log likelihood, not posterior -- make that clear
         Y_pred = self.predict(X)
         Y_dist = dist.Normal(Y_pred, self.sigma)
@@ -218,17 +207,47 @@ class GroupScatterTransform(TransformerMixin):
         return X, dataset.Y
 
     @typechecked
-    def transform(self, datasets: List[BerpDataset]
+    def transform(self, datasets: Union[List[BerpDataset], NestedBerpDataset],
+                  *args
                   ) -> Tuple[TRFPredictors, TRFResponse]:
+        if isinstance(datasets, NestedBerpDataset):
+            # NB ignores splits.
+            datasets = datasets.datasets
+
         X, Y = zip(*[self._scatter_single(dataset) for dataset in datasets])
         return torch.cat(X, dim=0), torch.cat(Y, dim=0)
 
 
+class TRFDelayer(TransformerMixin):
+    """
+    Prepare design matrix for TRF learning/prediction.
+    """
+
+    def __init__(self, tmin: float, tmax: float, sfreq: float, **kwargs):
+        self.tmin = tmin
+        self.tmax = tmax
+        self.sfreq = sfreq
+
+    def fit(self, *args, **kwargs):
+        return self
+
+    def partial_fit(self, *args, **kwargs):
+        return self
+
+    @typechecked
+    def transform(self, X: TRFPredictors, y=None) -> Tuple[TRFDesignMatrix, Any]:
+        # TODO fill_mean
+        return _delay_time_series(X, self.tmin, self.tmax, self.sfreq), y
+
+
 def BerpTRF(cfg: TRFModelConfig):
+    trf_delayer = TRFDelayer(**cfg)
     trf = hydra.utils.instantiate(cfg)
 
+    # TODO caching
     return PartialPipeline([
         ("naive_scatter", GroupScatterTransform()),
+        ("trf_delay", trf_delayer),
         ("trf", trf)])
 
 

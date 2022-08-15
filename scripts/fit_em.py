@@ -9,19 +9,31 @@ from hydra_plugins.hydra_optuna_sweeper._impl import create_optuna_distribution_
 import numpy as np
 from omegaconf import DictConfig, OmegaConf
 import optuna
+from scipy.stats import pearsonr
 from sklearn.base import clone
 from sklearn.model_selection import KFold, train_test_split
+import torch
 from tqdm.auto import tqdm
 
 from berp.config import Config, CVConfig
 from berp.datasets import NestedBerpDataset
 from berp.models import BerpTRFExpectationMaximization, BerpTRF
+from berp.util import PartialPipeline
 
 
 MODELS = {
     "em-trf": BerpTRFExpectationMaximization,
     "trf": BerpTRF,
 }
+
+
+def score(estimator: PartialPipeline, X, Y):
+    # TODO: valid samples
+    # TODO Should be implemented in score probably
+    _, Y_gt = estimator.pre_transform(X, Y)
+    Y_pred = estimator.predict(X)
+    mse = ((Y_pred - Y_gt) ** 2).sum(dim=1).mean()
+    return mse
 
 
 def make_cv(model, cfg: CVConfig):
@@ -35,10 +47,6 @@ def make_cv(model, cfg: CVConfig):
         for k, v in cfg.params.items()
     }
     
-    def scoring(*args, **kwargs):
-        print("SCORING", args, kwargs)
-        return 0.0
-    
     return optuna.integration.OptunaSearchCV(
         estimator=clone(model),
         # param_sampler=param_sampler,
@@ -48,7 +56,7 @@ def make_cv(model, cfg: CVConfig):
         enable_pruning=True,
         max_iter=1,
         param_distributions=param_distributions,
-        scoring=scoring,
+        scoring=score,
         cv=KFold(n_splits=cfg.n_inner_folds, shuffle=False),
         refit=True,
         verbose=1,)
