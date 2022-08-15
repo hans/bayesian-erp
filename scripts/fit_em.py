@@ -33,7 +33,7 @@ def score(estimator: PartialPipeline, X, Y):
     _, Y_gt = estimator.pre_transform(X, Y)
     Y_pred = estimator.predict(X)
     mse = ((Y_pred - Y_gt) ** 2).sum(dim=1).mean()
-    return mse
+    return -mse
 
 
 def make_cv(model, cfg: CVConfig):
