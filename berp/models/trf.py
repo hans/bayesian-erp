@@ -12,6 +12,7 @@ from typeguard import typechecked
 from tqdm.auto import tqdm, trange
 
 from berp.config.model import TRFModelConfig
+from berp.config.solver import SolverConfig
 from berp.datasets.base import BerpDataset, NestedBerpDataset
 from berp.util import time_to_sample, PartialPipeline
 
@@ -23,35 +24,28 @@ TRFDesignMatrix = TensorType["n_times", "n_features", "n_delays"]
 TRFResponse = TensorType["n_times", "n_outputs"]
 
 
-class SGDEstimatorMixin(BaseEstimator):
+# TODO clean up and move
+class AdamSolver(BaseEstimator):
     """
     Model mixin which supports advanced stochastic gradient descent
     methods.
     """
 
-    def __init__(self, lr: float = 0.01, n_epochs: int = 1,
-                 batch_size: int = 512):
-        self.lr = lr
+    def __init__(self, learning_rate: float = 0.01, n_epochs: int = 1,
+                 batch_size: int = 512, **kwargs):
+        self.learning_rate = learning_rate
         self.n_epochs = n_epochs
         self.batch_size = batch_size
 
-    def _init_coef(self):
-        raise NotImplementedError()
-
-    @property
-    def _optim_parameters(self) -> List[torch.Tensor]:
-        raise NotImplementedError()
+        self._optim_parameters = None
 
     @cached_property
     def _optim(self):
-        return torch.optim.Adam(self._optim_parameters, lr=self.lr)
+        return torch.optim.Adam(self._optim_parameters, lr=self.learning_rate)
 
-    def _loss_fn(self, X, y=None):
-        raise NotImplementedError()
-
-    def partial_fit(self, X, y=None, **fit_params):
-        if not self.warm_start or not hasattr(self, "coef_"):
-            self._init_coef()
+    def __call__(self, estimator, X, y=None, **fit_params):
+        if self._optim_parameters is None:
+            self._optim_parameters = estimator._optim_parameters
 
         for i in trange(self.n_epochs, leave=False):
             losses = []
@@ -60,7 +54,7 @@ class SGDEstimatorMixin(BaseEstimator):
                 batch_y = y[batch_offset:batch_offset + self.batch_size] if y is not None else None
 
                 self._optim.zero_grad()
-                loss = self._loss_fn(batch_X, batch_y)
+                loss = estimator._loss_fn(batch_X, batch_y)
                 loss.backward()
                 self._optim.step()
 
@@ -69,10 +63,11 @@ class SGDEstimatorMixin(BaseEstimator):
         return self
 
 
-class TemporalReceptiveField(SGDEstimatorMixin, BaseEstimator):
+class TemporalReceptiveField(BaseEstimator):
 
-    def __init__(self, tmin, tmax, sfreq, fit_intercept=False,
-                 warm_start=True, alpha=1, optim_kwargs={}, **kwargs):
+    def __init__(self, tmin, tmax, sfreq,
+                 optim, fit_intercept=False,
+                 warm_start=True, alpha=1, **kwargs):
         self.sfreq = sfreq
 
         self.tmin = tmin
@@ -83,10 +78,8 @@ class TemporalReceptiveField(SGDEstimatorMixin, BaseEstimator):
         self.warm_start = warm_start
         self.alpha = alpha
 
-        # Prepare estimator mixin
-        # TODO probably need to mess with param accessor here later :///
-        self.optim_kwargs = optim_kwargs
-        super().__init__(**optim_kwargs)
+        # Prepare optimizer mixin
+        self.optim = optim
 
         self.delays_ = _times_to_delays(self.tmin, self.tmax, self.sfreq)
 
@@ -171,7 +164,7 @@ class TemporalReceptiveField(SGDEstimatorMixin, BaseEstimator):
         coef_shape = self.coef_.shape
         self.coef_ = self.coef_.view((-1, self.n_outputs_)).requires_grad_()
 
-        super().partial_fit(X, Y, **kwargs)
+        self.optim(self, X, Y, **kwargs)
 
         self.coef_ = self.coef_.detach().view(coef_shape)
 
@@ -295,9 +288,10 @@ class TRFDelayer(XYTransformerMixin):
         return _delay_time_series(X, self.tmin, self.tmax, self.sfreq), y
 
 
-def BerpTRF(cfg: TRFModelConfig):
+def BerpTRF(cfg: TRFModelConfig, optim_cfg: SolverConfig):
     trf_delayer = TRFDelayer(**cfg)
-    trf = hydra.utils.instantiate(cfg)
+    optim = hydra.utils.instantiate(optim_cfg)
+    trf = hydra.utils.instantiate(cfg, optim=optim)
 
     # TODO caching
     return PartialPipeline([

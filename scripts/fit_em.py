@@ -1,25 +1,20 @@
-from argparse import ArgumentParser
-from dataclasses import dataclass
-from pathlib import Path
-import pickle
 from typing import List, Dict, Any
 
 import hydra
 from hydra_plugins.hydra_optuna_sweeper._impl import create_optuna_distribution_from_config
 import numpy as np
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import OmegaConf
 import optuna
 from scipy.stats import pearsonr
 from sklearn.base import clone
 from sklearn.model_selection import KFold, train_test_split
-import torch
 from tqdm.auto import tqdm
 
 from berp.config import Config, CVConfig
 from berp.datasets import NestedBerpDataset
 from berp.models import BerpTRFExpectationMaximization, BerpTRF
 from berp.util import PartialPipeline
-from berp.viz.trf import plot_trf_coefficients
+from berp.viz.trf import plot_trf_coefficients, trf_to_dataframe
 
 
 MODELS = {
@@ -56,9 +51,10 @@ def make_cv(model, cfg: CVConfig):
         n_jobs=1,
         enable_pruning=True,
         # max_iter=10,
-        max_iter=1, n_trials=1,  # DEV
+        max_iter=10, n_trials=10,  # DEV
         param_distributions=param_distributions,
         scoring=score,
+        error_score="raise",
         cv=KFold(n_splits=cfg.n_inner_folds, shuffle=False),
         refit=True,
         verbose=1,)
@@ -71,7 +67,7 @@ def main(cfg: Config):
     dataset = hydra.utils.call(cfg.dataset)
     dataset.set_n_splits(4)
 
-    model = MODELS[cfg.model.type](cfg.model)
+    model = MODELS[cfg.model.type](cfg.model, optim_cfg=cfg.solver)
 
     # TODO use cfg
     # DEV: tiny training set
@@ -85,11 +81,9 @@ def main(cfg: Config):
     cv.fit(data_train)
 
     trf = cv.best_estimator_.named_steps["trf"]
+    coefs_df = trf_to_dataframe(trf)
+    coefs_df.to_csv("coefs.csv")
     plot_trf_coefficients(trf).savefig("coefficients.png")
-
-    import ipdb; ipdb.set_trace()
-
-    sys.exit(1)
 
     # # TODO figure out shuffling. Can shuffle at the subject level ofc but not at the
     # # time series level.
@@ -109,11 +103,4 @@ def main(cfg: Config):
 
 
 if __name__ == "__main__":
-    # p = ArgumentParser()
-
-    # p.add_argument("-m", "--model", default="em-trf", choices=["em-trf", "baseline"])
-    # p.add_argument("--solver", default="adam", choices=["adam", "sgd", "svd"])
-    # p.add_argument("datasets", nargs="+", type=Path)
-
-    # main(p.parse_args())
     main()

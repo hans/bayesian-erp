@@ -13,17 +13,19 @@ class SolverConfig:
 
 @dataclass
 class SGDSolverConfig(SolverConfig):
-    learning_rate: float
-    n_iter: int
+    learning_rate: float = 0.01
+    n_epochs: int = 1
+    batch_size: int = 512
 
 
 @dataclass
 class AdamSolverConfig(SGDSolverConfig):
-    beta_1: float
-    beta_2: float
-    epsilon: float
+    beta_1: float = 0.9
+    beta_2: float = 0.999
+    epsilon: float = 1e-8
 
     type: str = "adam"
+    _target_: str = "berp.models.trf.AdamSolver"
 
 
 @dataclass

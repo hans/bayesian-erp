@@ -13,13 +13,13 @@ from berp.models.trf import TemporalReceptiveField
 
 def trf_to_dataframe(model: TemporalReceptiveField) -> pd.DataFrame:
     df_data = []
-    for i, sensor in enumerate(model.coef_):
-        for j, feature in enumerate(sensor):
-            for k, feature_value in enumerate(feature):
-                df_data.append((i, j, k, feature_value))
+    for i, feature in enumerate(model.coef_.detach().numpy()):
+        for j, lag in enumerate(feature):
+            for k, sensor_coef in enumerate(lag):
+                df_data.append((i, j, k, sensor_coef))
 
-    df = pd.DataFrame(df_data, columns=["sensor", "feature", "lag", "coef"])
-    df["epoch_time"] = df.lag.map(dict(enumerate(model.delays_ / model.sfreq)))
+    df = pd.DataFrame(df_data, columns=["feature", "lag", "sensor", "coef"])
+    df["epoch_time"] = df.lag.map(dict(enumerate(model.delays_.numpy() / model.sfreq)))
 
     return df
 
