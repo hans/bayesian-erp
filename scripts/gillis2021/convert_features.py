@@ -76,8 +76,28 @@ def main(args):
         if check_feature_names is not None:
             assert check_feature_names == feature_names
         check_feature_names = feature_names
+
+    from pprint import pprint
+    print("Feature names:")
+    pprint(feature_names)
+
+    if args.drop_features is None:
+        # By default, drop frequency and surprisal, because these are already accounted
+        # for in the variable-onset data.
+        drop_features = ["ngram word frequency_0", "ngram surprisal_0"]
+    else:
+        drop_features = args.drop_features.strip().split(",")
+
+    feature_mask = np.ones(len(feature_names), dtype=bool)
+    for feature in drop_features:
+        feature_mask[check_feature_names.index(feature)] = False
+    final_feature_names = [name for i, name in enumerate(check_feature_names)
+                           if feature_mask[i]]
+
+    print("Feature names after dropping:")
+    pprint(final_feature_names)
         
-    np.savez(args.out_path, feature_names=check_feature_names,
+    np.savez(args.out_path, feature_names=final_feature_names,
              **story_features)
     
     
@@ -86,5 +106,6 @@ if __name__ == "__main__":
 
     p.add_argument("stim_dir", type=Path)
     p.add_argument("out_path", type=Path)
+    p.add_argument("--drop_features", type=str)
 
     main(p.parse_args())
