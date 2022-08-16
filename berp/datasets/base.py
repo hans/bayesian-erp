@@ -164,6 +164,12 @@ class BerpDataset:
 
         return self
 
+    def subset_sensors(self, sensors: List[int]) -> BerpDataset:
+        """
+        Subset sensors in response variable. Returns a copy.
+        """
+        return dataclasses.replace(self, Y=self.Y[:, sensors])
+
 
 class NestedBerpDataset(object):
     """
@@ -187,6 +193,9 @@ class NestedBerpDataset(object):
 
         self.datasets = datasets
         self.n_datasets = len(datasets)
+        self.set_n_splits(n_splits)
+
+    def set_n_splits(self, n_splits):
         self.n_splits = n_splits
 
         # Maps integer indices on this dataset into slices of individual sub-datasets.
@@ -220,6 +229,13 @@ class NestedBerpDataset(object):
 
     def iter_datasets(self):
         return iter(self.datasets)
+
+    def subset_sensors(self, sensors: List[int]) -> NestedBerpDataset:
+        """
+        Subset sensors in response variable. Returns a copy.
+        """
+        return NestedBerpDataset([dataset.subset_sensors(sensors) for dataset in self.datasets],
+                                 n_splits=self.n_splits)
 
 
 @dataclass

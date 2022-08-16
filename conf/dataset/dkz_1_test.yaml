@@ -1,6 +1,13 @@
 defaults:
-- base_eeg_dataset
+  - base_eeg_dataset
 
 montage_name: biosemi64
+subset_sensors:
+  - C1
+  - Cz
+  - C2
+  - CP1
+  - CPz
+  - CP2
 paths:
   - work/c9/4f426075f224dd64efaa236501240f/2019_C2DNN_11.DKZ_1.pkl

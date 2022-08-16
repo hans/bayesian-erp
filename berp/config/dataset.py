@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 
 import mne
 
@@ -16,6 +16,14 @@ class DatasetConfig:
 @dataclass
 class EEGDatasetConfig(DatasetConfig):
     montage_name: str
+
+    subset_sensors: Optional[List[str]] = None
+    """
+    Optionally load just a subset of the dataset sensors. Each element
+    is a reference to a montage channel name (not an index).
+    """
+
+    _target_: str = "berp.datasets.eeg.load_eeg_dataset"
 
     @property
     def montage(self) -> mne.channels.DigMontage:

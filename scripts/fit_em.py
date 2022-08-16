@@ -66,11 +66,8 @@ def make_cv(model, cfg: CVConfig):
 def main(cfg: Config):
     print(OmegaConf.to_yaml(cfg))
 
-    datasets = []
-    for dataset in cfg.dataset.paths:
-        with open(dataset, "rb") as f:
-            datasets.append(pickle.load(f).ensure_torch())
-    dataset = NestedBerpDataset(datasets, n_splits=4)
+    dataset = hydra.utils.call(cfg.dataset)
+    dataset.set_n_splits(4)
 
     model = MODELS[cfg.model.type](cfg.model)
 
