@@ -149,18 +149,18 @@ class BerpDataset:
 
         return super().__getitem__(key)
 
-    def ensure_torch(self) -> BerpDataset:
+    def ensure_torch(self, dtype=torch.float32) -> BerpDataset:
         """
         Convert all tensors to torch tensors.
         """
-        self.p_word = torch.as_tensor(self.p_word)
+        self.p_word = torch.as_tensor(self.p_word, dtype=torch.float32)
         self.word_lengths = torch.as_tensor(self.word_lengths)
         self.candidate_phonemes = torch.as_tensor(self.candidate_phonemes)
-        self.word_onsets = torch.as_tensor(self.word_onsets)
-        self.phoneme_onsets = torch.as_tensor(self.phoneme_onsets)
-        self.X_ts = torch.as_tensor(self.X_ts)
-        self.X_variable = torch.as_tensor(self.X_variable)
-        self.Y = torch.as_tensor(self.Y)
+        self.word_onsets = torch.as_tensor(self.word_onsets, dtype=torch.float32)
+        self.phoneme_onsets = torch.as_tensor(self.phoneme_onsets, dtype=torch.float32)
+        self.X_ts = torch.as_tensor(self.X_ts, dtype=torch.float32)
+        self.X_variable = torch.as_tensor(self.X_variable, dtype=torch.float32)
+        self.Y = torch.as_tensor(self.Y, dtype=torch.float32)
 
         return self
 

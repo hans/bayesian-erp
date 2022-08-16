@@ -46,6 +46,7 @@ class TemporalReceptiveField(BaseEstimator):
 
     def _check_shapes_types(self, X, Y):
         assert X.shape[0] == Y.shape[0]
+        assert X.dtype == Y.dtype
         # May not be available if we haven't been called with fit() yet.
         if hasattr(self, "n_features_"):
             assert X.shape[1] == self.n_features_
@@ -54,7 +55,8 @@ class TemporalReceptiveField(BaseEstimator):
         else:
             _, self.n_features_, self.n_delays_ = X.shape
             self.n_outputs_ = Y.shape[1]
-        return torch.as_tensor(X), torch.as_tensor(Y)
+        return (torch.as_tensor(X, dtype=torch.float32), 
+                torch.as_tensor(Y, dtype=torch.float32))
 
     @typechecked
     def fit(self, X: TRFDesignMatrix, Y: TRFResponse
