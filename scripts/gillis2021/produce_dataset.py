@@ -59,9 +59,6 @@ eeg_paths = {story: list(paths)
              for story, paths in itertools.groupby(args.eeg_dir.glob("*/*.mat"),
                                                    key=lambda path: path.parent.name)}
 
-# DEV
-eeg_paths = {k: [vs[0]] for k, vs in eeg_paths.items()}
-
 subjects = [p.name.replace(f"{EEG_SUFFIX}.mat", "")
             for p in next(iter(eeg_paths.values()))]
 
