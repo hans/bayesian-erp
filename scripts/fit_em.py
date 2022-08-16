@@ -19,6 +19,7 @@ from berp.config import Config, CVConfig
 from berp.datasets import NestedBerpDataset
 from berp.models import BerpTRFExpectationMaximization, BerpTRF
 from berp.util import PartialPipeline
+from berp.viz.trf import plot_trf_coefficients
 
 
 MODELS = {
@@ -54,7 +55,8 @@ def make_cv(model, cfg: CVConfig):
         # n_jobs=cfg.n_jobs,
         n_jobs=1,
         enable_pruning=True,
-        max_iter=1,
+        # max_iter=10,
+        max_iter=1, n_trials=1,  # DEV
         param_distributions=param_distributions,
         scoring=score,
         cv=KFold(n_splits=cfg.n_inner_folds, shuffle=False),
@@ -78,21 +80,32 @@ def main(cfg: Config):
     data_train = NestedBerpDataset(data_train)
     data_test = NestedBerpDataset(data_test)
 
-    # TODO figure out shuffling. Can shuffle at the subject level ofc but not at the
-    # time series level.
+    # DEV: No nested CV. Just fit coefs.
+    cv = make_cv(model, cfg.cv)
+    cv.fit(data_train)
 
-    # Nested cross-validation. Outer CV loop error on test set;
-    # inner CV loop estimates optimal hyperparameters.
-    outer_cv = KFold(n_splits=cfg.cv.n_outer_folds, shuffle=False)
-    fold_results = []
-    for i_split, (train_fold, test_fold) in enumerate(tqdm(outer_cv.split(data_train))):
-        inner_cv = make_cv(model, cfg.cv)
-        fold_results.append(inner_cv.fit(data_train[train_fold]))
+    trf = cv.best_estimator_.named_steps["trf"]
+    plot_trf_coefficients(trf).savefig("coefficients.png")
 
-    if cfg.solver.type == "svd":
-        model.fit(data_train)
-    else:
-        model.partial_fit(data_train)
+    import ipdb; ipdb.set_trace()
+
+    sys.exit(1)
+
+    # # TODO figure out shuffling. Can shuffle at the subject level ofc but not at the
+    # # time series level.
+
+    # # Nested cross-validation. Outer CV loop error on test set;
+    # # inner CV loop estimates optimal hyperparameters.
+    # outer_cv = KFold(n_splits=cfg.cv.n_outer_folds, shuffle=False)
+    # fold_results = []
+    # for i_split, (train_fold, test_fold) in enumerate(tqdm(outer_cv.split(data_train))):
+    #     inner_cv = make_cv(model, cfg.cv)
+    #     fold_results.append(inner_cv.fit(data_train[train_fold]))
+
+    # if cfg.solver.type == "svd":
+    #     model.fit(data_train)
+    # else:
+    #     model.partial_fit(data_train)
 
 
 if __name__ == "__main__":
