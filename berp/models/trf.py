@@ -1,3 +1,4 @@
+from functools import cached_property
 import logging
 from typing import Tuple, List, Optional, Any, Union
 
@@ -21,10 +22,57 @@ TRFPredictors = TensorType["n_times", "n_features"]
 TRFDesignMatrix = TensorType["n_times", "n_features", "n_delays"]
 TRFResponse = TensorType["n_times", "n_outputs"]
 
-class TemporalReceptiveField(BaseEstimator):
+
+class SGDEstimatorMixin(BaseEstimator):
+    """
+    Model mixin which supports advanced stochastic gradient descent
+    methods.
+    """
+
+    def __init__(self, lr: float = 0.01, n_epochs: int = 1,
+                 batch_size: int = 512):
+        self.lr = lr
+        self.n_epochs = n_epochs
+        self.batch_size = batch_size
+
+    def _init_coef(self):
+        raise NotImplementedError()
+
+    @property
+    def _optim_parameters(self) -> List[torch.Tensor]:
+        raise NotImplementedError()
+
+    @cached_property
+    def _optim(self):
+        return torch.optim.Adam(self._optim_parameters, lr=self.lr)
+
+    def _loss_fn(self, X, y=None):
+        raise NotImplementedError()
+
+    def partial_fit(self, X, y=None, **fit_params):
+        if not self.warm_start or not hasattr(self, "coef_"):
+            self._init_coef()
+
+        for i in trange(self.n_epochs, leave=False):
+            losses = []
+            for batch_offset in torch.arange(0, X.shape[0], self.batch_size):
+                batch_X = X[batch_offset:batch_offset + self.batch_size]
+                batch_y = y[batch_offset:batch_offset + self.batch_size] if y is not None else None
+
+                self._optim.zero_grad()
+                loss = self._loss_fn(batch_X, batch_y)
+                loss.backward()
+                self._optim.step()
+
+                losses.append(loss.item())
+
+        return self
+
+
+class TemporalReceptiveField(SGDEstimatorMixin, BaseEstimator):
 
     def __init__(self, tmin, tmax, sfreq, fit_intercept=False,
-                 warm_start=True, alpha=1, **kwargs):
+                 warm_start=True, alpha=1, optim_kwargs={}, **kwargs):
         self.sfreq = sfreq
 
         self.tmin = tmin
@@ -35,6 +83,11 @@ class TemporalReceptiveField(BaseEstimator):
         self.warm_start = warm_start
         self.alpha = alpha
 
+        # Prepare estimator mixin
+        # TODO probably need to mess with param accessor here later :///
+        self.optim_kwargs = optim_kwargs
+        super().__init__(**optim_kwargs)
+
         self.delays_ = _times_to_delays(self.tmin, self.tmax, self.sfreq)
 
         if kwargs:
@@ -43,6 +96,11 @@ class TemporalReceptiveField(BaseEstimator):
     def _init_coef(self):
         self.coef_ = torch.randn(self.n_features_, len(self.delays_),
                                  self.n_outputs_) * 1e-1
+
+    # Provide parameters for SGDEstimatorMixin
+    @property
+    def _optim_parameters(self):
+        return [self.coef_]
 
     def _check_shapes_types(self, X, Y):
         assert X.shape[0] == Y.shape[0]
@@ -86,49 +144,36 @@ class TemporalReceptiveField(BaseEstimator):
         self.residuals_ = Y_pred - Y
         return self
 
+    def _loss_fn(self, X, Y: TRFResponse) -> torch.Tensor:
+        Y_pred = X @ self.coef_
+        loss = (Y_pred - Y).pow(2).sum(axis=1).mean()
+        # Add ridge term.
+        loss += self.alpha * torch.norm(self.coef_, p=2)
+        return loss
+
     @typechecked
     def partial_fit(self, X: TRFDesignMatrix, Y: TRFResponse,
                     **kwargs) -> "TemporalReceptiveField":
         """
         Update the TRF encoder weights with gradient descent.
         """
-
         X, Y = self._check_shapes_types(X, Y)
+        X_orig = X
 
         if not self.warm_start or not hasattr(self, "coef_"):
             self._init_coef()
 
-        X_orig = X
-
         # Preprocess X
         X = _reshape_for_est(X)
         # Preprocess coef
-        coef = self.coef_.view((-1, self.n_outputs_)).requires_grad_()
+        # HACK: reshape coefficients to make sense for SGD
+        # Better to just provide a property for reading nicely shaped coefs
+        coef_shape = self.coef_.shape
+        self.coef_ = self.coef_.view((-1, self.n_outputs_)).requires_grad_()
 
-        def loss_fn(batch_onset, batch_offset):
-            X_b, Y_b = X[batch_onset:batch_offset], Y[batch_onset:batch_offset]
-            Y_b_pred = X_b @ coef
+        super().partial_fit(X, Y, **kwargs)
 
-            loss = (Y_b_pred - Y_b).pow(2).sum(axis=1).mean()
-            # Add ridge term.
-            loss += self.alpha * torch.norm(coef, p=2)
-
-            return loss
-
-        # TODO remove magic numbers
-        n_epochs = 1
-        optimizer = torch.optim.Adam([coef], lr=0.05)
-        batch_size = 512
-        for i in trange(n_epochs, leave=False):
-            losses = []
-            for batch_offset in torch.arange(0, X.shape[0], batch_size):
-                optimizer.zero_grad()
-                loss = loss_fn(batch_offset, batch_offset + batch_size)
-                loss.backward()
-                losses.append(loss)
-                optimizer.step()
-
-        self.coef_ = coef.detach().view((self.n_features_, self.n_delays_, self.n_outputs_))
+        self.coef_ = self.coef_.detach().view(coef_shape)
 
         Y_pred = self.predict(X_orig)
         self.residuals_ = Y_pred - Y
