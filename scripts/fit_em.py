@@ -47,8 +47,6 @@ def make_cv(model, cfg: CVConfig):
         estimator=clone(model),
         # param_sampler=param_sampler,
         # n_trials=cfg.n_trials,
-        # n_jobs=cfg.n_jobs,
-        n_jobs=1,
         enable_pruning=True,
         # max_iter=10,
         max_iter=10, n_trials=10,  # DEV

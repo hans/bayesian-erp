@@ -5,6 +5,7 @@ from typing import Tuple, List, Optional, Any, Union
 import hydra
 import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.model_selection import ShuffleSplit
 import torch
 import torch.distributions as dist
 from torchtyping import TensorType
@@ -25,42 +26,127 @@ TRFResponse = TensorType["n_times", "n_outputs"]
 
 
 # TODO clean up and move
+# TODO early stopping
 class AdamSolver(BaseEstimator):
     """
     Model mixin which supports advanced stochastic gradient descent
     methods.
+
+    Whenever the dataset or estimator structure changes you should call `.prime()`
     """
 
     def __init__(self, learning_rate: float = 0.01, n_epochs: int = 1,
-                 batch_size: int = 512, **kwargs):
+                 batch_size: int = 512,
+                 early_stopping: Optional[int] = 1,
+                 validation_fraction: float = 0.1,
+                 random_state=None,
+                 **kwargs):
         self.learning_rate = learning_rate
         self.n_epochs = n_epochs
         self.batch_size = batch_size
 
+        self.early_stopping = early_stopping
+        self.validation_fraction = validation_fraction
+
         self._optim_parameters = None
+        self._primed = False
+
+        if kwargs:
+            L.warning("Unused kwargs: %s", kwargs)
 
     @cached_property
     def _optim(self):
+        # TODO make sure this is not carried across history
         return torch.optim.Adam(self._optim_parameters, lr=self.learning_rate)
 
-    def __call__(self, estimator, X, y=None, **fit_params):
-        if self._optim_parameters is None:
-            self._optim_parameters = estimator._optim_parameters
+    def reset(self):
+        self._primed = False
+        self.validation_mask = None
 
-        for i in trange(self.n_epochs, leave=False):
-            losses = []
-            for batch_offset in torch.arange(0, X.shape[0], self.batch_size):
-                batch_X = X[batch_offset:batch_offset + self.batch_size]
-                batch_y = y[batch_offset:batch_offset + self.batch_size] if y is not None else None
+    def prime(self, estimator, X, y):
+        self._primed = True
+        self._optim_parameters = estimator._optim_parameters
+        self.validation_mask = self._make_validation_split(y)
 
-                self._optim.zero_grad()
-                loss = estimator._loss_fn(batch_X, batch_y)
-                loss.backward()
-                self._optim.step()
+    def __call__(self, loss_fn, X, y, **fit_params):
+        if not self._primed:
+            raise RuntimeError("Solver must be primed before calling.")
 
-                losses.append(loss.item())
+        if self.early_stopping:
+            X_train, y_train = X[~self.validation_mask], y[~self.validation_mask]
+            X_valid, y_valid = X[self.validation_mask], y[self.validation_mask]
+        else:
+            X_train, y_train = X, y
+
+        best_val_loss = np.inf
+        no_improvement_count = 0
+        with trange(self.n_epochs) as pbar:
+            for i in pbar:
+                losses = []
+                for batch_offset in torch.arange(0, X.shape[0], self.batch_size):
+                    batch_X = X_train[batch_offset:batch_offset + self.batch_size]
+                    batch_y = y_train[batch_offset:batch_offset + self.batch_size]
+
+                    self._optim.zero_grad()
+                    loss = loss_fn(batch_X, batch_y)
+                    loss.backward()
+                    self._optim.step()
+
+                    losses.append(loss.item())
+
+                epoch_loss = np.mean(losses)
+                if self.early_stopping:
+                    with torch.no_grad():
+                        valid_loss = loss_fn(X_valid, y_valid)
+                    
+                    pbar.set_postfix(train_loss=epoch_loss, valid_loss=valid_loss.item())
+
+                    if valid_loss > best_val_loss:
+                        no_improvement_count += 1
+                    if no_improvement_count > self.early_stopping:
+                        L.info("Stopping early due to no improvement.")
+                        break
 
         return self
+
+    def _make_validation_split(self, y):
+        """Split the dataset between training set and validation set.
+        Parameters
+        ----------
+        y : ndarray of shape (n_samples, )
+            Target values.
+        Returns
+        -------
+        validation_mask : ndarray of shape (n_samples, )
+            Equal to True on the validation set, False on the training set.
+        """
+        n_samples = y.shape[0]
+        validation_mask = torch.zeros(n_samples).bool()
+        if not self.early_stopping:
+            # use the full set for training, with an empty validation set
+            return validation_mask
+
+        # TODO valid sample boundaries?
+        cv = ShuffleSplit(
+            test_size=self.validation_fraction, random_state=self.random_state
+        )
+        idx_train, idx_val = next(cv.split(np.zeros(shape=(y.shape[0], 1)), y))
+        if idx_train.shape[0] == 0 or idx_val.shape[0] == 0:
+            raise ValueError(
+                "Splitting %d samples into a train set and a validation set "
+                "with validation_fraction=%r led to an empty set (%d and %d "
+                "samples). Please either change validation_fraction, increase "
+                "number of samples, or disable early_stopping."
+                % (
+                    n_samples,
+                    self.validation_fraction,
+                    idx_train.shape[0],
+                    idx_val.shape[0],
+                )
+            )
+
+        validation_mask[idx_val] = True
+        return validation_mask
 
 
 class TemporalReceptiveField(BaseEstimator):
@@ -281,8 +367,6 @@ class TRFDelayer(XYTransformerMixin):
 
 
 def BerpTRF(cfg: TRFModelConfig, optim_cfg: SolverConfig):
-    standardize_X, standardize_Y = cfg.pop("standardize_X"), cfg.pop("standardize_Y")
-
     trf_delayer = TRFDelayer(**cfg)
     optim = hydra.utils.instantiate(optim_cfg)
     trf = hydra.utils.instantiate(cfg, optim=optim)
@@ -291,6 +375,7 @@ def BerpTRF(cfg: TRFModelConfig, optim_cfg: SolverConfig):
         ("naive_scatter", GroupScatterTransform()),
     ]
 
+    standardize_X, standardize_Y = cfg.standardize_X, cfg.standardize_Y
     if standardize_X or standardize_Y:
         steps.append(("standardize", StandardXYScaler(standardize_X=standardize_X,
                                                       standardize_Y=standardize_Y)))
