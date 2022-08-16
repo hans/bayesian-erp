@@ -178,9 +178,16 @@ class TemporalReceptiveField(BaseEstimator):
 
 #     def fit(self, datasets: List[BerpDataset]):
 
+class XYTransformerMixin:
+    """
+    Transformer which acts on both X and Y inputs.
+    """
+
+    def fit_transform(self, X, y=None, **fit_params):
+        return self.fit(X, y, **fit_params).transform(X, y)
 
 
-class GroupScatterTransform(TransformerMixin):
+class GroupScatterTransform(XYTransformerMixin):
     """
     Simultaneously joins grouped time series data into a single array,
     and scatters variable-onset features onto the time series.
@@ -218,7 +225,7 @@ class GroupScatterTransform(TransformerMixin):
         return torch.cat(X, dim=0), torch.cat(Y, dim=0)
 
 
-class TRFDelayer(TransformerMixin):
+class TRFDelayer(XYTransformerMixin):
     """
     Prepare design matrix for TRF learning/prediction.
     """

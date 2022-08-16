@@ -2,6 +2,7 @@ from typing import Union, List, Tuple
 
 import numpy as np
 import scipy.signal
+from sklearn.base import clone
 from sklearn.pipeline import Pipeline
 import torch
 from torchtyping import TensorType
