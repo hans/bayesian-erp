@@ -14,6 +14,7 @@ from tqdm.auto import tqdm, trange
 
 from berp.config.model import TRFModelConfig
 from berp.config.solver import SolverConfig
+from berp.cv import EarlyStopException
 from berp.datasets.base import BerpDataset, NestedBerpDataset
 from berp.util import time_to_sample, PartialPipeline, XYTransformerMixin, StandardXYScaler
 
@@ -112,11 +113,10 @@ class AdamSolver(BaseEstimator):
                         if self.early_stopping:
                             with torch.no_grad():
                                 valid_loss = loss_fn(X_valid, y_valid)
-                            print(valid_loss.item(), best_val_loss)
                             
                             postfix["val_loss"] = valid_loss.item()
 
-                            if valid_loss > best_val_loss:
+                            if valid_loss >= best_val_loss:
                                 no_improvement_count += 1
                             else:
                                 no_improvement_count = 0
@@ -126,7 +126,7 @@ class AdamSolver(BaseEstimator):
                                 L.info("Stopping early due to no improvement.")
                                 stop = True
                                 self._has_early_stopped = True
-                                break
+                                raise EarlyStopException()
                     
                     n_batches += 1
 
@@ -423,6 +423,8 @@ def BerpTRF(cfg: TRFModelConfig, optim_cfg: SolverConfig):
     ]
 
     # TODO caching
+    from tempfile import mkdtemp
+    tmpdir = mkdtemp()
     return PartialPipeline(steps)
 
 

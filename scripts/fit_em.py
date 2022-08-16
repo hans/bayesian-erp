@@ -11,6 +11,7 @@ from sklearn.model_selection import KFold, train_test_split
 from tqdm.auto import tqdm
 
 from berp.config import Config, CVConfig
+from berp.cv import OptunaSearchCV
 from berp.datasets import NestedBerpDataset
 from berp.models import BerpTRFExpectationMaximization, BerpTRF
 from berp.util import PartialPipeline
@@ -43,13 +44,12 @@ def make_cv(model, cfg: CVConfig):
         for k, v in cfg.params.items()
     }
     
-    return optuna.integration.OptunaSearchCV(
+    return OptunaSearchCV(
         estimator=clone(model),
         # param_sampler=param_sampler,
         # n_trials=cfg.n_trials,
         enable_pruning=True,
-        # max_iter=10,
-        max_iter=10, n_trials=10,  # DEV
+        max_iter=10, n_trials=20,
         param_distributions=param_distributions,
         scoring=score,
         error_score="raise",

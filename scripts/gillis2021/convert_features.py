@@ -94,6 +94,9 @@ def main(args):
     final_feature_names = [name for i, name in enumerate(check_feature_names)
                            if feature_mask[i]]
 
+    for story, features_mat in story_features.items():
+        story_features[story] = features_mat[:, feature_mask]
+
     print("Feature names after dropping:")
     pprint(final_feature_names)
         
