@@ -14,7 +14,7 @@ from tqdm.auto import tqdm, trange
 from berp.config.model import TRFModelConfig
 from berp.config.solver import SolverConfig
 from berp.datasets.base import BerpDataset, NestedBerpDataset
-from berp.util import time_to_sample, PartialPipeline
+from berp.util import time_to_sample, PartialPipeline, XYTransformerMixin, StandardXYScaler
 
 L = logging.getLogger(__name__)
 
@@ -219,14 +219,6 @@ class TemporalReceptiveField(BaseEstimator):
 
 #     def fit(self, datasets: List[BerpDataset]):
 
-class XYTransformerMixin:
-    """
-    Transformer which acts on both X and Y inputs.
-    """
-
-    def fit_transform(self, X, y=None, **fit_params):
-        return self.fit(X, y, **fit_params).transform(X, y)
-
 
 class GroupScatterTransform(XYTransformerMixin):
     """
@@ -289,15 +281,27 @@ class TRFDelayer(XYTransformerMixin):
 
 
 def BerpTRF(cfg: TRFModelConfig, optim_cfg: SolverConfig):
+    standardize_X, standardize_Y = cfg.pop("standardize_X"), cfg.pop("standardize_Y")
+
     trf_delayer = TRFDelayer(**cfg)
     optim = hydra.utils.instantiate(optim_cfg)
     trf = hydra.utils.instantiate(cfg, optim=optim)
 
-    # TODO caching
-    return PartialPipeline([
+    steps = [
         ("naive_scatter", GroupScatterTransform()),
+    ]
+
+    if standardize_X or standardize_Y:
+        steps.append(("standardize", StandardXYScaler(standardize_X=standardize_X,
+                                                      standardize_Y=standardize_Y)))
+
+    steps += [
         ("trf_delay", trf_delayer),
-        ("trf", trf)])
+        ("trf", trf),
+    ]
+
+    # TODO caching
+    return PartialPipeline(steps)
 
 
 def _times_to_delays(tmin, tmax, sfreq) -> torch.Tensor:

@@ -127,9 +127,10 @@ def gaussian_window(center: float, width: float,\
 #
 #     return padded_batch, mask
 
+from sklearn.base import BaseEstimator
 from sklearn.utils import _print_elapsed_time
 from sklearn.utils.metaestimators import available_if
-from sklearn.utils.validation import check_memory
+from sklearn.utils.validation import check_memory, check_is_fitted
 
 
 def _final_estimator_has(attr):
@@ -434,3 +435,85 @@ class PartialPipeline(Pipeline):
         for _, name, transform in self._iter(with_final=False):
             Xt, yt = transform.transform(Xt, yt)
         return Xt, yt
+
+
+class XYTransformerMixin:
+    """
+    Transformer which acts on both X and Y inputs.
+    """
+
+    def fit_transform(self, X, y=None, **fit_params):
+        return self.fit(X, y, **fit_params).transform(X, y)
+
+
+class StandardXYScaler(XYTransformerMixin, BaseEstimator):
+    
+    def __init__(self, *, standardize_X=True, standardize_Y=True,
+                 copy=True, with_mean=True, with_std=True):
+        self.standardize_X = standardize_X
+        self.standardize_Y = standardize_Y
+
+        self.with_mean = with_mean
+        self.with_std = with_std
+        self.copy = copy
+
+    def _reset(self):
+        """Reset internal data-dependent state of the scaler, if necessary.
+
+        __init__ parameters are not touched.
+        """
+        # Checking one attribute is enough, because they are all set together
+        # in partial_fit
+        if hasattr(self, "mean_X_"):
+            del self.mean_X_
+            del self.std_X_
+        if hasattr(self, "mean_Y_"):
+            del self.mean_Y_
+            del self.std_Y_
+
+    def fit(self, X, y=None, sample_weight=None):
+        """Compute the mean and std to be used for later scaling.
+
+        Parameters
+        ----------
+        X : {array-like, sparse matrix} of shape (n_samples, n_features)
+            The data used to compute the mean and standard deviation
+            used for later scaling along the features axis.
+
+        y : None
+            Ignored.
+
+        sample_weight : array-like of shape (n_samples,), default=None
+            Individual weights for each sample.
+
+            .. versionadded:: 0.24
+               parameter *sample_weight* support to StandardScaler.
+
+        Returns
+        -------
+        self : object
+            Fitted scaler.
+        """
+        
+        if self.standardize_X:
+            self.mean_X_ = X.mean(axis=0)
+            self.std_X_ = X.std(axis=0)
+        if self.standardize_Y and y is not None:
+            self.mean_Y_ = y.mean(axis=0)
+            self.std_Y_ = y.std(axis=0)
+
+        return self
+
+    def transform(self, X, y=None):
+        if self.standardize_X:
+            if self.with_mean:
+                X = X - self.mean_X_
+            if self.with_std:
+                X = X / self.std_X_
+        if self.standardize_y and y is not None:
+            if self.with_mean:
+                y = y - self.mean_Y_
+            if self.with_std:
+                y = y / self.std_Y_
+
+        return X, y

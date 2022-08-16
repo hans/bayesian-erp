@@ -7,7 +7,8 @@ GROUP = "model"
 
 @dataclass
 class ModelConfig:
-    pass
+    standardize_X: bool
+    standardize_Y: bool
 
 
 @dataclass
