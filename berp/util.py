@@ -504,13 +504,17 @@ class StandardXYScaler(XYTransformerMixin, BaseEstimator):
 
         return self
 
+    # HACK to make this work with partialpipeline
+    def partial_fit(self, *args, **kwargs):
+        return self.fit(*args, **kwargs)
+
     def transform(self, X, y=None):
         if self.standardize_X:
             if self.with_mean:
                 X = X - self.mean_X_
             if self.with_std:
                 X = X / self.std_X_
-        if self.standardize_y and y is not None:
+        if self.standardize_Y and y is not None:
             if self.with_mean:
                 y = y - self.mean_Y_
             if self.with_std:

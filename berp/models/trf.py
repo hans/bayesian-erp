@@ -37,7 +37,7 @@ class AdamSolver(BaseEstimator):
 
     def __init__(self, learning_rate: float = 0.01, n_epochs: int = 1,
                  batch_size: int = 512,
-                 early_stopping: Optional[int] = 1,
+                 early_stopping: Optional[int] = 5,
                  validation_fraction: float = 0.1,
                  random_state=None,
                  **kwargs):
@@ -47,9 +47,11 @@ class AdamSolver(BaseEstimator):
 
         self.early_stopping = early_stopping
         self.validation_fraction = validation_fraction
+        self.random_state = random_state
 
         self._optim_parameters = None
         self._primed = False
+        self._has_early_stopped = False
 
         if kwargs:
             L.warning("Unused kwargs: %s", kwargs)
@@ -64,13 +66,22 @@ class AdamSolver(BaseEstimator):
         self.validation_mask = None
 
     def prime(self, estimator, X, y):
+        if self._primed:
+            assert len(self._optim_parameters) == len(estimator._optim_parameters)
+            assert y.shape[0] == self.validation_mask.shape[0]
+            return
+
         self._primed = True
         self._optim_parameters = estimator._optim_parameters
+        self._has_early_stopped = False
         self.validation_mask = self._make_validation_split(y)
 
     def __call__(self, loss_fn, X, y, **fit_params):
         if not self._primed:
             raise RuntimeError("Solver must be primed before calling.")
+        if self._has_early_stopped:
+            L.info("Early stopped, skipping")
+            return
 
         if self.early_stopping:
             X_train, y_train = X[~self.validation_mask], y[~self.validation_mask]
@@ -80,10 +91,13 @@ class AdamSolver(BaseEstimator):
 
         best_val_loss = np.inf
         no_improvement_count = 0
+        n_batches = 0
+        stop = False
         with trange(self.n_epochs) as pbar:
             for i in pbar:
                 losses = []
-                for batch_offset in torch.arange(0, X.shape[0], self.batch_size):
+                postfix = {}
+                for batch_offset in torch.arange(0, X_train.shape[0], self.batch_size):
                     batch_X = X_train[batch_offset:batch_offset + self.batch_size]
                     batch_y = y_train[batch_offset:batch_offset + self.batch_size]
 
@@ -94,18 +108,33 @@ class AdamSolver(BaseEstimator):
 
                     losses.append(loss.item())
 
-                epoch_loss = np.mean(losses)
-                if self.early_stopping:
-                    with torch.no_grad():
-                        valid_loss = loss_fn(X_valid, y_valid)
-                    
-                    pbar.set_postfix(train_loss=epoch_loss, valid_loss=valid_loss.item())
+                    if n_batches % 10 == 0:
+                        if self.early_stopping:
+                            with torch.no_grad():
+                                valid_loss = loss_fn(X_valid, y_valid)
+                            print(valid_loss.item(), best_val_loss)
+                            
+                            postfix["val_loss"] = valid_loss.item()
 
-                    if valid_loss > best_val_loss:
-                        no_improvement_count += 1
-                    if no_improvement_count > self.early_stopping:
-                        L.info("Stopping early due to no improvement.")
-                        break
+                            if valid_loss > best_val_loss:
+                                no_improvement_count += 1
+                            else:
+                                no_improvement_count = 0
+                                best_val_loss = valid_loss
+
+                            if no_improvement_count > self.early_stopping:
+                                L.info("Stopping early due to no improvement.")
+                                stop = True
+                                self._has_early_stopped = True
+                                break
+                    
+                    n_batches += 1
+
+                postfix["loss"] = np.mean(losses)
+                pbar.set_postfix(postfix)
+
+                if stop:
+                    break
 
         return self
 
@@ -120,6 +149,10 @@ class AdamSolver(BaseEstimator):
         validation_mask : ndarray of shape (n_samples, )
             Equal to True on the validation set, False on the training set.
         """
+
+        # # TODO make this into a unit test--should be called only once per prime
+        # L.info("Recalc validation mask")
+
         n_samples = y.shape[0]
         validation_mask = torch.zeros(n_samples).bool()
         if not self.early_stopping:
@@ -241,6 +274,8 @@ class TemporalReceptiveField(BaseEstimator):
 
         if not self.warm_start or not hasattr(self, "coef_"):
             self._init_coef()
+        elif self.optim._has_early_stopped:
+            L.info("Early stopped. skipping")
 
         # Preprocess X
         X = _reshape_for_est(X)
@@ -250,7 +285,9 @@ class TemporalReceptiveField(BaseEstimator):
         coef_shape = self.coef_.shape
         self.coef_ = self.coef_.view((-1, self.n_outputs_)).requires_grad_()
 
-        self.optim(self, X, Y, **kwargs)
+        # TODO don't need to call this every iteration..
+        self.optim.prime(self, X, Y)
+        self.optim(self._loss_fn, X, Y, **kwargs)
 
         self.coef_ = self.coef_.detach().view(coef_shape)
 

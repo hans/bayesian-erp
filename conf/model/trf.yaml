@@ -7,3 +7,5 @@ tmin: 0
 tmax: 1
 sfreq: 128
 alpha: 1
+standardize_X: true
+standardize_Y: true
