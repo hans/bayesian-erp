@@ -14,6 +14,7 @@ from berp.config.model import TRFModelConfig
 from berp.datasets.base import BerpDataset, NestedBerpDataset
 from berp.util import time_to_sample, PartialPipeline
 
+L = logging.getLogger(__name__)
 
 
 TRFPredictors = TensorType["n_times", "n_features"]
@@ -37,7 +38,7 @@ class TemporalReceptiveField(BaseEstimator):
         self.delays_ = _times_to_delays(self.tmin, self.tmax, self.sfreq)
 
         if kwargs:
-            logging.warning(f"Unused arguments: {kwargs}")
+            L.warning(f"Unused arguments: {kwargs}")
 
     def _init_coef(self):
         self.coef_ = torch.randn(self.n_features_, len(self.delays_),
@@ -304,7 +305,7 @@ def _delay_time_series(X, tmin, tmax, sfreq, fill_mean=False):
     """
     delays = _times_to_delays(tmin, tmax, sfreq)
     # Iterate through indices and append
-    delayed = torch.zeros(X.shape + (len(delays),))
+    delayed = torch.zeros(X.shape + (len(delays),), dtype=X.dtype)
     if fill_mean:
         mean_value = X.mean(dim=0)
         delayed[:] = mean_value[:, None]
