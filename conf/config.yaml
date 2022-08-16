@@ -2,7 +2,7 @@ defaults:
   - base_config
   - model: trf
   - solver: adam
-  - datasets: dkz_1_test
+  - dataset: dkz_1_test
   - train_test: conservative
   - cv: search_alpha
 

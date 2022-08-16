@@ -67,7 +67,7 @@ def main(cfg: Config):
     print(OmegaConf.to_yaml(cfg))
 
     datasets = []
-    for dataset in cfg.datasets:
+    for dataset in cfg.dataset.paths:
         with open(dataset, "rb") as f:
             datasets.append(pickle.load(f).ensure_torch())
     dataset = NestedBerpDataset(datasets, n_splits=4)

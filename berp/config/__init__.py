@@ -4,6 +4,7 @@ from typing import List
 from hydra.core.config_store import ConfigStore
 
 from berp.config.cv import TrainTestConfig, CVConfig
+from berp.config.dataset import DatasetConfig
 from berp.config.model import ModelConfig
 from berp.config.solver import SolverConfig
 
@@ -12,7 +13,7 @@ from berp.config.solver import SolverConfig
 class Config:
     model: ModelConfig
     solver: SolverConfig
-    datasets: List[str]
+    dataset: DatasetConfig
 
     train_test: TrainTestConfig
     cv: CVConfig
