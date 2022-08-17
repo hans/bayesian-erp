@@ -30,8 +30,13 @@ def score(estimator: PartialPipeline, X, Y):
     # TODO Should be implemented in score probably
     _, Y_gt = estimator.pre_transform(X, Y)
     Y_pred = estimator.predict(X)
-    mse = ((Y_pred - Y_gt) ** 2).sum(dim=1).mean()
-    return -mse
+    
+    # Compute correlations per sensor: E(Y_pred - E[Y_pred]) * E(Y_gt - E[Y_gt])
+    Y_gt = Y_gt - Y_gt.mean(axis=0)
+    Y_pred = Y_pred - Y_pred.mean(axis=0)
+
+    corrs = (Y_pred * Y_gt).sum(axis=0) / (Y_pred.norm(2, dim=0) * Y_gt.norm(2, dim=0))
+    return corrs.mean().item()
 
 
 def make_cv(model, cfg: CVConfig):
