@@ -25,5 +25,20 @@ class TRFModelConfig(ModelConfig):
     _target_: str = "berp.models.trf.TemporalReceptiveField"
 
 
+@dataclass
+class BerpTRFEMModelConfig(ModelConfig):
+    tmin: float
+    tmax: float
+    sfreq: float
+    alpha: float
+
+    warm_start: bool = True
+    fit_intercept: bool = True
+    type: str = "trf_em"
+
+    _target_: str = "berp.models.trf_em.BerpTRFEMEstimator"
+
+
 cs = ConfigStore.instance()
 cs.store(group=GROUP, name="base_trf", node=TRFModelConfig)
+cs.store(group=GROUP, name="base_trf_em", node=BerpTRFEMModelConfig)
