@@ -1,6 +1,7 @@
 import pickle
 from typing import *
 
+from hydra.utils import to_absolute_path
 import mne
 
 from berp.datasets.base import BerpDataset, NestedBerpDataset
@@ -10,7 +11,7 @@ def load_eeg_dataset(paths: List[str], montage_name: str,
                      subset_sensors: Optional[List[str]] = None) -> NestedBerpDataset:
     datasets = []
     for dataset in paths:
-        with open(dataset, "rb") as f:
+        with open(to_absolute_path(dataset), "rb") as f:
             datasets.append(pickle.load(f).ensure_torch())
 
     dataset = NestedBerpDataset(datasets)

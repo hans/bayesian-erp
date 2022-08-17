@@ -67,21 +67,34 @@ def main(cfg: Config):
 
     model = MODELS[cfg.model.type](cfg.model, optim_cfg=cfg.solver)
 
-    # TODO use cfg
-    # DEV: tiny training set
-    data_train, data_test = train_test_split(dataset, test_size=0.25, shuffle=False)
-    # Re-merge into nested datasets for further CV fun.
-    data_train = NestedBerpDataset(data_train)
-    data_test = NestedBerpDataset(data_test)
+    for dataset in tqdm(dataset.datasets, desc="Datasets"):
+        data_train = NestedBerpDataset([dataset], n_splits=4)
 
-    # DEV: No nested CV. Just fit coefs.
-    cv = make_cv(model, cfg.cv)
-    cv.fit(data_train)
+        cv = make_cv(model, cfg.cv)
+        cv.fit(data_train)
 
-    trf = cv.best_estimator_.named_steps["trf"]
-    coefs_df = trf_to_dataframe(trf)
-    coefs_df.to_csv("coefs.csv")
-    plot_trf_coefficients(trf).savefig("coefficients.png")
+        trf = cv.best_estimator_.named_steps["trf"]
+        coefs_df = trf_to_dataframe(trf)
+        coefs_df["dataset"] = dataset.name
+        coefs_df.to_csv(f"coefs.{dataset.name.replace('/', '-')}.csv", index=False)
+
+    # # TODO use cfg
+    # # DEV: tiny training set
+    # data_train, data_test = train_test_split(dataset, test_size=0.25, shuffle=False)
+    # # Re-merge into nested datasets for further CV fun.
+    # data_train = NestedBerpDataset(data_train)
+    # data_test = NestedBerpDataset(data_test)
+
+    # # DEV: No nested CV. Just fit coefs.
+    # cv = make_cv(model, cfg.cv)
+    # cv.fit(data_train)
+
+    # trf = cv.best_estimator_.named_steps["trf"]
+    # coefs_df = trf_to_dataframe(trf)
+    # coefs_df.to_csv("coefs.csv")
+    # plot_trf_coefficients(trf).savefig("coefficients.png")
+
+    #########
 
     # # TODO figure out shuffling. Can shuffle at the subject level ofc but not at the
     # # time series level.

@@ -27,7 +27,6 @@ from optuna import logging
 from optuna import samplers
 from optuna import study as study_module
 from optuna import TrialPruned
-from optuna._experimental import experimental
 from optuna._imports import try_import
 from optuna.study import StudyDirection
 from optuna.trial import FrozenTrial
@@ -389,7 +388,6 @@ class _Objective(object):
             trial.set_user_attr("std_{}".format(name), np.nanstd(array))
 
 
-@experimental("0.17.0")
 class OptunaSearchCV(BaseEstimator):
     """Hyperparameter search with cross-validation.
 

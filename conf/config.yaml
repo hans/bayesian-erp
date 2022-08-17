@@ -1,10 +1,17 @@
 defaults:
+  - _self_
   - base_config
   - model: trf
   - solver: adam
-  - dataset: dkz_1_test
+  - dataset: dkz_1_2
   - train_test: conservative
   - cv: search_alpha
 
   - override hydra/job_logging: colorlog
   - override hydra/hydra_logging: colorlog
+
+hydra:
+  job:
+    chdir: true
+  run:
+    dir: ./outputs/${now:%Y-%m-%d_%H-%M-%S}
