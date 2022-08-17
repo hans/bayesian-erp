@@ -9,6 +9,7 @@ eeg_dir = file("${params.data_dir}/eeg")
 textgrid_dir = file("${params.data_dir}/textgrids")
 stim_dir = file("${params.data_dir}/predictors")
 raw_text_dir = file("${params.data_dir}/raw_text")
+vocab_path = file("${params.data_dir}/vocab.txt")
 
 params.model = "GroNLP/gpt2-small-dutch"
 // Number of word candidates to consider in predictive model.
@@ -101,6 +102,7 @@ process produceDataset {
     path(aligned_phonemes)
     path eeg_data
     path stim_path
+    path vocab
 
     output:
     path "*.pkl"
@@ -111,6 +113,7 @@ process produceDataset {
     python ${baseDir}/scripts/gillis2021/produce_dataset.py \
         --model ${params.model} \
         --n_candidates ${params.n_candidates} \
+        --vocab_path ${vocab} \
         ${tokenized_corpus_dir} \
         ${aligned_words} ${aligned_phonemes} \
         ${eeg_data} ${stim_path}
@@ -130,6 +133,7 @@ workflow {
     produceDataset(
         alignWithRawText(force_aligned_data, raw_text_dir),
         Channel.fromPath(eeg_dir),
-        stimulus_features
+        stimulus_features,
+        Channel.fromPath(vocab_path)
     )
 }
