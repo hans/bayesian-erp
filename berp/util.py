@@ -1,3 +1,4 @@
+import logging
 from typing import Union, List, Tuple
 
 import numpy as np
@@ -7,6 +8,8 @@ from sklearn.pipeline import Pipeline
 import torch
 from torchtyping import TensorType
 from typeguard import typechecked
+
+L = logging.getLogger(__name__)
 
 
 def sample_to_time(sample_idx: torch.LongTensor,
@@ -172,7 +175,6 @@ class PartialPipeline(Pipeline):
     1. partial fits
     2. transformers which apply to both X and Y simultaneously
 
-
     Utility function to generate a `PartialPipeline`
     Arguments:
         steps: a collection of text-transformers
@@ -186,6 +188,11 @@ class PartialPipeline(Pipeline):
     assert results == expected
     ```
     """
+
+    def __init__(self, steps, memory=None, verbose=False):
+        super().__init__(steps, memory=memory, verbose=verbose)
+
+        self._has_warned_about_partial_fit = False
 
     # Estimator interface
 
@@ -306,25 +313,46 @@ class PartialPipeline(Pipeline):
         """
         Fits the components, but allow for batches.
         """
-        for name, step in self.steps:
+        memory = check_memory(self.memory)
+        fit_transform_one_cached = memory.cache(_fit_transform_one)
+
+        for i, (name, step) in enumerate(self.steps):
             if not hasattr(step, "partial_fit"):
-                raise ValueError(
-                    f"Step {name} is a {step} which does not have `.partial_fit` implemented."
+                if i == len(self.steps) - 1:
+                    raise ValueError(f"Final step {name} is a {step} which does not support `.partial_fit`. Stop.")
+                elif not self._has_warned_about_partial_fit:
+                    L.warn(f"Step {name} is a {step} which does not support `.partial_fit`. Will use `.fit` instead.")
+        
+        self._has_warned_about_partial_fit = True
+
+        # TODO merge with _fit?
+        for i, (name, step) in enumerate(self.steps):
+            if not hasattr(step, "partial_fit"):
+                # This step is not a partial fit. That means we could plausibly use the
+                # cache. Try it.
+                X, y, fitted_transformer = fit_transform_one_cached(
+                    clone(step),
+                    X, y, None,
+                    message_clsname="PartialPipeline",
+                    message=self._log_message(i),
                 )
-        for name, step in self.steps:
-            if hasattr(step, "predict"):
-                step.partial_fit(X, y, classes=classes, **kwargs)
+
+                self.steps[i] = (name, fitted_transformer)
             else:
-                step.partial_fit(X, y)
-                
-            if hasattr(step, "transform"):
-                # NB breaking the sklearn API a bit here.
-                # Why can't transformers just work on Y too?
-                ret = step.transform(X, y)
-                if isinstance(ret, tuple):
-                    X, y = ret
+                if hasattr(step, "predict"):
+                    step.partial_fit(X, y, classes=classes, **kwargs)
                 else:
-                    X = ret
+                    step.partial_fit(X, y)
+                    
+                if hasattr(step, "transform"):
+                    # NB breaking the sklearn API a bit here.
+                    # Why can't transformers just work on Y too?
+                    ret = step.transform(X, y)
+                    if isinstance(ret, tuple):
+                        X, y = ret
+                    else:
+                        X = ret
+
         return self
 
     @available_if(_final_estimator_has("predict"))
