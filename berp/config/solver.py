@@ -25,7 +25,7 @@ class AdamSolverConfig(SGDSolverConfig):
     epsilon: float = 1e-8
 
     type: str = "adam"
-    _target_: str = "berp.models.trf.AdamSolver"
+    _target_: str = "berp.solvers.AdamSolver"
 
 
 @dataclass

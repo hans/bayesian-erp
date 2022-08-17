@@ -22,7 +22,8 @@ class BerpTRFEMEstimator(BaseEstimator):
     Jointly estimate parameters of a Berp model using expectation maximization.
     """
 
-    def __init__(self, encoder, optim, param_grid: torch.Tensor,
+    def __init__(self, encoder: TemporalReceptiveField,
+                 optim: Solver, param_grid: torch.Tensor,
                  n_iter=1, warm_start=True,
                  early_stopping: Optional[int] = 1,
                  **kwargs):
