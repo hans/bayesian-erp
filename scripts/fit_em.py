@@ -14,7 +14,7 @@ from berp.config import Config, CVConfig
 from berp.cv import OptunaSearchCV
 from berp.datasets import NestedBerpDataset
 from berp.models import BerpTRFExpectationMaximization, BerpTRF
-from berp.util import PartialPipeline
+from berp.models.pipeline import PartialPipeline
 from berp.viz.trf import plot_trf_coefficients, trf_to_dataframe
 
 

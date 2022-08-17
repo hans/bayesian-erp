@@ -16,7 +16,8 @@ from berp.config.model import TRFModelConfig
 from berp.config.solver import SolverConfig
 from berp.cv import EarlyStopException
 from berp.datasets.base import BerpDataset, NestedBerpDataset
-from berp.util import time_to_sample, PartialPipeline, XYTransformerMixin, StandardXYScaler
+from berp.models.pipeline import PartialPipeline, XYTransformerMixin, StandardXYScaler
+from berp.util import time_to_sample
 
 L = logging.getLogger(__name__)
 
