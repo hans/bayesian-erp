@@ -54,8 +54,6 @@ def make_cv(model, cfg: CVConfig):
     
     return OptunaSearchCV(
         estimator=clone(model),
-        # param_sampler=param_sampler,
-        # n_trials=cfg.n_trials,
         study=study,
         enable_pruning=True,
         max_iter=10, n_trials=20,

@@ -263,7 +263,7 @@ class TemporalReceptiveField(BaseEstimator):
             ridge = self.alpha * torch.eye(lhs.shape[0])
             self.coef_ = torch.linalg.lstsq(lhs + ridge, rhs).solution
         else:
-            ridge = torch.diag(self.alpha)
+            ridge = torch.diag(self.alpha.repeat_interleave(self.n_features_))
             self.coef_ = torch.linalg.lstsq(lhs + ridge, rhs).solution
 
         # Reshape resulting coefficients
