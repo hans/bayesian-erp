@@ -46,7 +46,8 @@ process convertStimulusFeatures {
     script:
     """
     python ${baseDir}/scripts/gillis2021/convert_features.py \
-        ${stim_dir} stimuli.npz
+        ${stim_dir} stimuli.npz \
+        --drop_features "phoneme surprisal_0,phoneme entropy_0"
     """
 }
 
