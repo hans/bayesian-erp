@@ -176,7 +176,7 @@ class TemporalReceptiveField(BaseEstimator):
         return X @ coef
 
     @typechecked
-    def log_prob(self, X: TRFDesignMatrix, Y: TRFResponse):
+    def log_likelihood(self, X: TRFDesignMatrix, Y: TRFResponse):
         # TODO this is log likelihood, not posterior -- make that clear
         Y_pred = self.predict(X)
         Y_dist = dist.Normal(Y_pred, self.sigma)

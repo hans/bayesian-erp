@@ -1,3 +1,4 @@
+from dataclasses import replace
 import logging
 from typing import *
 
@@ -7,7 +8,9 @@ import torch
 from torchtyping import TensorType
 
 from berp.datasets import BerpDataset, NestedBerpDataset
-from berp.models.trf import TemporalReceptiveField
+from berp.models.reindexing_regression import scatter_model, PartiallyObservedModelParameters
+from berp.models.trf import TemporalReceptiveField, TRFPredictors, TRFDesignMatrix, TRFResponse, TRFDelayer
+from berp.solvers import Solver
 from berp.typing import is_probability
 
 L = logging.getLogger(__name__)
@@ -29,6 +32,7 @@ class BerpTRFEMEstimator(BaseEstimator):
                  **kwargs):
         self.encoder = encoder
         self.optim = optim
+        self.delayer = TRFDelayer(encoder.tmin, encoder.tmax, encoder.sfreq)
 
         self.param_grid = param_grid
         self.n_iter = n_iter
@@ -38,22 +42,59 @@ class BerpTRFEMEstimator(BaseEstimator):
             L.warning(f"Unused kwargs: {kwargs}")
 
     def _initialize(self):
-        self.param_weights_ = torch.rand_like(self.param_grid)
-        self.param_weights_ /= self.param_weights_.sum()
+        # Parameter responsibilities
+        self.param_resp_ = torch.rand_like(self.param_grid)
+        self.param_resp_ /= self.param_resp_.sum()
+
+        self.param_template = PartiallyObservedModelParameters(
+            lambda_=torch.zeros(1),
+            confusion=torch.eye(5),  # TODO
+            threshold=torch.tensor(0.5),
+        )
 
     def _e_step(self, X: BerpDataset) -> Responsibilities:
         """
         Compute responsibility values for each parameter in the grid for the given dataset.
         """
-        raise NotImplementedError()
+        resp = torch.zeros(len(self.param_grid), dtype=torch.float)
+        for i, param in enumerate(self.param_grid):
+            params = replace(self.param_template, threshold=param)
+            _, _, design_matrix = scatter_model(params, X)
+            test_ll = self.encoder.log_likelihood(design_matrix)
+            resp[i] = test_ll
 
-    def _m_step(self, X: BerpDataset, resp: Responsibilities) -> "BerpTRFEMEstimator":
+        # Convert to probabilities
+        resp -= resp.max()
+        resp = resp.exp()
+        resp = resp / resp.sum()
+        return resp
+
+    def _weighted_design_matrix(self, dataset: BerpDataset) -> TRFDesignMatrix:
+        """
+        Compute expected predictor matrix under current parameter distribution.
+        """
+        X_mixed = torch.empty((dataset.n_samples, dataset.n_total_features), dtype=torch.float)))
+        for param, resp in zip(self.param_grid, self.param_resp_):
+            params = replace(self.param_template, threshold=param)
+
+            # TODO scatter-add in place? if we're looking to save time/space
+            _, _, design_matrix = scatter_model(params, dataset)
+            X_mixed += resp * design_matrix
+
+        delayed = self.delayer.transform(X_mixed)
+        return delayed
+
+    def _m_step(self, dataset: BerpDataset):
         """
         Re-estimate TRF model conditioned on the current parameter weights.
         """
-        raise NotImplementedError()
+        X_mixed = self._weighted_design_matrix(dataset, self.param_resp_)
+        self.encoder.partial_fit(X_mixed, dataset.Y)
 
     def partial_fit(self, X: Union[NestedBerpDataset, BerpDataset]) -> "BerpTRFEMEstimator":
+        if not self.warm_start or not hasattr(self, "param_resp_"):
+            self._initialize()
+
         if isinstance(X, NestedBerpDataset):
             for x in X.datasets:
                 self.partial_fit(x)
@@ -77,3 +118,11 @@ class BerpTRFEMEstimator(BaseEstimator):
                 no_improvement_count += 1
 
         return self
+
+    def predict(self, X: BerpDataset) -> TRFResponse:
+        X_mixed = self._weighted_design_matrix(X)
+        return self.encoder.predict(X_mixed)
+
+    def log_likelihood(self, X: BerpDataset) -> torch.Tensor:
+        X_mixed = self._weighted_design_matrix(X)
+        return self.encoder.log_likelihood(X_mixed)

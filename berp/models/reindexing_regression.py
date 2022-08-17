@@ -3,6 +3,7 @@ Defines a simple three-parameter latent-onset model. Latent onset indices
 are a deterministic function of data and these three parameters.
 """
 
+from dataclasses import dataclass
 from typing import NamedTuple, Tuple, Callable, List, Optional
 
 from icecream import ic
@@ -23,7 +24,8 @@ B, N_C, N_P, N_F, N_F_T, V_P, T, S = \
     DIMS.B, DIMS.N_C, DIMS.N_P, DIMS.N_F, DIMS.N_F_T, DIMS.V_P, DIMS.T, DIMS.S
 
 
-class ModelParameters(NamedTuple):
+@dataclass
+class ModelParameters:
     lambda_: TensorType[float]
     confusion: TensorType[V_P, V_P, float]
     threshold: TensorType[float]
@@ -32,6 +34,14 @@ class ModelParameters(NamedTuple):
     b: TensorType[float]
     coef: TensorType[N_F, float]
     sigma: TensorType[float]
+
+
+@dataclass
+class PartiallyObservedModelParameters(ModelParameters):
+    a = torch.tensor(0.0)
+    b = torch.tensor(0.0)
+    coef = torch.tensor([0.0])
+    sigma = torch.tensor(0.0)
 
 
 class RRResult(NamedTuple):

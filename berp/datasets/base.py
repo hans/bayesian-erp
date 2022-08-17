@@ -100,6 +100,10 @@ class BerpDataset:
     def n_samples(self):
         return len(self)
 
+    @property
+    def n_total_features(self):
+        return self.X_variable.shape[1] + self.X_ts.shape[1]
+
     def __getitem__(self, key):
         """
         Extract a number of samples from the dataset.
