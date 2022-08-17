@@ -143,14 +143,14 @@ def _safe_indexing(
 
 VECTOR_PARAM_RE = re.compile(r"^V(?P<name>.+)/(?P<idx>[\d_]+)$")
 
-def prepare_params(self, params):
+def prepare_params(params):
     """
     Prepare params to be shipped to sklearn model.
     Accommodate e.g. vector types in sklearn that can't be directly represented in Optuna.
     """
     params = deepcopy(params)
 
-    to_vectorize = [(k, self.VECTOR_PARAM_RE.match(k)) for k in sorted(params.keys())]
+    to_vectorize = [(k, VECTOR_PARAM_RE.match(k)) for k in sorted(params.keys())]
     to_vectorize = [(k, match.groupdict()) for k, match in to_vectorize if match is not None]
 
     for param_name, matches in itertools.groupby(to_vectorize, key=lambda x: x[1]["name"]):

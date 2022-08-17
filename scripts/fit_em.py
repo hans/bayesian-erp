@@ -30,7 +30,7 @@ def score(estimator: PartialPipeline, X, Y):
     # TODO Should be implemented in score probably
     _, Y_gt = estimator.pre_transform(X, Y)
     Y_pred = estimator.predict(X)
-    
+
     # Compute correlations per sensor: E(Y_pred - E[Y_pred]) * E(Y_gt - E[Y_gt])
     Y_gt = Y_gt - Y_gt.mean(axis=0)
     Y_pred = Y_pred - Y_pred.mean(axis=0)
