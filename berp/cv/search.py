@@ -1,13 +1,15 @@
 """
-Patched version of Optuna sklearn integration which supports early stopping.
+Patched version of Optuna sklearn integration which supports early stopping and vector parameters.
 """
 
-
+from copy import deepcopy
+import itertools
 from logging import DEBUG
 from logging import INFO
 from logging import WARNING
 from numbers import Integral
 from numbers import Number
+import re
 from time import time
 from typing import Any
 from typing import Callable
@@ -33,6 +35,8 @@ from optuna.trial import FrozenTrial
 from optuna.trial import Trial
 
 from tqdm import tqdm, trange
+
+from berp.cv import EarlyStopException
 
 
 with try_import() as _imports:
@@ -136,14 +140,6 @@ def _safe_indexing(
     return sklearn_safe_indexing(X, indices)
 
 
-class EarlyStopException(Exception):
-    """
-    Raised when a fit decides to early stop, and signals no more fitting on this fold
-    is necessary.
-    """
-    pass
-
-
 class _Objective(object):
     """Callable that implements objective function.
 
@@ -235,6 +231,9 @@ class _Objective(object):
         estimator = clone(self.estimator)
         params = self._get_params(trial)
 
+        # Prepare for sklearn api
+        params = self._prepare_params(params)
+
         estimator.set_params(**params)
 
         if self.enable_pruning:
@@ -255,6 +254,32 @@ class _Objective(object):
         self._store_scores(trial, scores)
 
         return trial.user_attrs["mean_test_score"]
+
+    VECTOR_PARAM_RE = re.compile(r"^V(?P<name>.+)/(?P<idx>[\d_]+)$")
+
+    def _prepare_params(self, params):
+        """
+        Prepare params to be shipped to sklearn model.
+        Accommodate e.g. vector types in sklearn that can't be directly represented in Optuna.
+        """
+        params = deepcopy(params)
+
+        to_vectorize = [(k, self.VECTOR_PARAM_RE.match(k)) for k in sorted(params.keys())]
+        to_vectorize = [(k, match.groupdict()) for k, match in to_vectorize if match is not None]
+
+        for param_name, matches in itertools.groupby(to_vectorize, key=lambda x: x[1]["name"]):
+            matches = list(matches)
+            keys = [k for k, _ in matches]
+            idxs = [tuple(map(int, match["idx"].split("_"))) for _, match in matches]
+
+            vector_size = np.array(max(idxs)) + 1
+            vector = np.empty(vector_size, dtype=np.float32)  # TODO dtype fix?
+            for key, idx in zip(keys, idxs):
+                vector[idx] = params.pop(key)
+
+            params[param_name] = vector
+
+        return params
 
     def _cross_validate_with_pruning(
         self, trial: Trial, estimator: "BaseEstimator"

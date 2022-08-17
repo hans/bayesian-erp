@@ -232,6 +232,15 @@ class TemporalReceptiveField(BaseEstimator):
         return (torch.as_tensor(X, dtype=torch.float32), 
                 torch.as_tensor(Y, dtype=torch.float32))
 
+    def _validate_params(self):
+        # If alpha is a vector, verify it is the right shape.
+        if hasattr(self.alpha, "shape"):
+            if self.alpha.shape != (self.delays_.shape[0],):
+                raise ValueError(f"For vector alpha, must have one value per delay."
+                                 f"Got {self.alpha.shape} but expected {(self.delays_.shape[0],)}")
+        
+        self.alpha = torch.as_tensor(self.alpha, dtype=torch.float32)
+
     @typechecked
     def fit(self, X: TRFDesignMatrix, Y: TRFResponse
             ) -> "TemporalReceptiveField":
@@ -239,6 +248,7 @@ class TemporalReceptiveField(BaseEstimator):
         Fit the TRF encoder with least squares.
         """
         
+        self._validate_params()
         X, Y = self._check_shapes_types(X, Y)
         X_est = _reshape_for_est(X)
 
@@ -263,8 +273,17 @@ class TemporalReceptiveField(BaseEstimator):
     def _loss_fn(self, X, Y: TRFResponse) -> torch.Tensor:
         Y_pred = X @ self.coef_
         loss = (Y_pred - Y).pow(2).sum(axis=1).mean()
+
         # Add ridge term.
-        loss += self.alpha * torch.norm(self.coef_, p=2)
+        if self.alpha.ndim == 0:
+            # loss += self.alpha * self.coef_.pow(2).sum()
+            loss += self.alpha * torch.norm(self.coef_, p=2)
+        else:
+            # Compute different alpha per lag. Tile alpha along last axis.
+            # TODO hacky to reshape yet again inside loss
+            coef_for_l2 = self.coef_.view((self.n_features_, self.n_delays_, self.n_outputs_))
+            loss += torch.mul(coef_for_l2.pow(2).sum(dim=2), self.alpha.unsqueeze(0)).sum()
+
         return loss
 
     @typechecked
@@ -273,6 +292,8 @@ class TemporalReceptiveField(BaseEstimator):
         """
         Update the TRF encoder weights with gradient descent.
         """
+
+        self._validate_params()
         X, Y = self._check_shapes_types(X, Y)
         X_orig = X
 

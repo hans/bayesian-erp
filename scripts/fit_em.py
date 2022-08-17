@@ -1,7 +1,7 @@
 from typing import List, Dict, Any
 
 import hydra
-from hydra_plugins.hydra_optuna_sweeper._impl import create_optuna_distribution_from_config
+
 import numpy as np
 from omegaconf import OmegaConf
 import optuna
@@ -12,6 +12,7 @@ from tqdm.auto import tqdm
 
 from berp.config import Config, CVConfig
 from berp.cv import OptunaSearchCV
+from berp.cv import make_parameter_distributions
 from berp.datasets import NestedBerpDataset
 from berp.models import BerpTRFExpectationMaximization, BerpTRF
 from berp.models.pipeline import PartialPipeline
@@ -39,15 +40,18 @@ def make_cv(model, cfg: CVConfig):
     """
     # TODO if we want to customize sampler, we have to set up a "study"
     param_sampler = hydra.utils.instantiate(cfg.param_sampler)
-    param_distributions = {
-        k: create_optuna_distribution_from_config(v)
-        for k, v in cfg.params.items()
-    }
+    param_distributions = {}
+    for name, dist_cfg in cfg.params.items():
+        param_distributions.update(make_parameter_distributions(dist_cfg, name))
+    
+    sampler = optuna.samplers.TPESampler(multivariate=True)
+    study = optuna.create_study(sampler=sampler, direction="maximize")
     
     return OptunaSearchCV(
         estimator=clone(model),
         # param_sampler=param_sampler,
         # n_trials=cfg.n_trials,
+        study=study,
         enable_pruning=True,
         max_iter=10, n_trials=20,
         param_distributions=param_distributions,

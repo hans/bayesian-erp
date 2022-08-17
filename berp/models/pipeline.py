@@ -1,4 +1,5 @@
 import logging
+import re
 
 from sklearn.base import BaseEstimator, clone
 from sklearn.pipeline import Pipeline
@@ -338,6 +339,7 @@ class PartialPipeline(Pipeline):
         return Xt, yt
 
 
+
 class XYTransformerMixin:
     """
     Transformer which acts on both X and Y inputs.
@@ -422,3 +424,23 @@ class StandardXYScaler(XYTransformerMixin, BaseEstimator):
                 y = y / self.std_Y_
 
         return X, y
+
+
+# class VectorizedParametersMixin:
+#     """
+#     Mixin supporting converting independently represented parameters into vector parameters
+#     """
+
+#     VECTOR_PARAM_RE = re.compile(r"^V(?P<name>.+)/(?P<idx>[\d_]+)$")
+
+#     def set_params(self, **params):
+#         """
+#         Set the parameters of this estimator, vectorizing where applicable.
+#         """
+
+#         to_vectorize = [(k, self.VECTOR_PARAM_RE.match(k)) for k in params.keys()]
+#         to_vectorize = [(k, match.groupdict()) for k, match in to_vectorize if match is not None]
+
+#         to_vectorize = {name: list(idxs) for name, idxs in itertools.groupby(to_vectorize, key=lambda x: x[1]["name"])}
+
+#         super().set_params(**params)

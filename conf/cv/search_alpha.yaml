@@ -2,7 +2,8 @@ n_outer_folds: 4
 n_inner_folds: 4
 
 param_sampler:
-  seed: 1234
+  _target_: optuna.samplers.TPESampler
+  multivariate: true
 
 params:
   trf__alpha:
@@ -10,6 +11,7 @@ params:
     low: 1
     high: 1e10
     log: true
+    shape: [129]
 
   trf__optim__learning_rate:
     type: float
