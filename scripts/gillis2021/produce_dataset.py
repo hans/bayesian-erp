@@ -1,6 +1,6 @@
 # +
 from argparse import ArgumentParser, Namespace
-from collections import defaultdict
+from collections import defaultdict, Counter
 import itertools
 from pathlib import Path
 import pickle
@@ -40,6 +40,7 @@ p.add_argument("eeg_dir", type=Path)
 p.add_argument("stim_path", type=Path)
 p.add_argument("-m", "--model", default="GroNLP/gpt2-small-dutch")
 p.add_argument("-n", "--n_candidates", type=int, default=10)
+p.add_argument("--vocab_path", type=Path, default="../../data/gillis2021/vocab.txt")
 
 if IS_INTERACTIVE:
     args = Namespace(tokenized_corpus_dir=Path("tokenized"),
@@ -48,7 +49,8 @@ if IS_INTERACTIVE:
                      eeg_dir=Path("../../data/gillis2021/eeg"),
                      stim_path=Path("stimuli.npz"),
                      model="GroNLP/gpt2-small-dutch",
-                     n_candidates=10)
+                     n_candidates=10,
+                     vocab_path=Path("../../data/gillis2021/vocab.txt"))
 else:
     args = p.parse_args()
 
@@ -69,6 +71,29 @@ for tokenized_path in args.tokenized_corpus_dir.glob("*.txt"):
 
 words_df = pd.read_csv(args.aligned_words_path)
 phonemes_df = pd.read_csv(args.aligned_phonemes_path)
+
+# ## Prepare frequency data
+
+drop_re = re.compile(r"[^a-zA-Z]")
+
+vocab = args.vocab_path.read_text()
+filtered_vocab = Counter()
+for line in tqdm(vocab.strip("\n").split("\n")):
+    word, freq = line.rsplit("\t", 1)
+    
+    if drop_re.search(word):
+        continue
+    filtered_vocab[word.lower()] += int(freq)
+
+# Convert to neg-log2-freq
+total_freq = sum(filtered_vocab.values())
+filtered_vocab = {word: -np.log2(freq / total_freq)
+                  for word, freq in filtered_vocab.items()}
+
+words_df["frequency"] = words_df.text.map(filtered_vocab)
+# Put words with missing frequency in the lowest 2 percentile. (Get last bin of quantile cut.)
+oov_freq = pd.qcut(words_df.frequency, 50, retbins=True, duplicates="drop")[1][-1]
+words_df["frequency"] = words_df.frequency.fillna(oov_freq)
 
 
 # ----
@@ -119,7 +144,11 @@ def process_story_language(story):
         .astype({"original_idx": int}) \
         .groupby("original_idx").apply(lambda xs: list(xs.text)).to_dict()
     
-    return proc(tokens, token_mask, word_to_token, ground_truth_phonemes)
+    # Prepare word-level features.
+    word_features = dict(story_words_df.groupby(["original_idx"])
+                         .apply(lambda xs: torch.tensor(xs.iloc[0].frequency).unsqueeze(0)))
+    
+    return proc(tokens, token_mask, word_to_token, word_features, ground_truth_phonemes)
 
 
 processed_stories = {story: process_story_language(story)
@@ -166,8 +195,10 @@ def produce_dataset(story, subject, mne_info: mne.Info,
                    ) -> BerpDataset:
     # Prepare predictors.
     story_stim = processed_stories[story]
-    # Variable onset features are simply word surprisals.
-    X_variable = story_stim.word_surprisals.unsqueeze(1)
+    # Variable onset features are simply word features and word surprisals.
+    X_variable = torch.concat([story_stim.word_features,
+                               story_stim.word_surprisals.unsqueeze(1)],
+                              dim=1)
     # Load other stimulus time-series features.
     X_ts = torch.tensor(stimulus_features[story])
 

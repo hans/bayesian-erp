@@ -270,6 +270,11 @@ class NaturalLanguageStimulus:
     Length of each ground-truth word in the dataset (in number of phonemes).
     """
 
+    word_features: TensorType[N_W, N_F, float]
+    """
+    Arbitrary word-level features.
+    """
+
     p_word: TensorType[N_W, N_C, torch.float, is_log_probability]
     """
     Prior predictive distribution over words at each timestep. Each
@@ -462,7 +467,8 @@ class NaturalLanguageStimulusProcessor(object):
     def __call__(self, tokens: List[str],
                  token_mask: List[bool],
                  word_to_token: Dict[int, List[int]],
-                 ground_truth_phonemes: Optional[Dict[int, List[Phoneme]]] = None
+                 word_features: Dict[int, torch.Tensor],
+                 ground_truth_phonemes: Optional[Dict[int, List[Phoneme]]] = None,
                  ) -> NaturalLanguageStimulus:
         """
         Args:
@@ -470,6 +476,7 @@ class NaturalLanguageStimulusProcessor(object):
                 only some tokens will have corresponding neural data. This boolean
                 mask specifies which tokens should be included in the returned
                 dataset.
+            word_features: Tensor associating each word ID with a set of features.
             ground_truth_phonemes: Phoneme sequences for the ground-truth words.
         """
         assert len(tokens) == len(token_mask)
@@ -477,6 +484,7 @@ class NaturalLanguageStimulusProcessor(object):
             str((len(tokens), len(word_to_token)))
         assert len(word_to_token) == len(ground_truth_phonemes), \
             str((len(word_to_token), len(ground_truth_phonemes)))
+        assert len(word_to_token) == len(word_features)
 
         # By default, map tokens to word ID -1. This helps us easily catch tokens
         # that should be dropped.
@@ -617,11 +625,17 @@ class NaturalLanguageStimulusProcessor(object):
         p_word = p_word[touched_words]
         candidate_phonemes = candidate_phonemes[touched_words]
 
+        # Reindex word-level features.
+        if word_features is not None:
+            word_features = torch.stack([word_features[word_id.item()]
+                                         for word_id in word_ids])
+
         return NaturalLanguageStimulus(
             phonemes=self.phonemes,
             pad_phoneme_id=self.pad_phoneme_id,
             word_ids=word_ids,
             word_lengths=word_lengths,
+            word_features=word_features,
             p_word=p_word,
             candidate_phonemes=candidate_phonemes,
         )
