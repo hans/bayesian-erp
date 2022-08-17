@@ -41,6 +41,7 @@ class AdamSolver(BaseEstimator):
                  early_stopping: Optional[int] = 5,
                  validation_fraction: float = 0.1,
                  random_state=None,
+                 pbar=False,
                  **kwargs):
         self.learning_rate = learning_rate
         self.n_epochs = n_epochs
@@ -49,6 +50,8 @@ class AdamSolver(BaseEstimator):
         self.early_stopping = early_stopping
         self.validation_fraction = validation_fraction
         self.random_state = random_state
+
+        self.pbar = pbar
 
         self._optim_parameters = None
         self._primed = False
@@ -94,7 +97,7 @@ class AdamSolver(BaseEstimator):
         no_improvement_count = 0
         n_batches = 0
         stop = False
-        with trange(self.n_epochs) as pbar:
+        with trange(self.n_epochs, leave=False, disable=not self.pbar) as pbar:
             for i in pbar:
                 losses = []
                 postfix = {}
@@ -123,7 +126,7 @@ class AdamSolver(BaseEstimator):
                                 best_val_loss = valid_loss
 
                             if no_improvement_count > self.early_stopping:
-                                L.info("Stopping early due to no improvement.")
+                                L.debug("Stopping early due to no improvement.")
                                 stop = True
                                 self._has_early_stopped = True
                                 raise EarlyStopException()

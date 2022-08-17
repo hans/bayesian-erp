@@ -33,6 +33,8 @@ from optuna.study import StudyDirection
 from optuna.trial import FrozenTrial
 from optuna.trial import Trial
 
+from tqdm import tqdm, trange
+
 
 with try_import() as _imports:
     import pandas as pd
@@ -281,33 +283,38 @@ class _Objective(object):
 
         early_stopped = np.zeros(n_splits, dtype=bool)
 
-        for step in range(self.max_iter):
-            if all(early_stopped):
-                self._store_scores(trial, scores)
-                break
+        with trange(self.max_iter) as pbar:
+            for step in pbar:
+                postfix = {"early_stopped": early_stopped.sum()}
 
-            for i, (train, test) in enumerate(self.cv.split(self.X, self.y, groups=self.groups)):
-                try:
-                    out = self._partial_fit_and_score(estimators[i], train, test, partial_fit_params)
-                except EarlyStopException:
-                    early_stopped[i] = True
-                    continue
+                if all(early_stopped):
+                    self._store_scores(trial, scores)
+                    break
 
-                if self.return_train_score:
-                    scores["train_score"][i] = out.pop(0)
+                for i, (train, test) in enumerate(self.cv.split(self.X, self.y, groups=self.groups)):
+                    try:
+                        out = self._partial_fit_and_score(estimators[i], train, test, partial_fit_params)
+                    except EarlyStopException:
+                        early_stopped[i] = True
+                        continue
 
-                scores["test_score"][i] = out[0]
-                scores["fit_time"][i] += out[1]
-                scores["score_time"][i] += out[2]
+                    if self.return_train_score:
+                        scores["train_score"][i] = out.pop(0)
 
-            intermediate_value = np.nanmean(scores["test_score"])
+                    scores["test_score"][i] = out[0]
+                    scores["fit_time"][i] += out[1]
+                    scores["score_time"][i] += out[2]
 
-            trial.report(intermediate_value, step=step)
+                intermediate_value = np.nanmean(scores["test_score"])
+                postfix["test_score"] = intermediate_value
 
-            if trial.should_prune():
-                self._store_scores(trial, scores)
+                trial.report(intermediate_value, step=step)
+                pbar.set_postfix(postfix)
 
-                raise TrialPruned("trial was pruned at iteration {}.".format(step))
+                if trial.should_prune():
+                    self._store_scores(trial, scores)
+
+                    raise TrialPruned("trial was pruned at iteration {}.".format(step))
 
         return scores
 
