@@ -53,5 +53,5 @@ class BerpTRFEMModelConfig(ModelConfig):
 
 cs = ConfigStore.instance()
 cs.store(group=GROUP, name="base_trf", node=TRFModelConfig)
-cs.store(group=GROUP, name="base_trf_pipline", node=TRFPipelineConfig)
+cs.store(group=GROUP, name="base_trf_pipeline", node=TRFPipelineConfig)
 cs.store(group=GROUP, name="base_trf_em", node=BerpTRFEMModelConfig)
