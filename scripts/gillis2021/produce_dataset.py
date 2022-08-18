@@ -218,7 +218,7 @@ def produce_dataset(story, subject, mne_info: mne.Info,
     # TODO these can be precomputed
     phoneme_onsets = phonemes_df[phonemes_df.story == story] \
         .groupby("original_idx") \
-        .apply(lambda xs: list(xs.start)).to_dict()
+        .apply(lambda xs: list(xs.start - xs.start.min())).to_dict()
     phoneme_onsets = [torch.tensor(phoneme_onsets[word_id.item()])
                       for word_id in story_stim.word_ids]
     # TODO this fails. why? check that the data match? probably an
