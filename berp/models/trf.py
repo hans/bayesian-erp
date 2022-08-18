@@ -232,12 +232,14 @@ class GroupScatterTransform(XYTransformerMixin, BaseEstimator):
         return X, dataset.Y
 
     @typechecked
-    def transform(self, datasets: Union[List[BerpDataset], NestedBerpDataset],
+    def transform(self, datasets: Union[BerpDataset, List[BerpDataset], NestedBerpDataset],
                   *args
                   ) -> Tuple[TRFPredictors, TRFResponse]:
         if isinstance(datasets, NestedBerpDataset):
             # NB ignores splits.
             datasets = datasets.datasets
+        elif isinstance(datasets, BerpDataset):
+            datasets = [datasets]
 
         X, Y = zip(*[self._scatter_single(dataset) for dataset in datasets])
         return torch.cat(X, dim=0), torch.cat(Y, dim=0)
@@ -262,16 +264,14 @@ class TRFDelayer(XYTransformerMixin, BaseEstimator):
         return _delay_time_series(X, self.tmin, self.tmax, self.sfreq), y
 
 
-def BerpTRF(cfg: TRFModelConfig, optim_cfg: SolverConfig):
-    trf_delayer = TRFDelayer(**cfg)
-    optim = hydra.utils.instantiate(optim_cfg)
-    trf = hydra.utils.instantiate(cfg, optim=optim)
+def BerpTRF(standardize_X: bool, standardize_Y: bool, **kwargs):
+    trf_delayer = TRFDelayer(**kwargs)
+    trf = TemporalReceptiveField(**kwargs)
 
     steps = [
         ("naive_scatter", GroupScatterTransform()),
     ]
 
-    standardize_X, standardize_Y = cfg.standardize_X, cfg.standardize_Y
     if standardize_X or standardize_Y:
         steps.append(("standardize", StandardXYScaler(standardize_X=standardize_X,
                                                       standardize_Y=standardize_Y)))

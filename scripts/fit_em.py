@@ -19,12 +19,6 @@ from berp.models.pipeline import PartialPipeline
 from berp.viz.trf import plot_trf_coefficients, trf_to_dataframe
 
 
-MODELS = {
-    "trf-em": BerpTRFEMEstimator,
-    "trf": BerpTRF,
-}
-
-
 def score(estimator: PartialPipeline, X, Y):
     # TODO: valid samples
     # TODO Should be implemented in score probably
@@ -72,8 +66,17 @@ def main(cfg: Config):
     dataset = hydra.utils.call(cfg.dataset)
     dataset.set_n_splits(4)
 
-    model = MODELS[cfg.model.type](cfg.model, optim_cfg=cfg.solver)
+    model = hydra.utils.call(cfg.model, optim=cfg.solver)
+    model.partial_fit(dataset.datasets[0])
+    return
+    # model.set_params(trf__alpha=np.ones(129))
+    # nbd = NestedBerpDataset([dataset.datasets[0]], n_splits=4)
+    # model.partial_fit(nbd)
+    # model.partial_fit(nbd)
+    # import ipdb; ipdb.set_trace()
+    # return
 
+    # TODO do we need to clear cache?
     for dataset in tqdm(dataset.datasets, desc="Datasets"):
         data_train = NestedBerpDataset([dataset], n_splits=4)
 

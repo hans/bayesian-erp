@@ -1,7 +1,6 @@
 defaults:
   - base_trf
 
-_target_: berp.models.trf.TemporalReceptiveField
 type: trf
 tmin: 0
 tmax: 1
