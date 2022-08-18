@@ -46,6 +46,8 @@ def _fit_transform_one(
     return res * weight, y, transformer
 
 
+_caches = {}
+
 # Slightly stolen from https://github.com/sdpython/mlinsights/blob/master/mlinsights/mlbatch/cache_model.py
 class Cache(object):
 
@@ -65,13 +67,9 @@ class Cache(object):
         key = self.as_key(params)
         res = self.cached.get(key, default)
 
-        print(params["__class__"], "HIT" if res is not None else "MISS")
-        import ipdb; ipdb.set_trace()
+        L.debug(f"Cache {'HIT' if res != default else 'MISS'} for cache {self.name}, object {params['__class__']}")
         if res != default:
             self.count_[key] += 1
-            print("Cache hit!", params.get("__class__", None))
-        else:
-            print("Cache miss!", params.get("__class__", "unknown"))
         return res
 
     def count(self, params):
@@ -135,6 +133,14 @@ class Cache(object):
         for k in self.cached.keys():  # pylint: disable=C0201
             yield k
 
+    @classmethod
+    def load_cache(cls, cache_name):
+        if cache_name not in _caches:
+            _caches[cache_name] = Cache(cache_name)
+        return _caches[cache_name]
+
+
+_has_warned_about_partial_fit = False
 
 class PartialPipeline(Pipeline):
     """
@@ -157,11 +163,12 @@ class PartialPipeline(Pipeline):
     ```
     """
 
-    def __init__(self, steps, verbose=False):
+    def __init__(self, steps, verbose=False,
+                 cache_name=None):
         super().__init__(steps, memory=None, verbose=verbose)
 
-        self._has_warned_about_partial_fit = False
-        self.cache_ = Cache(str(self.__class__.__name__))
+        self.cache_name = cache_name or f"PartialPipeline{id(self)}"
+        self.cache_ = Cache.load_cache(self.cache_name)
 
     # Estimator interface
 
@@ -283,14 +290,15 @@ class PartialPipeline(Pipeline):
         Fits the components, but allow for batches.
         """
 
+        global _has_warned_about_partial_fit
         for i, (name, step) in enumerate(self.steps):
             if not hasattr(step, "partial_fit"):
                 if i == len(self.steps) - 1:
                     raise ValueError(f"Final step {name} is a {step} which does not support `.partial_fit`. Stop.")
-                elif not self._has_warned_about_partial_fit:
+                elif not _has_warned_about_partial_fit:
                     L.warn(f"Step {name} is a {step} which does not support `.partial_fit`. Will use `.fit` instead.")
         
-        self._has_warned_about_partial_fit = True
+        _has_warned_about_partial_fit = True
 
         # TODO merge with _fit?
         for i, (name, step) in enumerate(self.steps):
@@ -365,7 +373,19 @@ class PartialPipeline(Pipeline):
         """
         Xt = X
         for _, name, transform in self._iter(with_final=False):
-            Xt, _ = transform.transform(Xt)
+            cache_key = transform.get_params()
+            cache_key.update({
+                "__class__": transform.__class__.__name__,
+                "X": Xt,
+            })
+
+            cached = self.cache_.get(cache_key)
+            if cached is None:
+                Xt, _ = transform.transform(Xt)
+                self.cache_.cache(cache_key, Xt)
+            else:
+                Xt = cached
+
         return self.steps[-1][1].predict(Xt, **predict_params)
 
     @available_if(_final_estimator_has("fit_predict"))
@@ -440,7 +460,19 @@ class PartialPipeline(Pipeline):
         """
         Xt, yt = X, y
         for _, name, transform in self._iter(with_final=False):
-            Xt, yt = transform.transform(Xt, yt)
+            cache_key = transform.get_params()
+            cache_key.update({
+                "__class__": transform.__class__.__name__,
+                "X": Xt, "y": yt,
+            })
+
+            cached = self.cache_.get(cache_key)
+            if cached is None:
+                Xt, yt = transform.transform(Xt, yt)
+                self.cache_.cache(cache_key, (Xt, yt))
+            else:
+                Xt, yt = cached
+
         return Xt, yt
 
 

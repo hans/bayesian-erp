@@ -281,10 +281,7 @@ def BerpTRF(cfg: TRFModelConfig, optim_cfg: SolverConfig):
         ("trf", trf),
     ]
 
-    # TODO caching
-    from tempfile import mkdtemp
-    tmpdir = mkdtemp()
-    return PartialPipeline(steps)
+    return PartialPipeline(steps, cache_name="BerpTRF")
 
 
 def _times_to_delays(tmin, tmax, sfreq) -> torch.Tensor:
