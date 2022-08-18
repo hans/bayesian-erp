@@ -21,7 +21,6 @@ from berp.config.cv import DistributionConfig
 def make_parameter_distribution(**kwargs) -> BaseDistribution:
     assert kwargs.get("shape") is None, \
         "Multivariate parameters need to be prepared with make_parameter_distributions (note S!)"
-    from pprint import pprint; pprint(kwargs)
     if isinstance(kwargs["type"], str):
         kwargs["type"] = DistributionType[kwargs["type"]]
     param = DistributionConfig(**kwargs)
@@ -60,7 +59,7 @@ def make_parameter_distributions(name: Optional[str] = None, shape=None, **cfg
         sub_cfg["shape"] = None
 
         return {
-            f"V{name}/{'_'.join(map(str, idx))}": make_parameter_distribution(sub_cfg)
+            f"V{name}/{'_'.join(map(str, idx))}": make_parameter_distribution(**sub_cfg)
             for idx in np.ndindex(*shape)
         }
 

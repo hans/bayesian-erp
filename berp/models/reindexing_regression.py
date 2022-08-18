@@ -36,12 +36,13 @@ class ModelParameters:
     sigma: TensorType[float]
 
 
-@dataclass
-class PartiallyObservedModelParameters(ModelParameters):
-    a = torch.tensor(0.0)
-    b = torch.tensor(0.0)
-    coef = torch.tensor([0.0])
-    sigma = torch.tensor(0.0)
+def PartiallyObservedModelParameters(*args, **kwargs):
+    return ModelParameters(*args,
+        a = torch.tensor(0.0),
+        b = torch.tensor(0.0),
+        coef = torch.tensor([0.0]),
+        sigma = torch.tensor(0.0),
+        **kwargs)
 
 
 class RRResult(NamedTuple):

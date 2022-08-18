@@ -1,5 +1,5 @@
 defaults:
-  - base_trf
+  - base_trf_pipeline
 
 type: trf
 tmin: 0

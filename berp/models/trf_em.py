@@ -4,9 +4,11 @@ from typing import *
 
 import hydra
 import numpy as np
+from optuna.distributions import BaseDistribution, UniformDistribution
 from sklearn.base import BaseEstimator
 import torch
 from torchtyping import TensorType
+from typeguard import typechecked
 
 from berp.config.model import TRFModelConfig
 from berp.config.solver import SolverConfig
@@ -23,18 +25,21 @@ P = "num_params"
 Responsibilities = TensorType[P, is_probability]
 
 
-def BerpTRFEM(optim_cfg: SolverConfig, trf_config: TRFModelConfig,
+def BerpTRFEM(trf, latent_params: Dict[str, Dict[str, BaseDistribution]],
               **kwargs):
-    optim = hydra.utils.instantiate(optim_cfg)
-    trf = hydra.utils.instantiate(trf_config)
-
     # TODO param_grid
     from pprint import pprint
     pprint(kwargs)
 
+    # TODO lol complicated
+    assert list(latent_params.keys()) == ["threshold"]
+    threshold_dist = next(iter(latent_params["threshold"].values()))
+    assert isinstance(threshold_dist, UniformDistribution)
+    param_grid = torch.rand(10) * (threshold_dist.high - threshold_dist.low) + threshold_dist.low
+
     return BerpTRFEMEstimator(
         encoder=trf,
-        optim=optim,
+        param_grid=param_grid,
         **kwargs,)
 
 
@@ -43,30 +48,34 @@ class BerpTRFEMEstimator(BaseEstimator):
     Jointly estimate parameters of a Berp model using expectation maximization.
     """
 
+    @typechecked
     def __init__(self, encoder: TemporalReceptiveField,
-                 optim: Solver, param_grid: torch.Tensor,
+                 param_grid: torch.Tensor,
                  n_iter=1, warm_start=True,
                  early_stopping: Optional[int] = 1,
                  **kwargs):
         self.encoder = encoder
-        self.optim = optim
         self.delayer = TRFDelayer(encoder.tmin, encoder.tmax, encoder.sfreq)
 
         self.param_grid = param_grid
         self.n_iter = n_iter
         self.warm_start = warm_start
+        self.early_stopping = early_stopping
         
         if kwargs:
             L.warning(f"Unused kwargs: {kwargs}")
 
-    def _initialize(self):
+    def _initialize(self, dataset: BerpDataset):
         # Parameter responsibilities
         self.param_resp_ = torch.rand_like(self.param_grid)
         self.param_resp_ /= self.param_resp_.sum()
 
+        # TODO this should be a param of the model
+        confusion = torch.eye(len(dataset.phonemes))
+
         self.param_template = PartiallyObservedModelParameters(
             lambda_=torch.zeros(1),
-            confusion=torch.eye(5),  # TODO
+            confusion=confusion,
             threshold=torch.tensor(0.5),
         )
 
@@ -106,18 +115,18 @@ class BerpTRFEMEstimator(BaseEstimator):
         """
         Re-estimate TRF model conditioned on the current parameter weights.
         """
-        X_mixed = self._weighted_design_matrix(dataset, self.param_resp_)
+        X_mixed = self._weighted_design_matrix(dataset)
         self.encoder.partial_fit(X_mixed, dataset.Y)
 
     def partial_fit(self, X: Union[NestedBerpDataset, BerpDataset]) -> "BerpTRFEMEstimator":
-        if not self.warm_start or not hasattr(self, "param_resp_"):
-            self._initialize()
-
         if isinstance(X, NestedBerpDataset):
             raise NotImplementedError("TODO")
             for x in X.datasets:
                 self.partial_fit(x)
             return self
+
+        if not self.warm_start or not hasattr(self, "param_resp_"):
+            self._initialize(X)
 
         best_score = -np.inf
         no_improvement_count = 0
@@ -138,10 +147,10 @@ class BerpTRFEMEstimator(BaseEstimator):
 
         return self
 
-    def predict(self, X: BerpDataset) -> TRFResponse:
-        X_mixed = self._weighted_design_matrix(X)
+    def predict(self, dataset: BerpDataset) -> TRFResponse:
+        X_mixed = self._weighted_design_matrix(dataset)
         return self.encoder.predict(X_mixed)
 
-    def log_likelihood(self, X: BerpDataset) -> torch.Tensor:
-        X_mixed = self._weighted_design_matrix(X)
-        return self.encoder.log_likelihood(X_mixed)
+    def log_likelihood(self, dataset: BerpDataset) -> torch.Tensor:
+        X_mixed = self._weighted_design_matrix(dataset)
+        return self.encoder.log_likelihood(X_mixed, dataset.Y)

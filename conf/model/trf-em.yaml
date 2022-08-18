@@ -1,0 +1,14 @@
+defaults:
+  - base_trf_em
+
+type: trf-em
+trf:
+  tmin: 0
+  tmax: 1
+  sfreq: 128
+  alpha: 1
+latent_params:
+  threshold:
+    type: float
+    low: 0.0
+    high: 1.0

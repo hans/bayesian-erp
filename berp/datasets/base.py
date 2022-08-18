@@ -643,7 +643,7 @@ class NaturalLanguageStimulusProcessor(object):
             word_ids=word_ids,
             word_lengths=word_lengths,
             word_features=word_features,
-            p_word=p_word.log(),
+            p_word=p_word,
             candidate_phonemes=candidate_phonemes,
         )
 
