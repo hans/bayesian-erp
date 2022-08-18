@@ -1,11 +1,15 @@
 import logging
 import re
 
+import numpy as np
 from sklearn.base import BaseEstimator, clone
 from sklearn.pipeline import Pipeline
 from sklearn.utils import _print_elapsed_time
 from sklearn.utils.metaestimators import available_if
 from sklearn.utils.validation import check_memory, check_is_fitted
+import torch
+
+from berp.datasets import BerpDataset, NestedBerpDataset
 
 L = logging.getLogger(__name__)
 
@@ -42,6 +46,96 @@ def _fit_transform_one(
     return res * weight, y, transformer
 
 
+# Slightly stolen from https://github.com/sdpython/mlinsights/blob/master/mlinsights/mlbatch/cache_model.py
+class Cache(object):
+
+    def __init__(self, name):
+        self.name = name
+        self.cached = {}
+        self.count_ = {}
+
+    def cache(self, params, value):
+        key = self.as_key(params)
+        if key in self.cached:
+            raise KeyError(f"Key {key} already exists in cache {self.name}")
+        self.cached[key] = value
+        self.count_[key] = 0
+
+    def get(self, params, default=None):
+        key = self.as_key(params)
+        res = self.cached.get(key, default)
+
+        print(params["__class__"], "HIT" if res is not None else "MISS")
+        import ipdb; ipdb.set_trace()
+        if res != default:
+            self.count_[key] += 1
+            print("Cache hit!", params.get("__class__", None))
+        else:
+            print("Cache miss!", params.get("__class__", "unknown"))
+        return res
+
+    def count(self, params):
+        key = self.as_key(params)
+        return self.count_.get(key, 0)
+
+    def as_key(self, params):
+        """
+        Convert a parameter list into a key.
+        """
+        if isinstance(params, str):
+            return params
+        
+        els = []
+        for k, v in sorted(params.items()):
+            if isinstance(v, (int, float, str)):
+                sv = str(v)
+            elif isinstance(v, tuple):
+                if not all(map(lambda e: isinstance(e, (int, float, str)), v)):
+                    raise TypeError(  # pragma: no cover
+                        f"Unable to create a key with value '{k}':{v}")
+                return str(v)
+            elif isinstance(v, np.ndarray):
+                # id(v) may have been better but
+                # it does not play well with joblib.
+                sv = hash(v.tostring())
+            elif isinstance(v, torch.Tensor):
+                # Do a rough hashing routine by quantization
+                # TODO magic numbers
+                quantized = torch.quantize_per_tensor(v, 0.1, 0, torch.quint8).int_repr()
+                sv = hash(tuple(quantized.view((-1, v.shape[-1])).sum(dim=0).numpy()))
+            elif isinstance(v, BerpDataset):
+                sv = hash(v.name)
+            elif isinstance(v, NestedBerpDataset):
+                sv = hash(" ".join(d.name for d in v.datasets))
+            elif v is None:
+                sv = ""
+            else:
+                raise TypeError(  # pragma: no cover
+                    f"Unable to create a key with value '{k}':{v}")
+            els.append((k, sv))
+        return str(els)
+
+    def __len__(self):
+        """
+        Returns the number of cached items.
+        """
+        return len(self.cached)
+
+    def items(self):
+        """
+        Enumerates all cached items.
+        """
+        for item in self.cached.items():
+            yield item
+
+    def keys(self):
+        """
+        Enumerates all cached keys.
+        """
+        for k in self.cached.keys():  # pylint: disable=C0201
+            yield k
+
+
 class PartialPipeline(Pipeline):
     """
     Modified Pipeline implementation which supports
@@ -63,10 +157,11 @@ class PartialPipeline(Pipeline):
     ```
     """
 
-    def __init__(self, steps, memory=None, verbose=False):
-        super().__init__(steps, memory=memory, verbose=verbose)
+    def __init__(self, steps, verbose=False):
+        super().__init__(steps, memory=None, verbose=verbose)
 
         self._has_warned_about_partial_fit = False
+        self.cache_ = Cache(str(self.__class__.__name__))
 
     # Estimator interface
 
@@ -187,8 +282,6 @@ class PartialPipeline(Pipeline):
         """
         Fits the components, but allow for batches.
         """
-        memory = check_memory(self.memory)
-        fit_transform_one_cached = memory.cache(_fit_transform_one)
 
         for i, (name, step) in enumerate(self.steps):
             if not hasattr(step, "partial_fit"):
@@ -204,12 +297,24 @@ class PartialPipeline(Pipeline):
             if not hasattr(step, "partial_fit"):
                 # This step is not a partial fit. That means we could plausibly use the
                 # cache. Try it.
-                X, y, fitted_transformer = fit_transform_one_cached(
-                    clone(step),
-                    X, y, None,
-                    message_clsname="PartialPipeline",
-                    message=self._log_message(i),
-                )
+                cache_key = step.get_params()
+                cache_key.update({
+                    "__class__": step.__class__.__name__,
+                    "X": X, "y": y,
+                })
+
+                cached = self.cache_.get(cache_key)
+                if cached is None:
+                    X, y, fitted_transformer = _fit_transform_one(
+                        clone(step),
+                        X, y, None,
+                        message_clsname="PartialPipeline",
+                        message=self._log_message(i),
+                    )
+
+                    self.cache_.cache(cache_key, (X, y, fitted_transformer))
+                else:
+                    X, y, fitted_transformer = cached
 
                 self.steps[i] = (name, fitted_transformer)
             else:
@@ -424,23 +529,3 @@ class StandardXYScaler(XYTransformerMixin, BaseEstimator):
                 y = y / self.std_Y_
 
         return X, y
-
-
-# class VectorizedParametersMixin:
-#     """
-#     Mixin supporting converting independently represented parameters into vector parameters
-#     """
-
-#     VECTOR_PARAM_RE = re.compile(r"^V(?P<name>.+)/(?P<idx>[\d_]+)$")
-
-#     def set_params(self, **params):
-#         """
-#         Set the parameters of this estimator, vectorizing where applicable.
-#         """
-
-#         to_vectorize = [(k, self.VECTOR_PARAM_RE.match(k)) for k in params.keys()]
-#         to_vectorize = [(k, match.groupdict()) for k, match in to_vectorize if match is not None]
-
-#         to_vectorize = {name: list(idxs) for name, idxs in itertools.groupby(to_vectorize, key=lambda x: x[1]["name"])}
-
-#         super().set_params(**params)

@@ -73,7 +73,7 @@ class BerpTRFEMEstimator(BaseEstimator):
         """
         Compute expected predictor matrix under current parameter distribution.
         """
-        X_mixed = torch.empty((dataset.n_samples, dataset.n_total_features), dtype=torch.float)))
+        X_mixed = torch.empty((dataset.n_samples, dataset.n_total_features), dtype=torch.float)
         for param, resp in zip(self.param_grid, self.param_resp_):
             params = replace(self.param_template, threshold=param)
 

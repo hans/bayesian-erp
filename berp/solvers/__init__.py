@@ -4,6 +4,7 @@ from typing import *
 
 import numpy as np
 from sklearn.base import BaseEstimator
+from sklearn.model_selection import ShuffleSplit
 import torch
 from tqdm.auto import tqdm, trange
 
