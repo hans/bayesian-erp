@@ -79,15 +79,18 @@ class BerpTRFEMEstimator(BaseEstimator):
             threshold=torch.tensor(0.5),
         )
 
-    def _e_step(self, X: BerpDataset) -> Responsibilities:
+    def _e_step(self, dataset: BerpDataset) -> Responsibilities:
         """
         Compute responsibility values for each parameter in the grid for the given dataset.
         """
         resp = torch.zeros(len(self.param_grid), dtype=torch.float)
         for i, param in enumerate(self.param_grid):
             params = replace(self.param_template, threshold=param)
-            _, _, design_matrix = scatter_model(params, X)
-            test_ll = self.encoder.log_likelihood(design_matrix)
+            _, _, design_matrix = scatter_model(params, dataset)
+            # TODO cache this sucker
+            delayed, _ = self.delayer.transform(design_matrix)
+
+            test_ll = self.encoder.log_likelihood(delayed, dataset.Y)
             resp[i] = test_ll
 
         # Convert to probabilities
@@ -108,7 +111,7 @@ class BerpTRFEMEstimator(BaseEstimator):
             _, _, design_matrix = scatter_model(params, dataset)
             X_mixed += resp * design_matrix
 
-        delayed = self.delayer.transform(X_mixed)
+        delayed, _ = self.delayer.transform(X_mixed)
         return delayed
 
     def _m_step(self, dataset: BerpDataset):
