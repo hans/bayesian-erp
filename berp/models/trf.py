@@ -55,19 +55,25 @@ class TemporalReceptiveField(BaseEstimator):
     def _optim_parameters(self):
         return [self.coef_]
 
-    def _check_shapes_types(self, X, Y):
-        assert X.shape[0] == Y.shape[0]
-        assert X.dtype == Y.dtype
+    def _check_shapes_types(self, X: TRFDesignMatrix,
+                            Y: Optional[TRFResponse] = None):
+        if Y is not None:
+            assert X.shape[0] == Y.shape[0]
+            assert X.dtype == Y.dtype
         # May not be available if we haven't been called with fit() yet.
         if hasattr(self, "n_features_"):
             assert X.shape[1] == self.n_features_
             assert X.shape[2] == self.n_delays_
-            assert Y.shape[1] == self.n_outputs_
+            if Y is not None:
+                assert Y.shape[1] == self.n_outputs_
         else:
-            _, self.n_features_, self.n_delays_ = X.shape
-            self.n_outputs_ = Y.shape[1]
-        return (torch.as_tensor(X, dtype=torch.float32), 
-                torch.as_tensor(Y, dtype=torch.float32))
+            self.n_outputs_, self.n_features_, self.n_delays_ = X.shape
+        
+        if Y is not None:
+            return (torch.as_tensor(X, dtype=torch.float32), 
+                    torch.as_tensor(Y, dtype=torch.float32))
+        else:
+            return torch.as_tensor(X, dtype=torch.float32)
 
     def _validate_params(self):
         # If alpha is a vector, verify it is the right shape.
@@ -171,15 +177,28 @@ class TemporalReceptiveField(BaseEstimator):
 
     @typechecked
     def predict(self, X: TRFDesignMatrix) -> TRFResponse:
+        X = self._check_shapes_types(X)
+
+        if not hasattr(self, "coef_"):
+            self._init_coef()
+
         X = _reshape_for_est(X)
         coef = self.coef_.reshape((-1, self.n_outputs_))
         return X @ coef
 
     @typechecked
     def log_likelihood(self, X: TRFDesignMatrix, Y: TRFResponse):
-        # TODO this is log likelihood, not posterior -- make that clear
+        X, Y = self._check_shapes_types(X, Y)
+
+        if not hasattr(self, "coef_"):
+            # coefs not defined. model has not been fit.
+            # so residuals also not defined. use std(X) then
+            sigma = Y.std()
+        else:
+            sigma = self.sigma
+        
         Y_pred = self.predict(X)
-        Y_dist = dist.Normal(Y_pred, self.sigma)
+        Y_dist = dist.Normal(Y_pred, sigma)
         return Y_dist.log_prob(Y)
 
 
