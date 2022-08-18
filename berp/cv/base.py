@@ -1,5 +1,6 @@
 from copy import deepcopy
 from typing import *
+from uuid import uuid4
 
 from hydra_plugins.hydra_optuna_sweeper.config import DistributionType
 import numpy as np
@@ -17,11 +18,12 @@ from optuna.distributions import (
 from berp.config.cv import DistributionConfig
 
 
-def make_parameter_distribution(config: DistributionConfig) -> BaseDistribution:
-    assert config.shape is None, "Multivariate parameters need to be prepared with make_parameter_distributions (note S!)"
-    kwargs = dict(config)
-    if isinstance(config["type"], str):
-        kwargs["type"] = DistributionType[config["type"]]
+def make_parameter_distribution(**kwargs) -> BaseDistribution:
+    assert kwargs.get("shape") is None, \
+        "Multivariate parameters need to be prepared with make_parameter_distributions (note S!)"
+    from pprint import pprint; pprint(kwargs)
+    if isinstance(kwargs["type"], str):
+        kwargs["type"] = DistributionType[kwargs["type"]]
     param = DistributionConfig(**kwargs)
     if param.type == DistributionType.categorical:
         assert param.choices is not None
@@ -44,19 +46,22 @@ def make_parameter_distribution(config: DistributionConfig) -> BaseDistribution:
     raise NotImplementedError(f"{param.type} is not supported by Optuna sweeper.")
 
 
-def make_parameter_distributions(cfg: DistributionConfig, name: str) -> Dict[str, BaseDistribution]:
+def make_parameter_distributions(name: Optional[str] = None, shape=None, **cfg
+                                 ) -> Dict[str, BaseDistribution]:
     """
     Generate parameter distribution(s) for consumption by Optuna.
     Supports multivariate parameters.
     """
+    if name is None:
+        name = uuid4().hex
 
-    if cfg.shape is not None:
+    if shape is not None:
         sub_cfg = deepcopy(cfg)
-        sub_cfg.shape = None
+        sub_cfg["shape"] = None
 
         return {
             f"V{name}/{'_'.join(map(str, idx))}": make_parameter_distribution(sub_cfg)
-            for idx in np.ndindex(*cfg.shape)
+            for idx in np.ndindex(*shape)
         }
 
         # # We will replace the name but respect sklearn's hierarchical repr.
@@ -69,7 +74,7 @@ def make_parameter_distributions(cfg: DistributionConfig, name: str) -> Dict[str
         #     for idx in np.ndindex(*cfg.shape)
         # }
 
-    return {name: make_parameter_distribution(cfg)}
+    return {name: make_parameter_distribution(**cfg)}
 
 
 class EarlyStopException(Exception):

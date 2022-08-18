@@ -41,7 +41,7 @@ def make_cv(model, cfg: CVConfig):
     param_sampler = hydra.utils.instantiate(cfg.param_sampler)
     param_distributions = {}
     for name, dist_cfg in cfg.params.items():
-        param_distributions.update(make_parameter_distributions(dist_cfg, name))
+        param_distributions.update(hydra.utils.call(dist_cfg, name=name))
     
     sampler = optuna.samplers.TPESampler(multivariate=True)
     study = optuna.create_study(sampler=sampler, direction="maximize")

@@ -2,11 +2,14 @@ from dataclasses import replace
 import logging
 from typing import *
 
+import hydra
 import numpy as np
 from sklearn.base import BaseEstimator
 import torch
 from torchtyping import TensorType
 
+from berp.config.model import TRFModelConfig
+from berp.config.solver import SolverConfig
 from berp.datasets import BerpDataset, NestedBerpDataset
 from berp.models.reindexing_regression import scatter_model, PartiallyObservedModelParameters
 from berp.models.trf import TemporalReceptiveField, TRFPredictors, TRFDesignMatrix, TRFResponse, TRFDelayer
@@ -18,6 +21,21 @@ L = logging.getLogger(__name__)
 # Type variables
 P = "num_params"
 Responsibilities = TensorType[P, is_probability]
+
+
+def BerpTRFEM(optim_cfg: SolverConfig, trf_config: TRFModelConfig,
+              **kwargs):
+    optim = hydra.utils.instantiate(optim_cfg)
+    trf = hydra.utils.instantiate(trf_config)
+
+    # TODO param_grid
+    from pprint import pprint
+    pprint(kwargs)
+
+    return BerpTRFEMEstimator(
+        encoder=trf,
+        optim=optim,
+        **kwargs,)
 
 
 class BerpTRFEMEstimator(BaseEstimator):
@@ -96,6 +114,7 @@ class BerpTRFEMEstimator(BaseEstimator):
             self._initialize()
 
         if isinstance(X, NestedBerpDataset):
+            raise NotImplementedError("TODO")
             for x in X.datasets:
                 self.partial_fit(x)
             return self
