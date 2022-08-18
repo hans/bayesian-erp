@@ -30,6 +30,7 @@ def default_phonemizer(string) -> List[Phoneme]:
     return list(string)
 
 
+@typechecked
 @dataclass
 class BerpDataset:
     """
@@ -242,6 +243,7 @@ class NestedBerpDataset(object):
                                  n_splits=self.n_splits)
 
 
+@typechecked
 @dataclass
 class NaturalLanguageStimulus:
     """
@@ -362,7 +364,7 @@ class NaturalLanguageStimulusProcessor(object):
             batch_tok: Preprocessed batch of sentences
 
         Returns:
-            p_word:
+            p_token: log-probability of each candidate token
             candidate_ids:
         """
 
@@ -402,17 +404,18 @@ class NaturalLanguageStimulusProcessor(object):
         candidate_ids = candidate_ids[:, :, :-1]
 
         # Reindex and normalize predictive distribution.
-        p_word = torch.gather(
+        p_token = torch.gather(
             model_outputs,
             dim=2,
             index=candidate_ids
         )
 
-        # Renormalize over candidate axis.
-        p_word = (p_word - p_word.max(dim=2, keepdim=True)[0]).exp()
-        p_word /= p_word.sum(dim=2, keepdim=True)
+        # Renormalize over candidate axis and return to logspace.
+        p_token = (p_token - p_token.max(dim=2, keepdim=True)[0]).exp()
+        p_token /= p_token.sum(dim=2, keepdim=True)
+        p_token = p_token.log()
 
-        return p_word, candidate_ids
+        return p_token, candidate_ids
 
     def get_candidate_phonemes(self, candidate_ids: TensorType[B, N_W, N_C, int],
                                max_num_phonemes: int,
@@ -640,7 +643,7 @@ class NaturalLanguageStimulusProcessor(object):
             word_ids=word_ids,
             word_lengths=word_lengths,
             word_features=word_features,
-            p_word=p_word,
+            p_word=p_word.log(),
             candidate_phonemes=candidate_phonemes,
         )
 
