@@ -183,11 +183,11 @@ class BerpDataset:
 class NestedBerpDataset(object):
     """
     Represents a grouped Berp dataset as a list of time series intervals.
-    This makes the data amenable to cross validation by the standard sklearn API --
-    can index via integer values.
+    This makes the data amenable to cross validation by the standard sklearn
+    API -- can index via integer values.
 
-    Each element in the resulting dataset corresponds to a fraction of an original
-    subject's sub-dataset, `1/n_splits` large.
+    Each element in the resulting dataset corresponds to a fraction of an
+    original subject's sub-dataset, `1/n_splits` large.
     """
 
     def __init__(self, datasets: List[BerpDataset], n_splits=2):
@@ -195,9 +195,10 @@ class NestedBerpDataset(object):
         # subjects. Batch axis should match within-subject between
         # X and Y.
         for dataset in datasets:
-            assert dataset.X_ts.shape[1:] == datasets[0].X_ts.shape[1:]
-            assert dataset.X_variable.shape[1:] == datasets[0].X_variable.shape[1:]
-            assert dataset.Y.shape[1:] == datasets[0].Y.shape[1:]
+            ds0 = datasets[0]
+            assert dataset.X_ts.shape[1:] == ds0.X_ts.shape[1:]
+            assert dataset.X_variable.shape[1:] == ds0.X_variable.shape[1:]
+            assert dataset.Y.shape[1:] == ds0.Y.shape[1:]
             assert dataset.X_ts.shape[0] == dataset.Y.shape[0]
 
         self.datasets = datasets
@@ -207,17 +208,20 @@ class NestedBerpDataset(object):
     def set_n_splits(self, n_splits):
         self.n_splits = n_splits
 
-        # Maps integer indices on this dataset into slices of individual sub-datasets.
+        # Maps integer indices on this dataset into slices of individual
+        # sub-datasets.
         self.flat_idxs: List[Tuple[int, slice]] = []
         for i, dataset in enumerate(self.datasets):
             split_size = int(np.ceil(len(dataset) / self.n_splits))
             for split_offset in range(0, len(dataset), split_size):
-                self.flat_idxs.append((i, slice(split_offset, split_offset + split_size)))
+                self.flat_idxs.append(
+                    (i, slice(split_offset, split_offset + split_size)))
 
     @property
     def shape(self):
-        # Define shape property so that sklearn indexing thinks we're an ndarray,
-        # and will index with an ndarray of indices rather than scalars+concatenate.
+        # Define shape property so that sklearn indexing thinks we're an
+        # ndarray, and will index with an ndarray of indices rather than
+        # scalars+concatenate.
         # Then we can make sure the output is still a NestedBerpDataset :)
         return (len(self),)
 
@@ -230,7 +234,8 @@ class NestedBerpDataset(object):
     def n_sensors(self):
         return self.datasets[0].n_sensors
 
-    # TODO will be super slow to always typecheck. remove once we know this works
+    # TODO will be super slow to always typecheck. remove once we know this
+    # works
     @typechecked
     def __getitem__(self, key: Union[int, np.integer, np.ndarray]
                     ) -> Union[BerpDataset, NestedBerpDataset]:
@@ -238,7 +243,8 @@ class NestedBerpDataset(object):
             dataset, split = self.flat_idxs[key]
             return self.datasets[dataset][split]
         elif isinstance(key, np.ndarray):
-            return NestedBerpDataset([self[i] for i in key], n_splits=self.n_splits)
+            return NestedBerpDataset([self[i] for i in key],
+                                     n_splits=self.n_splits)
         else:
             raise NotImplementedError(f"Unsupported key type {type(key)}")
 
@@ -252,8 +258,9 @@ class NestedBerpDataset(object):
         """
         Subset sensors in response variable. Returns a copy.
         """
-        return NestedBerpDataset([dataset.subset_sensors(sensors) for dataset in self.datasets],
-                                 n_splits=self.n_splits)
+        return NestedBerpDataset(
+            [dataset.subset_sensors(sensors) for dataset in self.datasets],
+            n_splits=self.n_splits)
 
 
 @typechecked
