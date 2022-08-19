@@ -62,7 +62,7 @@ def predictive_model(p_word: TensorType[B, N_C, is_log_probability],
                      ground_truth_word_idx=0
                      ) -> TensorType[B, N_P, is_probability]:
     r"""
-    Computes the next-word distribution
+    Computes the next-word probability estimate
 
         $$P(w = w_j \mid w_{<j}, I_{\le k})$$
 
@@ -87,8 +87,9 @@ def predictive_model(p_word: TensorType[B, N_C, is_log_probability],
             and `phonemes` that corresponds to the ground truth word.
 
     Returns:
-        `batch * n_phonemes` log-probability matrix, defining the next-word
-        distribution evaluated for each example at each conditioning point.
+        `batch * n_phonemes` probability values, defining the next-word
+        posterior probability evaluated for each example at each conditioning
+        point.
     """
 
     # Temperature adjustment
