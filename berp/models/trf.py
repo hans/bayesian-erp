@@ -25,10 +25,11 @@ TRFResponse = TensorType["n_times", "n_outputs"]
 
 class TemporalReceptiveField(BaseEstimator):
 
-    def __init__(self, tmin, tmax, sfreq,
+    def __init__(self, tmin, tmax, sfreq, n_outputs,
                  optim, fit_intercept=False,
                  warm_start=True, alpha=1, **kwargs):
         self.sfreq = sfreq
+        self.n_outputs = n_outputs
 
         self.tmin = tmin
         self.tmax = tmax
@@ -48,7 +49,7 @@ class TemporalReceptiveField(BaseEstimator):
 
     def _init_coef(self):
         self.coef_ = torch.randn(self.n_features_, len(self.delays_),
-                                 self.n_outputs_) * 1e-1
+                                 self.n_outputs) * 1e-1
 
     # Provide parameters for SGDEstimatorMixin
     @property
@@ -60,14 +61,13 @@ class TemporalReceptiveField(BaseEstimator):
         if Y is not None:
             assert X.shape[0] == Y.shape[0]
             assert X.dtype == Y.dtype
+            assert Y.shape[1] == self.n_outputs
         # May not be available if we haven't been called with fit() yet.
         if hasattr(self, "n_features_"):
             assert X.shape[1] == self.n_features_
             assert X.shape[2] == self.n_delays_
-            if Y is not None:
-                assert Y.shape[1] == self.n_outputs_
         else:
-            self.n_outputs_, self.n_features_, self.n_delays_ = X.shape
+            _, self.n_features_, self.n_delays_ = X.shape
         
         if Y is not None:
             return (torch.as_tensor(X, dtype=torch.float32), 
@@ -110,7 +110,7 @@ class TemporalReceptiveField(BaseEstimator):
             self.coef_ = torch.linalg.lstsq(lhs + ridge, rhs).solution
 
         # Reshape resulting coefficients
-        self.coef_ = self.coef_.reshape((self.n_features_, self.n_delays_, self.n_outputs_))
+        self.coef_ = self.coef_.reshape((self.n_features_, self.n_delays_, self.n_outputs))
 
         Y_pred = self.predict(X)
         self.residuals_ = Y_pred - Y
@@ -127,7 +127,7 @@ class TemporalReceptiveField(BaseEstimator):
         else:
             # Compute different alpha per lag. Tile alpha along last axis.
             # TODO hacky to reshape yet again inside loss
-            coef_for_l2 = self.coef_.view((self.n_features_, self.n_delays_, self.n_outputs_))
+            coef_for_l2 = self.coef_.view((self.n_features_, self.n_delays_, self.n_outputs))
             loss += torch.mul(coef_for_l2.pow(2).sum(dim=2), self.alpha.unsqueeze(0)).sum()
 
         return loss
@@ -154,7 +154,7 @@ class TemporalReceptiveField(BaseEstimator):
         # HACK: reshape coefficients to make sense for SGD
         # Better to just provide a property for reading nicely shaped coefs
         coef_shape = self.coef_.shape
-        self.coef_ = self.coef_.view((-1, self.n_outputs_)).requires_grad_()
+        self.coef_ = self.coef_.view((-1, self.n_outputs)).requires_grad_()
 
         # TODO don't need to call this every iteration..
         self.optim.prime(self, X, Y)
@@ -183,7 +183,7 @@ class TemporalReceptiveField(BaseEstimator):
             self._init_coef()
 
         X = _reshape_for_est(X)
-        coef = self.coef_.reshape((-1, self.n_outputs_))
+        coef = self.coef_.reshape((-1, self.n_outputs))
         return X @ coef
 
     @typechecked

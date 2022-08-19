@@ -19,6 +19,7 @@ class TRFModelConfig(ModelConfig):
     tmin: float
     tmax: float
     sfreq: float
+    n_outputs: int
     alpha: float
 
     warm_start: bool = True

@@ -26,7 +26,9 @@ Responsibilities = TensorType[P, is_probability]
 
 
 def BerpTRFEM(trf, latent_params: Dict[str, Dict[str, BaseDistribution]],
-              **kwargs):
+              n_outputs: int, **kwargs):
+    trf.set_params(n_outputs=n_outputs)  
+
     # TODO param_grid
     from pprint import pprint
     pprint(kwargs)

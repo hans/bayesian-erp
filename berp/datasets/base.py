@@ -105,6 +105,10 @@ class BerpDataset:
     def n_total_features(self):
         return self.X_variable.shape[1] + self.X_ts.shape[1]
 
+    @property
+    def n_sensors(self):
+        return self.Y.shape[1]
+
     def __getitem__(self, key):
         """
         Extract a number of samples from the dataset.
@@ -216,6 +220,15 @@ class NestedBerpDataset(object):
         # and will index with an ndarray of indices rather than scalars+concatenate.
         # Then we can make sure the output is still a NestedBerpDataset :)
         return (len(self),)
+
+    @property
+    def n_total_features(self):
+        ds = self.datasets[0]
+        return ds.X_variable.shape[1] + ds.X_ts.shape[1]
+
+    @property
+    def n_sensors(self):
+        return self.datasets[0].n_sensors
 
     # TODO will be super slow to always typecheck. remove once we know this works
     @typechecked

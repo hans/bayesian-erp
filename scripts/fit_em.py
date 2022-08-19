@@ -66,7 +66,11 @@ def main(cfg: Config):
     dataset = hydra.utils.call(cfg.dataset)
     dataset.set_n_splits(4)
 
-    model = hydra.utils.call(cfg.model, optim=cfg.solver)
+    model = hydra.utils.call(cfg.model, n_outputs=dataset.n_sensors,
+                             optim=cfg.solver)
+
+    make_cv(model, cfg.cv)
+
     model.partial_fit(dataset.datasets[0])
     return
     # model.set_params(trf__alpha=np.ones(129))
