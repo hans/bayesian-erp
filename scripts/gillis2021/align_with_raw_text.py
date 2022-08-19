@@ -417,27 +417,22 @@ def process_story(name):
         on="original_idx")
     
     # Asof merge to store FA word + token index data in phoneme data.
+    # NB the merged token idx will be the last subword token of the corresponding word
     fa_phonemes = fa_df[fa_df.tier == "phonemes"]
     fa_phonemes = pd.merge_asof(fa_phonemes, fa_words[["start", "original_idx", "tok_idx"]],
-                                on="start", direction="backward")
+                                on="start", direction="backward").dropna()
     
-    # Left join the other way to make sure there are no words missing phoneme data.
-    fa_words = pd.merge(fa_words,
-                        # NB drop_duplicates because there are multiple phoneme rows
-                        # per phoneme.
-                        fa_phonemes[["original_idx", "tok_idx"]].drop_duplicates(),
-                        how="inner",
-                        on=["original_idx", "tok_idx"])
-    fa_phonemes = pd.merge(fa_phonemes, fa_words[["original_idx"]], how="inner")
+    # Remove words with missing phoneme data.
+    fa_words = fa_words[fa_words.original_idx.isin(set(fa_phonemes.original_idx))]
     
     # Annotate with story name.
     for df in [fa_words, fa_phonemes]:
         df["story"] = name
         df.set_index("story", append=True, inplace=True)
         df.index = df.index.reorder_levels((1, 0))
-    
-    # TODO expand checks
-    # assert set(fa_words.original_idx) == set(fa_phonemes.original_idx)
+
+    assert set(fa_words.original_idx) == set(fa_phonemes.original_idx), \
+        "Word and phoneme level annotations should cover the same set of word IDs"
     
     return tokens_flat, fa_words, fa_phonemes
 
