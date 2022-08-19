@@ -21,3 +21,12 @@ class Config:
 
 cs = ConfigStore.instance()
 cs.store(name="base_config", node=Config)
+
+
+__all__ = [
+    "Config",
+    "TrainTestConfig", "CVConfig",
+    "DatasetConfig",
+    "ModelConfig",
+    "SolverConfig",
+]
