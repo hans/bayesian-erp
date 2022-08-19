@@ -109,7 +109,7 @@ class BerpDataset:
     def n_sensors(self):
         return self.Y.shape[1]
 
-    def __getitem__(self, key):
+    def __getitem__(self, key) -> "BerpDataset":
         """
         Extract a number of samples from the dataset.
         The resulting dataset has adjusted times to match the new sample start point.
@@ -502,8 +502,9 @@ class NaturalLanguageStimulusProcessor(object):
         assert len(tokens) == len(token_mask)
         assert len(tokens) >= len(word_to_token), \
             str((len(tokens), len(word_to_token)))
-        assert len(word_to_token) == len(ground_truth_phonemes), \
-            str((len(word_to_token), len(ground_truth_phonemes)))
+        if ground_truth_phonemes is not None:
+            assert len(word_to_token) == len(ground_truth_phonemes), \
+                str((len(word_to_token), len(ground_truth_phonemes)))
         assert len(word_to_token) == len(word_features)
 
         # By default, map tokens to word ID -1. This helps us easily catch tokens
@@ -524,10 +525,10 @@ class NaturalLanguageStimulusProcessor(object):
         token_inputs = [token_ids[i:i+max_len]
                         for i in range(0, len(token_ids), max_len)]
 
-        token_mask = torch.tensor(token_mask)
+        token_mask_tensor = torch.tensor(token_mask)
 
         # Pad to max_len.
-        token_inputs = torch.stack([
+        token_inputs_tensor = torch.stack([
             pad(torch.tensor(tok_ids),
                 (0, max_len - len(tok_ids)),
                 value=self._tokenizer.pad_token_id)
@@ -550,8 +551,8 @@ class NaturalLanguageStimulusProcessor(object):
         candidate_phonemes = torch.zeros((num_words, self.num_candidates, max_num_phonemes), dtype=torch.long)
         # Track the word ID that produced each sample.
         word_ids = torch.zeros(num_words, dtype=torch.long)
-        for i in trange(0, len(token_inputs), self.batch_size):
-            batch = token_inputs[i:i+self.batch_size]
+        for i in trange(0, len(token_inputs_tensor), self.batch_size):
+            batch = token_inputs_tensor[i:i+self.batch_size]
 
             # Keep track of which token indices are in the batch.
             # Account for the fact that the batch may not be maximum rows and may be padded
@@ -585,7 +586,7 @@ class NaturalLanguageStimulusProcessor(object):
                 last_word_id = word_id
 
             # Extract relevant token masks and combine with subword mask.
-            batch_mask = token_mask[batch_token_idxs] & drop_subword_mask
+            batch_mask = token_mask_tensor[batch_token_idxs] & drop_subword_mask
             # Mask out any tokens which don't correspond to a word.
             batch_mask = batch_mask & (batch_word_ids != nonword_id)
             # TODO check why this fails sometimes
@@ -646,16 +647,17 @@ class NaturalLanguageStimulusProcessor(object):
         candidate_phonemes = candidate_phonemes[touched_words]
 
         # Reindex word-level features.
+        word_features_tensor = None
         if word_features is not None:
-            word_features = torch.stack([word_features[word_id.item()]
-                                         for word_id in word_ids])
+            word_features_tensor = torch.stack([word_features[word_id.item()]
+                                                for word_id in word_ids])
 
         return NaturalLanguageStimulus(
-            phonemes=self.phonemes,
+            phonemes=list(self.phonemes),
             pad_phoneme_id=self.pad_phoneme_id,
             word_ids=word_ids,
             word_lengths=word_lengths,
-            word_features=word_features,
+            word_features=word_features_tensor,
             p_word=p_word,
             candidate_phonemes=candidate_phonemes,
         )

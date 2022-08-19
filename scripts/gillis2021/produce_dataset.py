@@ -21,7 +21,7 @@ from typeguard import check_return_type
 
 IS_INTERACTIVE = False
 try:
-    get_ipython()
+    get_ipython()  # type: ignore
 except NameError: pass
 else: IS_INTERACTIVE = True
 IS_INTERACTIVE

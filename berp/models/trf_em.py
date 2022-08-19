@@ -7,7 +7,7 @@ import numpy as np
 from optuna.distributions import BaseDistribution, UniformDistribution
 from sklearn.base import BaseEstimator
 import torch
-from torchtyping import TensorType
+from torchtyping import TensorType  # type: ignore
 from typeguard import typechecked
 
 from berp.cv import EarlyStopException
