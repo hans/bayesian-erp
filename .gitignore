@@ -10,3 +10,10 @@ work
 .nextflow*
 
 outputs
+# Intermediate outputs
+*.csv
+*.txt
+*.pkl
+*.png
+*.npz
+*.npy
