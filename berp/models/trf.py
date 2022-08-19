@@ -77,7 +77,7 @@ class TemporalReceptiveField(BaseEstimator):
 
     def _validate_params(self):
         # If alpha is a vector, verify it is the right shape.
-        if hasattr(self.alpha, "shape"):
+        if hasattr(self.alpha, "shape") and self.alpha.ndim > 0:
             if self.alpha.shape != (self.delays_.shape[0],):
                 raise ValueError(f"For vector alpha, must have one value per delay."
                                  f"Got {self.alpha.shape} but expected {(self.delays_.shape[0],)}")
@@ -185,6 +185,19 @@ class TemporalReceptiveField(BaseEstimator):
         X = _reshape_for_est(X)
         coef = self.coef_.reshape((-1, self.n_outputs))
         return X @ coef
+
+    @typechecked
+    def score(self, X: TRFDesignMatrix, Y: TRFResponse) -> float:
+        X, Y = self._check_shapes_types(X, Y)
+
+        Y_pred = self.predict(X)
+
+        # Compute correlations per output: E(Y_pred - E[Y_pred]) * E(Y_gt - E[Y_gt])
+        Y = Y - Y.mean(axis=0)
+        Y_pred = Y_pred - Y_pred.mean(axis=0)
+
+        corrs = (Y_pred * Y).sum(axis=0) / (Y_pred.norm(2, dim=0) * Y.norm(2, dim=0))
+        return corrs.mean().item()
 
     @typechecked
     def log_likelihood(self, X: TRFDesignMatrix, Y: TRFResponse):

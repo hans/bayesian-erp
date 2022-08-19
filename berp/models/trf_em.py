@@ -10,8 +10,7 @@ import torch
 from torchtyping import TensorType
 from typeguard import typechecked
 
-from berp.config.model import TRFModelConfig
-from berp.config.solver import SolverConfig
+from berp.cv import EarlyStopException
 from berp.datasets import BerpDataset, NestedBerpDataset
 from berp.models.reindexing_regression import scatter_model, PartiallyObservedModelParameters
 from berp.models.trf import TemporalReceptiveField, TRFPredictors, TRFDesignMatrix, TRFResponse, TRFDelayer
@@ -92,7 +91,7 @@ class BerpTRFEMEstimator(BaseEstimator):
             # TODO cache this sucker
             delayed, _ = self.delayer.transform(design_matrix)
 
-            test_ll = self.encoder.log_likelihood(delayed, dataset.Y)
+            test_ll = self.encoder.log_likelihood(delayed, dataset.Y).sum()
             resp[i] = test_ll
 
         # Convert to probabilities
@@ -121,7 +120,10 @@ class BerpTRFEMEstimator(BaseEstimator):
         Re-estimate TRF model conditioned on the current parameter weights.
         """
         X_mixed = self._weighted_design_matrix(dataset)
-        self.encoder.partial_fit(X_mixed, dataset.Y)
+
+        try:
+            self.encoder.partial_fit(X_mixed, dataset.Y)
+        except EarlyStopException: pass
 
     def partial_fit(self, X: Union[NestedBerpDataset, BerpDataset]) -> "BerpTRFEMEstimator":
         if isinstance(X, NestedBerpDataset):
@@ -136,15 +138,15 @@ class BerpTRFEMEstimator(BaseEstimator):
         best_score = -np.inf
         no_improvement_count = 0
         for _ in range(self.n_iter):
-            resp = self._e_step(X)
-            self._m_step(X, resp)
+            self.param_resp_ = self._e_step(X)
+            self._m_step(X)
 
             # TODO score on validation set
             val_score = self.score(X)
             if val_score > best_score:
                 best_score = val_score
                 no_improvement_count = 0
-            elif no_improvement_count > self.early_stopping:
+            elif self.early_stopping is not None and no_improvement_count > self.early_stopping:
                 L.warning("Early stopping")
                 break
             else:
@@ -155,6 +157,10 @@ class BerpTRFEMEstimator(BaseEstimator):
     def predict(self, dataset: BerpDataset) -> TRFResponse:
         X_mixed = self._weighted_design_matrix(dataset)
         return self.encoder.predict(X_mixed)
+
+    def score(self, dataset: BerpDataset):
+        X_mixed = self._weighted_design_matrix(dataset)
+        return self.encoder.score(X_mixed, dataset.Y)
 
     def log_likelihood(self, dataset: BerpDataset) -> torch.Tensor:
         X_mixed = self._weighted_design_matrix(dataset)

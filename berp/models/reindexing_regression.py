@@ -161,7 +161,6 @@ def scatter_response_model(
     recognition_onset = pyro.deterministic(
         "recognition_onset",
         torch.gather(phoneme_onsets, 1, recognition_points.unsqueeze(1)).squeeze(1))
-    assert recognition_onset[2] == phoneme_onsets[2, recognition_points[2]]
 
     # Compute recognition onset as global index
     recognition_onsets_global_samp = time_to_sample(recognition_onset, sample_rate)
