@@ -150,7 +150,7 @@ def process_story_language(story):
 
 
 processed_stories = {story: process_story_language(story)
-                     for story in tqdm(tokenized)}
+                     for story in tqdm(tokenized, unit="story")}
 
 # ## Load and process stimulus features
 
@@ -221,8 +221,9 @@ def produce_dataset(story, subject, mne_info: mne.Info,
                       for word_id in story_stim.word_ids]
     # TODO this fails. why? check that the data match? probably an
     # indexing bug somewhere.
-    # max_num_phonemes = max(len(onsets) for onsets in phoneme_onsets)
-    # assert max_num_phonemes == story_stim.candidate_phonemes.shape[2]
+    max_num_phonemes = max(len(onsets) for onsets in phoneme_onsets)
+    assert max_num_phonemes == story_stim.candidate_phonemes.shape[2], \
+        "%d %d" % (max_num_phonemes, story_stim.candidate_phonemes.shape[2])
     max_num_phonemes = story_stim.candidate_phonemes.shape[2]
     phoneme_onsets = torch.stack([
         pad(onsets, (0, max_num_phonemes - len(onsets)), value=0.)
@@ -257,3 +258,9 @@ for story_name in tokenized:
         ds = produce_dataset(story_name, subject, info)
         with open(f"{subject}.{story_name}.pkl", "wb") as f:
             pickle.dump(ds, f)
+            
+        # DEV
+        break
+    break
+
+
