@@ -1,8 +1,7 @@
 from dataclasses import replace
 import logging
-from typing import *
+from typing import Optional, List, Dict, Union
 
-import hydra
 import numpy as np
 from optuna.distributions import BaseDistribution, UniformDistribution
 from sklearn.base import BaseEstimator
@@ -12,8 +11,10 @@ from typeguard import typechecked
 
 from berp.cv import EarlyStopException
 from berp.datasets import BerpDataset, NestedBerpDataset
-from berp.models.reindexing_regression import scatter_model, PartiallyObservedModelParameters
-from berp.models.trf import TemporalReceptiveField, TRFPredictors, TRFDesignMatrix, TRFResponse, TRFDelayer
+from berp.models.reindexing_regression import \
+    scatter_model, PartiallyObservedModelParameters
+from berp.models.trf import TemporalReceptiveField, TRFPredictors, \
+    TRFDesignMatrix, TRFResponse, TRFDelayer
 from berp.solvers import Solver
 from berp.typing import is_probability
 
@@ -82,7 +83,8 @@ class BerpTRFEMEstimator(BaseEstimator):
 
     def _e_step(self, dataset: BerpDataset) -> Responsibilities:
         """
-        Compute responsibility values for each parameter in the grid for the given dataset.
+        Compute responsibility values for each parameter in the grid for the
+        given dataset.
         """
         resp = torch.zeros(len(self.param_grid), dtype=torch.float)
         for i, param in enumerate(self.param_grid):
@@ -104,7 +106,8 @@ class BerpTRFEMEstimator(BaseEstimator):
         """
         Compute expected predictor matrix under current parameter distribution.
         """
-        X_mixed = torch.empty((dataset.n_samples, dataset.n_total_features), dtype=torch.float)
+        X_mixed = torch.empty((dataset.n_samples, dataset.n_total_features),
+                              dtype=torch.float)
         for param, resp in zip(self.param_grid, self.param_resp_):
             params = replace(self.param_template, threshold=param)
 
@@ -127,7 +130,6 @@ class BerpTRFEMEstimator(BaseEstimator):
 
     def partial_fit(self, X: Union[NestedBerpDataset, BerpDataset]) -> "BerpTRFEMEstimator":
         if isinstance(X, NestedBerpDataset):
-            raise NotImplementedError("TODO")
             for x in X.datasets:
                 self.partial_fit(x)
             return self

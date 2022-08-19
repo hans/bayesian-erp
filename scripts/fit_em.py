@@ -1,22 +1,16 @@
-from typing import List, Dict, Any
-
 import hydra
 
-import numpy as np
 from omegaconf import OmegaConf
 import optuna
-from scipy.stats import pearsonr
 from sklearn.base import clone
-from sklearn.model_selection import KFold, train_test_split
+from sklearn.model_selection import KFold
 from tqdm.auto import tqdm
 
 from berp.config import Config, CVConfig
 from berp.cv import OptunaSearchCV
-from berp.cv import make_parameter_distributions
 from berp.datasets import NestedBerpDataset
-from berp.models import BerpTRFEMEstimator, BerpTRF
 from berp.models.pipeline import PartialPipeline
-from berp.viz.trf import plot_trf_coefficients, trf_to_dataframe
+from berp.viz.trf import trf_to_dataframe
 
 
 def score(estimator: PartialPipeline, X, Y):
@@ -68,11 +62,6 @@ def main(cfg: Config):
 
     model = hydra.utils.call(cfg.model, n_outputs=dataset.n_sensors,
                              optim=cfg.solver)
-
-    make_cv(model, cfg.cv)
-
-    model.partial_fit(dataset.datasets[0])
-    return
     # model.set_params(trf__alpha=np.ones(129))
     # nbd = NestedBerpDataset([dataset.datasets[0]], n_splits=4)
     # model.partial_fit(nbd)
