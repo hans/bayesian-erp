@@ -324,10 +324,11 @@ class NaturalLanguageStimulusProcessor(object):
         for i in trange(0, len(token_inputs_tensor), self.batch_size, unit="batch"):
             batch = token_inputs_tensor[i:i+self.batch_size]
 
-            # Keep track of which token indices are in the batch.
+            # Keep track of which token indices and word IDs are in the batch.
             # Account for the fact that the batch may not be maximum rows and may be padded
             # in the final row.
             batch_token_idxs = torch.arange(i * max_len, min(len(tokens) - 1, (i + self.batch_size) * max_len))
+            batch_word_ids = token_to_word[batch_token_idxs]
 
             # TODO for BPE models, we really should keep predicting each candidate until we
             # reach a BPE boundary. Otherwise the candidates are likely to be subwords,
@@ -343,9 +344,6 @@ class NaturalLanguageStimulusProcessor(object):
             # In the long run, we should intelligently aggregate the subword outputs.
             # This only makes sense once we also are doing more intelligent candidate
             # retrieval (see previous long comment).
-
-            # TODO currently redundant with token mask calc in produce_dataset.py
-            batch_word_ids = token_to_word[batch_token_idxs]
             last_word_id = None
             drop_subword_mask = torch.ones(len(batch_token_idxs), dtype=torch.bool)
             for j, word_id in enumerate(batch_word_ids):
@@ -355,12 +353,14 @@ class NaturalLanguageStimulusProcessor(object):
                 
                 last_word_id = word_id
 
-            # Extract relevant token masks and combine with subword mask.
-            batch_mask = drop_subword_mask
-            # Mask out any tokens which don't correspond to a word.
-            batch_mask = batch_mask & (batch_word_ids != nonword_id)
-            # TODO check why this fails sometimes
-            # assert batch_mask.sum() == len(set(batch_word_ids.numpy()) - {0})
+            # Mask out any tokens which don't correspond to a word, and combine with
+            # subword mask.
+            batch_mask = (batch_word_ids != nonword_id) & drop_subword_mask
+            # Sanity check: We should be targeting just as many batch elements as there
+            # are unique words in the batch.
+            assert batch_mask.sum() == len(set(batch_word_ids.numpy()) - {-1}), \
+                "%s %s" % (batch_mask.sum(), len(set(batch_word_ids.numpy()) - {-1}))
+
             batch_word_ids_pad = batch_word_ids[:]
             if batch_mask.shape[0] % max_len > 0:
                 # Pad so that we reach a multiple of max_len.
@@ -383,12 +383,12 @@ class NaturalLanguageStimulusProcessor(object):
             # Also ignore words with zero length.
             batch_mask = batch_mask & (batch_word_lengths > 0)
 
-            # Drop rows which correspond to non-words. Flattens first two axes in the process.
+            # Drop rows which correspond to non-words.
             batch_word_lengths = batch_word_lengths[batch_mask]
             batch_p_token = batch_p_token[batch_mask]
             batch_candidate_phonemes = batch_candidate_phonemes[batch_mask]
 
-            # Track which word idxs were retained.
+            # Track which word IDs were retained.
             batch_retained_word_ids = batch_word_ids_pad[batch_mask].flatten()
 
             batch_num_samples = batch_candidate_phonemes.shape[0]
