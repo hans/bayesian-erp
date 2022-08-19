@@ -2,6 +2,7 @@
 from argparse import ArgumentParser, Namespace
 from collections import defaultdict, Counter
 import itertools
+import logging
 from pathlib import Path
 import pickle
 import re
@@ -60,6 +61,13 @@ EEG_SUFFIX = "_1_256_8_average_4_128"
 eeg_paths = {story: list(paths)
              for story, paths in itertools.groupby(args.eeg_dir.glob("*/*.mat"),
                                                    key=lambda path: path.parent.name)}
+
+if IS_INTERACTIVE:
+    logging.warn("Because we're interactive, we'll process just one story and one subject by default.")
+    story, paths = next(iter(eeg_paths.items()))
+    
+
+eeg_paths
 
 subjects = [p.name.replace(f"{EEG_SUFFIX}.mat", "")
             for p in next(iter(eeg_paths.values()))]
