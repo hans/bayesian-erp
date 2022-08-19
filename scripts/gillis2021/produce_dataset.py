@@ -65,9 +65,8 @@ eeg_paths = {story: list(paths)
 if IS_INTERACTIVE:
     logging.warn("Because we're interactive, we'll process just one story and one subject by default.")
     story, paths = next(iter(eeg_paths.items()))
-    
-
-eeg_paths
+    eeg_paths = {story: paths[:1]}
+    print(eeg_paths)
 
 subjects = [p.name.replace(f"{EEG_SUFFIX}.mat", "")
             for p in next(iter(eeg_paths.values()))]
@@ -132,16 +131,7 @@ def process_story_language(story):
     story_words_df = words_df[words_df.story == story]
     story_phonemes_df = phonemes_df[phonemes_df.story == story]
     
-    # Prepare token mask.
     tokens = tokenized[story].split(" ")
-    # Find all tokens that are not covered by row(s) of story_words_df.
-    mask_token_ids = set(np.arange(len(tokens))) - set(story_words_df.tok_idx)
-    token_mask = np.ones(len(tokens), dtype=bool)
-    token_mask[list(mask_token_ids)] = False
-    
-    # Also mask tokens which are not the first for a word.
-    secondary_subword = story_words_df.original_idx.diff(1) == 0
-    token_mask[story_words_df[secondary_subword].tok_idx.to_numpy()] = False
     
     # Prepare proc metadata input.
     word_to_token = story_words_df \
@@ -156,7 +146,7 @@ def process_story_language(story):
     word_features = dict(story_words_df.groupby(["original_idx"])
                          .apply(lambda xs: torch.tensor(xs.iloc[0].frequency).unsqueeze(0)))
     
-    return proc(tokens, token_mask, word_to_token, word_features, ground_truth_phonemes)
+    return proc(tokens, word_to_token, word_features, ground_truth_phonemes)
 
 
 processed_stories = {story: process_story_language(story)

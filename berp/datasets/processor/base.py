@@ -257,23 +257,24 @@ class NaturalLanguageStimulusProcessor(object):
         return candidate_phonemes, word_lengths
 
     def __call__(self, tokens: List[str],
-                 token_mask: List[bool],
                  word_to_token: Dict[int, List[int]],
                  word_features: Dict[int, torch.Tensor],
                  ground_truth_phonemes: Optional[Dict[int, List[Phoneme]]] = None,
                  ) -> NaturalLanguageStimulus:
         """
         Args:
-            token_mask: While all tokens need to be used to compute surprisals,
-                only some tokens will have corresponding neural data. This boolean
-                mask specifies which tokens should be included in the returned
-                dataset.
+            word_to_token: Mapping from word ID to list of token indices. NB that
+                some tokens will have no corresponding words.
             word_features: Tensor associating each word ID with a set of features.
             ground_truth_phonemes: Phoneme sequences for the ground-truth words.
         """
-        assert len(tokens) == len(token_mask)
         assert len(tokens) >= len(word_to_token), \
             str((len(tokens), len(word_to_token)))
+        # Token idxs specified in word_to_token should be within range
+        assert all(token_idx >= 0 and token_idx < len(tokens)
+                   for token_idxs in word_to_token.values()
+                   for token_idx in token_idxs), \
+            "word_to_token contains token IDs out of range"
         if ground_truth_phonemes is not None:
             assert len(word_to_token) == len(ground_truth_phonemes), \
                 str((len(word_to_token), len(ground_truth_phonemes)))
@@ -293,11 +294,9 @@ class NaturalLanguageStimulusProcessor(object):
         # and then batch.
         # TODO overlap for better contextual predictions
         token_ids = self._tokenizer.convert_tokens_to_ids(tokens)
-        max_len = 32  # DEV self._model.config.n_positions
+        max_len = 512  # DEV self._model.config.n_positions
         token_inputs = [token_ids[i:i+max_len]
                         for i in range(0, len(token_ids), max_len)]
-
-        token_mask_tensor = torch.tensor(token_mask)
 
         # Pad to max_len.
         token_inputs_tensor = torch.stack([
@@ -307,7 +306,7 @@ class NaturalLanguageStimulusProcessor(object):
             for tok_ids in token_inputs
         ])
 
-        # Pre-compute maximum number of phonemes.
+        # Pre-compute maximum number of phonemes in ground truth words.
         # TODO use ground truth phonemes here
         max_num_phonemes = max(len(self.phonemizer(tok)) for tok in tokens)
 
@@ -317,13 +316,12 @@ class NaturalLanguageStimulusProcessor(object):
         num_words = len(word_to_token)
         touched_words = torch.zeros(num_words).bool()
 
-        i = 0
         word_lengths = torch.zeros(num_words, dtype=torch.long)
         p_word = torch.zeros((num_words, self.num_candidates), dtype=torch.float)
         candidate_phonemes = torch.zeros((num_words, self.num_candidates, max_num_phonemes), dtype=torch.long)
         # Track the word ID that produced each sample.
         word_ids = torch.zeros(num_words, dtype=torch.long)
-        for i in trange(0, len(token_inputs_tensor), self.batch_size):
+        for i in trange(0, len(token_inputs_tensor), self.batch_size, unit="batch"):
             batch = token_inputs_tensor[i:i+self.batch_size]
 
             # Keep track of which token indices are in the batch.
@@ -350,15 +348,15 @@ class NaturalLanguageStimulusProcessor(object):
             batch_word_ids = token_to_word[batch_token_idxs]
             last_word_id = None
             drop_subword_mask = torch.ones(len(batch_token_idxs), dtype=torch.bool)
-            for i, word_id in enumerate(batch_word_ids):
+            for j, word_id in enumerate(batch_word_ids):
                 if last_word_id == word_id and word_id != 0:
                     # HACK: We're seeing the subword of an already observed word. Drop it.
-                    drop_subword_mask[i] = False
+                    drop_subword_mask[j] = False
                 
                 last_word_id = word_id
 
             # Extract relevant token masks and combine with subword mask.
-            batch_mask = token_mask_tensor[batch_token_idxs] & drop_subword_mask
+            batch_mask = drop_subword_mask
             # Mask out any tokens which don't correspond to a word.
             batch_mask = batch_mask & (batch_word_ids != nonword_id)
             # TODO check why this fails sometimes
