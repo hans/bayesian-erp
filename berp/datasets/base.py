@@ -13,7 +13,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from tqdm.auto import tqdm, trange
 from typeguard import typechecked
 
-from berp.typing import DIMS, is_probability, is_log_probability
+from berp.typing import DIMS, is_probability, is_log_probability, is_positive
 
 L = logging.getLogger(__name__)
 
@@ -284,7 +284,7 @@ class NaturalLanguageStimulus:
     p_word: TensorType[N_W, N_C, torch.float, is_log_probability]
     """
     Prior predictive distribution over words at each timestep. Each
-    row is a proper log-probability distribution.
+    row is a proper log-e-probability distribution.
     """    
 
     candidate_phonemes: TensorType[N_W, N_C, N_P, torch.long]
@@ -294,11 +294,11 @@ class NaturalLanguageStimulus:
     """
 
     @property
-    def word_surprisals(self) -> TensorType[N_W, torch.float]:
+    def word_surprisals(self) -> TensorType[N_W, torch.float, is_positive]:
         """
         Get surprisals of ground-truth words (in bits; log-2).
         """
-        return -torch.log2(self.p_word[:, 0])
+        return -self.p_word[:, 0] / np.log(2)
 
 
 class NaturalLanguageStimulusProcessor(object):
