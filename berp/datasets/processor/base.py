@@ -293,7 +293,7 @@ class NaturalLanguageStimulusProcessor(object):
                 if j == 0 and ground_truth_phonemes is not None:
                     phonemes = ground_truth_phonemes[i]
                 else:
-                    phonemes = self.phonemizer(candidate_str)
+                    phonemes = self.phonemizer(self._clean_word(candidate_str))
 
                 # Store ground truth phoneme sequence length.
                 if j == 0:

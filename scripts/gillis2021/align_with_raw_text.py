@@ -21,25 +21,20 @@ else: IS_INTERACTIVE = True
 IS_INTERACTIVE
 
 p = ArgumentParser()
-p.add_argument("raw_text_dir", type=Path)
-p.add_argument("aligned_corpora", type=Path, nargs="+")
+p.add_argument("raw_text_path", type=Path)
+p.add_argument("aligned_corpus_path", type=Path)
 p.add_argument("-m", "--model", default="GroNLP/gpt2-small-dutch",
                help="Huggingface model ref. NB this processing is GPT2 specific at the moment (see code comments).")
 
 if IS_INTERACTIVE:
-    args = Namespace(raw_text_dir=Path("../../data/gillis2021/raw_text/"),
-                     aligned_corpora=list(Path(".").glob("DKZ_*.csv")),
+    args = Namespace(raw_text_path=Path("../../data/gillis2021/raw_text/DKZ_1.txt"),
+                     aligned_corpus_path=Path("DKZ_1.csv"),
                      model="GroNLP/gpt2-small-dutch")
 else:
     args = p.parse_args()
 
-raw_text = {}
-for text_file in args.raw_text_dir.glob("*.txt"):
-    raw_text[text_file.stem] = text_file.read_text()
-
-aligned_corpora = {p.stem: p for p in args.aligned_corpora}
-
-# assert set(aligned_corpora.keys()) == set(raw_text.keys())
+raw_text = args.raw_text_path.read_text()
+story_name = args.raw_text_path.stem
 
 # #####
 
@@ -210,8 +205,7 @@ raw_text_replacements = {
 # -
 
 # Preprocess raw text lightly.
-for story in raw_text:
-    raw_text[story] = re.sub(r"\s+", " ", raw_text[story])
+raw_text = re.sub(r"\s+", " ", raw_text)
 
 # -----
 
@@ -391,79 +385,49 @@ def patch_story(fa_words, name):
     return fa_words
 
 
-def process_story(name):
-    # Do manual replacements to match content of two story transcriptions.
-    text = raw_text[name]
-    for src, tgt in raw_text_replacements[name]:
-        assert text.count(src) > 0, src
-        text = text.replace(src, tgt)
-    
-    # Tokenize raw text.
-    encoded = tokenizer(text)
-    tokens_flat = tokenizer.convert_ids_to_tokens(encoded["input_ids"])
-    
-    # Retrieve and patch FA corpus.
-    fa_df = pd.read_csv(aligned_corpora[name])
-    fa_words = fa_df[fa_df.tier == "words"]
-    fa_words = patch_story(fa_words, name)
-    
-    alignment = pd.DataFrame(align_corpora(fa_words, tokens_flat),
-                             columns=["textgrid_idx", "tok_idx", "flags"])
-    
-    # Merge with existing words df.
-    fa_words = pd.merge(
-        fa_words,
-        alignment.rename(columns={"textgrid_idx": "original_idx"}).drop(columns=["flags"]),
-        on="original_idx")
-    
-    # Asof merge to store FA word + token index data in phoneme data.
-    # NB the merged token idx will be the last subword token of the corresponding word
-    fa_phonemes = fa_df[fa_df.tier == "phonemes"]
-    fa_phonemes = pd.merge_asof(fa_phonemes, fa_words[["start", "original_idx", "tok_idx"]],
-                                on="start", direction="backward").dropna()
-    
-    # Remove words with missing phoneme data.
-    fa_words = fa_words[fa_words.original_idx.isin(set(fa_phonemes.original_idx))]
-    
-    # Annotate with story name.
-    for df in [fa_words, fa_phonemes]:
-        df["story"] = name
-        df.set_index("story", append=True, inplace=True)
-        df.index = df.index.reorder_levels((1, 0))
+# Do manual replacements to match content of two story transcriptions.
+for src, tgt in raw_text_replacements[story_name]:
+    assert raw_text.count(src) > 0, src
+    raw_text = raw_text.replace(src, tgt)
 
-    assert set(fa_words.original_idx) == set(fa_phonemes.original_idx), \
-        "Word and phoneme level annotations should cover the same set of word IDs"
-    
-    return tokens_flat, fa_words, fa_phonemes
+# Tokenize raw text.
+encoded = tokenizer(raw_text)
+tokens_flat = tokenizer.convert_ids_to_tokens(encoded["input_ids"])
 
+# Retrieve and patch FA corpus.
+fa_df = pd.read_csv(args.aligned_corpus_path)
+fa_words = fa_df[fa_df.tier == "words"]
+fa_words = patch_story(fa_words, story_name)
 
-# +
-# tokens_flat, fa_words, fa_phonemes = process_story("DKZ_1") 
+alignment = pd.DataFrame(align_corpora(fa_words, tokens_flat),
+                            columns=["textgrid_idx", "tok_idx", "flags"])
 
-# +
-# tokens_flat, fa_words, fa_phonemes = process_story("DKZ_2")
-# -
+# Merge with existing words df.
+fa_words = pd.merge(
+    fa_words,
+    alignment.rename(columns={"textgrid_idx": "original_idx"}).drop(columns=["flags"]),
+    on="original_idx")
 
-all_tokens, all_aligned_words, all_aligned_phonemes = [], [], []
-stories = sorted(aligned_corpora)
-for story in stories:
-    try:
-        tokens_flat, aligned_words, aligned_phonemes = process_story(story)
-    except KeyError:
-        warnings.warn(f"Story {story} not yet prepared.")
-    else:
-        all_tokens.append(tokens_flat)
-        all_aligned_words.append(aligned_words)
-        all_aligned_phonemes.append(aligned_phonemes)
+# Asof merge to store FA word + token index data in phoneme data.
+# NB the merged token idx will be the last subword token of the corresponding word
+fa_phonemes = fa_df[fa_df.tier == "phonemes"]
+fa_phonemes = pd.merge_asof(fa_phonemes, fa_words[["start", "original_idx", "tok_idx"]],
+                            on="start", direction="backward").dropna()
 
-tok_dir = Path("tokenized")
-tok_dir.mkdir(exist_ok=True)
-for story, tokens in zip(stories, all_tokens):
-    with (tok_dir / f"{story}.txt").open("w") as f:
-        f.write(" ".join(tokens))
+# Remove words with missing phoneme data.
+fa_words = fa_words[fa_words.original_idx.isin(set(fa_phonemes.original_idx))]
 
-pd.concat(all_aligned_words).to_csv("aligned_words.csv")
+# Annotate with story name.
+for df in [fa_words, fa_phonemes]:
+    df["story"] = story_name
+    df.set_index("story", append=True, inplace=True)
+    df.index = df.index.reorder_levels((1, 0))
 
-pd.concat(all_aligned_phonemes).to_csv("aligned_phonemes.csv")
+assert set(fa_words.original_idx) == set(fa_phonemes.original_idx), \
+    "Word and phoneme level annotations should cover the same set of word IDs"
 
+with open(f"{story_name}.tokenized.txt", "w") as f:
+    f.write(" ".join(tokens_flat))
 
+fa_words.to_csv(f"{story_name}.words.csv")
+fa_phonemes.to_csv(f"{story_name}.phonemes.csv")
