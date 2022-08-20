@@ -42,7 +42,7 @@ if IS_INTERACTIVE:
                      aligned_words_path=Path("aligned_words.csv"),
                      aligned_phonemes_path=Path("aligned_phonemes.csv"),
                      model="GroNLP/gpt2-small-dutch",
-                     n_candidates=10,
+                     n_candidates=100,
                      vocab_path=Path("../../data/gillis2021/vocab.pkl"))
 else:
     args = p.parse_args()
@@ -82,10 +82,6 @@ words_df["frequency"] = words_df.frequency.fillna(oov_freq)
 # ----
 
 # ## Process story language data
-
-# +
-# TODO casing
-# -
 
 # NB # in CGN denotes cough, sneeze, etc.
 celex_cgn_mapping = {
@@ -152,23 +148,36 @@ def convert_celex_to_cgn(celex):
 
 # Load CELEX pronunciation database. Keep only the most frequent pronunciation for a word.
 phonemizer_df = pd.read_csv("../../data/gillis2021/celex_dpw_cx.txt", sep="\\", header=None,
-                            usecols=[1, 2, 6], names=["word", "inl_freq", "celex_syl"]).dropna() \
+                            usecols=[1, 2, 6], names=["word", "inl_freq", "celex_syl"]).dropna()
+phonemizer_df["word"] = phonemizer_df.word.str.lower()
+phonemizer_df = phonemizer_df \
     .sort_values("inl_freq", ascending=False) \
     .drop_duplicates(subset="word").set_index("word")
 phonemizer_df["celex"] = phonemizer_df.celex_syl.str.replace(r"[\[\]]", "", regex=True)
 phonemizer_df
 
+celex_chars = set([char for celex in phonemizer_df.celex.tolist() for char in celex])
+cgn_chars = set(char for phonemes in phonemes_df.text for char in phonemes)
+
 punct_only_re = re.compile(r"^[.?!:'\"]+$")
+missing_from_celex = Counter()
 def celex_phonemizer(string):
     if punct_only_re.match(string):
         return ""
 
-    celex_form = phonemizer_df.loc[string].celex
-    cgn_form = convert_celex_to_cgn(celex_form)
-    return cgn_form
+    try:
+        celex_form = phonemizer_df.loc[string].celex
+    except KeyError:
+        missing_from_celex[string] += 1
+        if missing_from_celex[string] == 1:
+            logging.warning(f"Candidate word {string} is not in CELEX.")
+            
+        # Dumb -- just return the subset of characters that are in CGN code
+        return [char for char in string if char in cgn_chars]
+    else:
+        cgn_form = convert_celex_to_cgn(celex_form)
+        return cgn_form
 
-
-celex_chars = set([char for celex in phonemizer_df.celex.tolist() for char in celex])
 
 # +
 phonemes = sorted(phonemes_df.text.unique()) + [PAD_PHONEME]
@@ -197,5 +206,9 @@ word_features = dict(words_df.groupby(["original_idx"])
 stim = proc(tokens, word_to_token, word_features, ground_truth_phonemes)
 # -
 
+missing_from_celex
+
 with open(f"{story_name}.pkl", "wb") as f:
     pickle.dump(stim, f)
+
+
