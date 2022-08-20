@@ -28,6 +28,10 @@ def default_phonemizer(string) -> List[Phoneme]:
     return list(string)
 
 
+_model_cache = {}
+_tokenizer_cache = {}
+
+
 @typechecked
 @dataclass
 class NaturalLanguageStimulus:
@@ -115,8 +119,18 @@ class NaturalLanguageStimulusProcessor(object):
         self.num_candidates = num_candidates
 
         self.batch_size = batch_size
-        self._tokenizer = AutoTokenizer.from_pretrained(hf_model)
-        self._model = AutoModelForCausalLM.from_pretrained(hf_model)
+
+        if hf_model in _model_cache:
+            self._model = _model_cache[hf_model]
+        else:
+            self._model = AutoModelForCausalLM.from_pretrained(hf_model)
+            _model_cache[hf_model] = self._model
+        
+        if hf_model in _tokenizer_cache:
+            self._tokenizer = _tokenizer_cache[hf_model]
+        else:
+            self._tokenizer = AutoTokenizer.from_pretrained(hf_model)
+            _tokenizer_cache[hf_model] = self._tokenizer
 
         if self._tokenizer.pad_token is None:
             logging.warn("Tokenizer is missing pad token; using EOS token " +
