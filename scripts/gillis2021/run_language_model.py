@@ -42,7 +42,7 @@ if IS_INTERACTIVE:
                      aligned_words_path=Path("aligned_words.csv"),
                      aligned_phonemes_path=Path("aligned_phonemes.csv"),
                      model="GroNLP/gpt2-small-dutch",
-                     n_candidates=100,
+                     n_candidates=1000,
                      vocab_path=Path("../../data/gillis2021/vocab.pkl"))
 else:
     args = p.parse_args()
@@ -90,6 +90,7 @@ celex_cgn_mapping = {
     "A": "A",
     "AU": "A+",
     "E": "E",
+    "E:": "E:",
     "EI": "E+",
     "G": "G",
     "I": "I",
@@ -103,6 +104,7 @@ celex_cgn_mapping = {
     "d": "d",
     "e:": "e",
     "f": "f",
+    "g": "g",
     "h": "h",
     "i:": "i",
     "j": "j",
@@ -121,6 +123,7 @@ celex_cgn_mapping = {
     "x": "x",
     "y:": "y",
     "z": "z",
+    "Z": "Z",
 }
 
 
@@ -157,7 +160,7 @@ phonemizer_df["celex"] = phonemizer_df.celex_syl.str.replace(r"[\[\]]", "", rege
 phonemizer_df
 
 celex_chars = set([char for celex in phonemizer_df.celex.tolist() for char in celex])
-cgn_chars = set(char for phonemes in phonemes_df.text for char in phonemes)
+cgn_chars = set(celex_cgn_mapping.values()) | {"#"}
 
 punct_only_re = re.compile(r"^[.?!:'\"]+$")
 missing_from_celex = Counter()
@@ -180,7 +183,7 @@ def celex_phonemizer(string):
 
 
 # +
-phonemes = sorted(phonemes_df.text.unique()) + [PAD_PHONEME]
+phonemes = sorted(cgn_chars) + [PAD_PHONEME]
 
 proc = NaturalLanguageStimulusProcessor(phonemes=phonemes, hf_model=args.model,
                                         num_candidates=args.n_candidates,
