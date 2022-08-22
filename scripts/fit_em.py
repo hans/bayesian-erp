@@ -2,8 +2,8 @@ import hydra
 
 from omegaconf import OmegaConf
 import optuna
-from sklearn.base import clone
-from sklearn.model_selection import KFold
+from sklearn.base import clone, BaseEstimator
+from sklearn.model_selection import KFold, train_test_split
 from tqdm.auto import tqdm
 
 from berp.config import Config, CVConfig
@@ -13,7 +13,7 @@ from berp.models.pipeline import PartialPipeline
 from berp.viz.trf import trf_to_dataframe
 
 
-def score(estimator: PartialPipeline, X, Y):
+def score(estimator: BaseEstimator, X, Y):
     # TODO: valid samples
     # TODO Should be implemented in score probably
     _, Y_gt = estimator.pre_transform(X, Y)
@@ -46,7 +46,7 @@ def make_cv(model, cfg: CVConfig):
         enable_pruning=True,
         max_iter=10, n_trials=20,
         param_distributions=param_distributions,
-        scoring=score,
+        # scoring=score,
         error_score="raise",
         cv=KFold(n_splits=cfg.n_inner_folds, shuffle=False),
         refit=True,
@@ -59,16 +59,13 @@ def main(cfg: Config):
 
     dataset = hydra.utils.call(cfg.dataset)
     dataset.set_n_splits(4)
-    
-    # TODO HACK fit multiple jointy
-    dataset = dataset.datasets[0]
 
     model = hydra.utils.call(cfg.model,
                              n_outputs=dataset.n_sensors,
                              n_phonemes=dataset.n_phonemes,
                              optim=cfg.solver)
     from pprint import pprint; pprint(model.get_params())
-    model.partial_fit(dataset)
+    # model.partial_fit(dataset)
     # model.set_params(trf__alpha=np.ones(129))
     # nbd = NestedBerpDataset([dataset.datasets[0]], n_splits=4)
     # model.partial_fit(nbd)
@@ -76,21 +73,25 @@ def main(cfg: Config):
     # import ipdb; ipdb.set_trace()
     # return
 
-    # TODO do we need to clear cache?
-    for dataset in tqdm(dataset.datasets, desc="Datasets"):
-        data_train = NestedBerpDataset([dataset], n_splits=4)
+    data_train, data_test = train_test_split(dataset, test_size=0.25, shuffle=False)
+    cv = make_cv(model, cfg.cv)
+    cv.fit(data_train)
 
-        cv = make_cv(model, cfg.cv)
-        cv.fit(data_train)
+    # # TODO do we need to clear cache?
+    # for dataset in tqdm(dataset.datasets, desc="Datasets"):
+    #     data_train = NestedBerpDataset([dataset], n_splits=4)
 
-        trf = cv.best_estimator_.named_steps["trf"]
-        coefs_df = trf_to_dataframe(trf)
-        coefs_df["dataset"] = dataset.name
-        coefs_df.to_csv(f"coefs.{dataset.name.replace('/', '-')}.csv", index=False)
+    #     cv = make_cv(model, cfg.cv)
+    #     cv.fit(data_train)
+
+    #     trf = cv.best_estimator_.named_steps["trf"]
+    #     coefs_df = trf_to_dataframe(trf)
+    #     coefs_df["dataset"] = dataset.name
+    #     coefs_df.to_csv(f"coefs.{dataset.name.replace('/', '-')}.csv", index=False)
 
     # # TODO use cfg
     # # DEV: tiny training set
-    # data_train, data_test = train_test_split(dataset, test_size=0.25, shuffle=False)
+    # 
     # # Re-merge into nested datasets for further CV fun.
     # data_train = NestedBerpDataset(data_train)
     # data_test = NestedBerpDataset(data_test)

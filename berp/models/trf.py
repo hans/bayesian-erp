@@ -201,7 +201,6 @@ class TemporalReceptiveField(BaseEstimator):
         corrs = (Y_pred * Y).sum(axis=0) / (Y_pred.norm(2, dim=0) * Y.norm(2, dim=0))
         return corrs.mean().item()
 
-    @typechecked
     def log_likelihood(self, X: TRFDesignMatrix, Y: TRFResponse):
         X, Y = self._check_shapes_types(X, Y)
 
