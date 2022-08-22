@@ -59,9 +59,16 @@ def main(cfg: Config):
 
     dataset = hydra.utils.call(cfg.dataset)
     dataset.set_n_splits(4)
+    
+    # TODO HACK fit multiple jointy
+    dataset = dataset.datasets[0]
 
-    model = hydra.utils.call(cfg.model, n_outputs=dataset.n_sensors,
+    model = hydra.utils.call(cfg.model,
+                             n_outputs=dataset.n_sensors,
+                             n_phonemes=dataset.n_phonemes,
                              optim=cfg.solver)
+    from pprint import pprint; pprint(model.get_params())
+    model.partial_fit(dataset)
     # model.set_params(trf__alpha=np.ones(129))
     # nbd = NestedBerpDataset([dataset.datasets[0]], n_splits=4)
     # model.partial_fit(nbd)

@@ -6,9 +6,7 @@ from typing import List, Optional, Callable, Dict, Tuple, Union
 
 import numpy as np
 import torch
-from torch.nn.functional import pad
 from torchtyping import TensorType
-from tqdm.auto import tqdm, trange
 from typeguard import typechecked
 
 from berp.typing import DIMS, is_log_probability
@@ -23,9 +21,6 @@ T, S = DIMS.T, DIMS.S
 # Type aliases
 Phoneme = str
 intQ = Optional[Union[int, np.integer]]
-
-def default_phonemizer(string) -> List[Phoneme]:
-    return list(string)
 
 
 @typechecked
@@ -100,12 +95,24 @@ class BerpDataset:
         return len(self)
 
     @property
+    def n_ts_features(self):
+        return self.X_ts.shape[1]
+
+    @property
+    def n_variable_features(self):
+        return self.X_variable.shape[1]
+
+    @property
     def n_total_features(self):
-        return self.X_variable.shape[1] + self.X_ts.shape[1]
+        return self.n_ts_features + self.n_variable_features
 
     @property
     def n_sensors(self):
         return self.Y.shape[1]
+
+    @property
+    def n_phonemes(self):
+        return len(self.phonemes)
 
     def __getitem__(self, key) -> "BerpDataset":
         """
