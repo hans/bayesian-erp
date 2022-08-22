@@ -9,10 +9,9 @@ import torch.distributions as dist
 from torchtyping import TensorType
 from typeguard import typechecked
 
-from berp.config.model import TRFModelConfig
-from berp.config.solver import SolverConfig
 from berp.datasets.base import BerpDataset, NestedBerpDataset
 from berp.models.pipeline import PartialPipeline, XYTransformerMixin, StandardXYScaler
+from berp.solvers import Solver
 from berp.util import time_to_sample
 
 L = logging.getLogger(__name__)
@@ -26,8 +25,11 @@ TRFResponse = TensorType["n_times", "n_outputs"]
 class TemporalReceptiveField(BaseEstimator):
 
     def __init__(self, tmin, tmax, sfreq, n_outputs,
-                 optim, fit_intercept=False,
-                 warm_start=True, alpha=1, **kwargs):
+                 optim: Optional[Solver] = None,
+                 fit_intercept=False,
+                 warm_start=True,
+                 alpha=1,
+                 **kwargs):
         self.sfreq = sfreq
         self.n_outputs = n_outputs
 
@@ -215,31 +217,6 @@ class TemporalReceptiveField(BaseEstimator):
         return Y_dist.log_prob(Y)
 
 
-# class GroupTemporalReceptiveField(BaseEstimator):
-#     """
-#     Temporal receptive field model estimated and scored at
-#     the group level, combining multiple independent datasets.
-#     """
-
-#     def __init__(self, cfg: TRFModelConfig):
-#         self.trf = TemporalReceptiveField(cfg)
-
-#     def _scatter(self, datasets: List[BerpDataset]
-#                  recognition_points: Optional[List[List[int]]] = None,
-#                  ) -> Tuple[TensorType["n_times", "n_features"],
-#                             TensorType["n_times", "n_outputs"]]:
-#         """
-#         Join group-level data into a single array, scattering 
-#         variable-onset data according to `recognition_points`.
-
-#         If `recognition_points` is none, all recognition points are
-#         assumed to be zero (i.e. at word-onset).
-#         """
-#         raise NotImplementedError()
-
-#     def fit(self, datasets: List[BerpDataset]):
-
-
 class GroupScatterTransform(XYTransformerMixin, BaseEstimator):
     """
     Simultaneously joins grouped time series data into a single array,
@@ -294,6 +271,24 @@ class TRFDelayer(XYTransformerMixin, BaseEstimator):
     def transform(self, X: TRFPredictors, y=None) -> Tuple[TRFDesignMatrix, Any]:
         # TODO fill_mean
         return _delay_time_series(X, self.tmin, self.tmax, self.sfreq), y
+
+
+def TRFPipeline(standardize_X: bool, standardize_Y: bool, **kwargs):
+    trf_delayer = TRFDelayer(**kwargs)
+    trf = TemporalReceptiveField(**kwargs)
+
+    steps = []
+
+    if standardize_X or standardize_Y:
+        steps.append(("standardize", StandardXYScaler(standardize_X=standardize_X,
+                                                      standardize_Y=standardize_Y)))
+
+    steps += [
+        ("trf_delay", trf_delayer),
+        ("trf", trf),
+    ]
+
+    return PartialPipeline(steps, cache_name="BerpTRF")
 
 
 def BerpTRF(standardize_X: bool, standardize_Y: bool, **kwargs):
