@@ -9,7 +9,7 @@ import torch
 from torchtyping import TensorType
 from typeguard import typechecked
 
-from berp.typing import DIMS, is_log_probability
+from berp.typing import DIMS, is_log_probability, is_positive
 
 L = logging.getLogger(__name__)
 
@@ -64,12 +64,12 @@ class BerpDataset:
     Phoneme ID sequence for each word and alternate candidate set.
     """
 
-    word_onsets: TensorType[B, float]
+    word_onsets: TensorType[B, float, is_positive]
     """
     Onset of each word in seconds, relative to the start of the sequence.
     """
 
-    phoneme_onsets: TensorType[B, N_P, float]
+    phoneme_onsets: TensorType[B, N_P, float, is_positive]
     """
     Onset of each phoneme within each word in seconds, relative to the start of
     the corresponding word. Column axis should be padded with 0s.
@@ -89,6 +89,10 @@ class BerpDataset:
 
     def __len__(self):
         return self.Y.shape[0]
+
+    @property
+    def dtype(self):
+        return self.Y.dtype
 
     @property
     def n_samples(self):
@@ -114,6 +118,7 @@ class BerpDataset:
     def n_phonemes(self):
         return len(self.phonemes)
 
+    @typechecked
     def __getitem__(self, key) -> "BerpDataset":
         """
         Extract a number of samples from the dataset.
@@ -140,8 +145,8 @@ class BerpDataset:
             X_variable = self.X_variable[keep_word_indices]
 
             # Subtract onset data so that t=0 -> sample 0.
+            # NB phoneme_onsets is relative to word onset, so we don't subtract here.
             word_onsets = word_onsets - start_time
-            phoneme_onsets = phoneme_onsets - start_time
 
             ret = dataclasses.replace(self,
                 name=f"{self.name}/slice:{start_sample}:{end_sample}",
@@ -201,6 +206,9 @@ class NestedBerpDataset(object):
         # X and Y.
         for dataset in datasets:
             ds0 = datasets[0]
+            assert dataset.dtype == ds0.dtype
+            assert dataset.sample_rate == ds0.sample_rate
+            assert dataset.phonemes == ds0.phonemes
             assert dataset.X_ts.shape[1:] == ds0.X_ts.shape[1:]
             assert dataset.X_variable.shape[1:] == ds0.X_variable.shape[1:]
             assert dataset.Y.shape[1:] == ds0.Y.shape[1:]
@@ -223,6 +231,22 @@ class NestedBerpDataset(object):
                     (i, slice(split_offset, split_offset + split_size)))
 
     @property
+    def dtype(self):
+        return self.datasets[0].dtype
+
+    @property
+    def sample_rate(self):
+        return self.datasets[0].sample_rate
+
+    @property
+    def phonemes(self):
+        return self.datasets[0].phonemes
+
+    @property
+    def n_phonemes(self):
+        return self.datasets[0].n_phonemes
+
+    @property
     def shape(self):
         # Define shape property so that sklearn indexing thinks we're an
         # ndarray, and will index with an ndarray of indices rather than
@@ -231,9 +255,16 @@ class NestedBerpDataset(object):
         return (len(self),)
 
     @property
+    def n_ts_features(self):
+        return self.datasets[0].n_ts_features
+
+    @property
+    def n_variable_features(self):
+        return self.datasets[0].n_variable_features
+
+    @property
     def n_total_features(self):
-        ds = self.datasets[0]
-        return ds.X_variable.shape[1] + ds.X_ts.shape[1]
+        return self.datasets[0].n_total_features
 
     @property
     def n_sensors(self):
@@ -258,6 +289,10 @@ class NestedBerpDataset(object):
 
     def iter_datasets(self):
         return iter(self.datasets)
+
+    @property
+    def names(self):
+        return [ds.name for ds in self.datasets]
 
     def subset_sensors(self, sensors: List[int]) -> NestedBerpDataset:
         """
