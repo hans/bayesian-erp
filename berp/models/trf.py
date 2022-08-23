@@ -87,7 +87,7 @@ class TemporalReceptiveField(BaseEstimator):
         self.alpha = torch.as_tensor(self.alpha, dtype=torch.float32)
 
     @typechecked
-    def fit(self, X: TRFDesignMatrix, Y: TRFResponse
+    def fit(self, X: TRFDesignMatrix, Y: TRFResponse,
             ) -> "TemporalReceptiveField":
         """
         Fit the TRF encoder with least squares.
