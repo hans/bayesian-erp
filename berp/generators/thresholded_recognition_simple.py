@@ -1,6 +1,7 @@
 from functools import partial
 import itertools
 from typing import List, NamedTuple, Tuple, Optional, Dict, Union, Callable
+import uuid
 
 import numpy as np
 import pyro.distributions as dist
@@ -10,6 +11,7 @@ from torchtyping import TensorType
 from tqdm.notebook import tqdm
 from typeguard import typechecked
 
+from berp.datasets import BerpDataset
 from berp.generators import response
 from berp.generators.stimulus import Stimulus, StimulusGenerator
 from berp.models import reindexing_regression as rr
@@ -92,7 +94,7 @@ def sample_dataset(params: rr.ModelParameters,
                    response_type: str = "gaussian",
                    epoch_window: Tuple[float, float] = (-0.1, 1.0),
                    include_intercept=True,
-                   ) -> rr.RRDataset:
+                   ) -> BerpDataset:
     
     stim = stimulus_generator()
 
@@ -131,10 +133,9 @@ def sample_dataset(params: rr.ModelParameters,
     # TODO any features to add here?
     X_ts = torch.zeros((Y.shape[0], 1))
 
-    return rr.RRDataset(
-        params=params,
+    return BerpDataset(
+        name=uuid.uuid4().hex,
         sample_rate=sample_rate,
-        epoch_window=epoch_window,
         phonemes=PHONEMES.tolist(),
 
         p_word=stim.p_word,
@@ -143,9 +144,6 @@ def sample_dataset(params: rr.ModelParameters,
 
         word_onsets=stim.word_onsets,
         phoneme_onsets=stim.phoneme_onsets,
-
-        recognition_points=recognition_points,
-        recognition_onsets=recognition_onsets,
 
         Y=Y,
         X_variable=X_variable,

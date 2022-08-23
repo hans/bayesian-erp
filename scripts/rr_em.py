@@ -20,10 +20,12 @@ import pyro.distributions as dist
 from sklearn.base import clone, BaseEstimator
 from tqdm.auto import tqdm, trange
 
+from berp.datasets import BerpDataset
 from berp.generators import stimulus
 from berp.generators import thresholded_recognition_simple as generator
 from berp.models import reindexing_regression as rr
-from berp.models.trf import TemporalReceptiveField
+from berp.models.trf import TemporalReceptiveField, TRFDelayer
+from berp.solvers import AdamSolver
 
 
 def generate_sentences() -> List[str]:
@@ -70,14 +72,15 @@ def get_parameters():
 
 
 def forward(params: rr.ModelParameters, encoder: TemporalReceptiveField,
-            dataset: rr.RRDataset):
+            delayer: TRFDelayer, dataset: BerpDataset):
     _, _, design_matrix = rr.scatter_model(params, dataset)
-    Y_pred = encoder.predict(design_matrix)
+    X_del, _ = delayer.transform(design_matrix)
+    Y_pred = encoder.predict(X_del)
     return Y_pred
 
 
 def weighted_design_matrix(weights: torch.Tensor, param_grid: List[rr.ModelParameters],
-                           dataset: rr.RRDataset):
+                           dataset: BerpDataset):
     num_features = dataset.X_variable.shape[1] + dataset.X_ts.shape[1]
     X_mixed = torch.zeros((dataset.Y.shape[0], num_features))
     for weight, params in zip(weights, param_grid):
@@ -87,7 +90,8 @@ def weighted_design_matrix(weights: torch.Tensor, param_grid: List[rr.ModelParam
     return X_mixed
 
 
-def e_step_grid(encoder: TemporalReceptiveField, dataset: rr.RRDataset,
+def e_step_grid(encoder: TemporalReceptiveField, delayer: TRFDelayer,
+                dataset: BerpDataset,
                 param_grid: List[rr.ModelParameters]):
     """
     Compute distribution over latent parameters conditioned on regression model.
@@ -95,7 +99,8 @@ def e_step_grid(encoder: TemporalReceptiveField, dataset: rr.RRDataset,
     results = torch.zeros(len(param_grid))
     for i, params in enumerate(param_grid):
         _, _, design_matrix = rr.scatter_model(params, dataset)
-        test_ll = encoder.log_prob(design_matrix, dataset.Y).sum()
+        X_del, _ = delayer.transform(design_matrix)
+        test_ll = encoder.log_likelihood(X_del, dataset.Y).sum()
         results[i] = test_ll
 
     # Convert to probabilities
@@ -106,27 +111,31 @@ def e_step_grid(encoder: TemporalReceptiveField, dataset: rr.RRDataset,
     return weights
 
 
-def m_step_lstsq(encoder: TemporalReceptiveField, weights: torch.Tensor, dataset: rr.RRDataset,
+def m_step_lstsq(encoder: TemporalReceptiveField, delayer: TRFDelayer,
+                 weights: torch.Tensor, dataset: BerpDataset,
                  param_grid: List[rr.ModelParameters]):
     """
     Estimate encoder which maximizes likelihood of data under expected design matrix
     by least squares.
     """
     X_mixed = weighted_design_matrix(weights, param_grid, dataset)
-    return encoder.fit(X_mixed, dataset.Y)
+    X_del, _ = delayer.transform(X_mixed)
+    return encoder.fit(X_del, dataset.Y)
 
 
-def m_step_sgd(encoder: TemporalReceptiveField, weights: torch.Tensor, dataset: rr.RRDataset,
+def m_step_sgd(encoder: TemporalReceptiveField, delayer: TRFDelayer,
+               weights: torch.Tensor, dataset: BerpDataset,
                param_grid: List[rr.ModelParameters]):
     """
     Estimate encoder which maximizes likelihood of data under expected design matrix
     by stochastic gradient descent.
     """
     X_mixed = weighted_design_matrix(weights, param_grid, dataset)
-    return encoder.partial_fit(X_mixed, dataset.Y)
+    X_del, _ = delayer.transform(X_mixed)
+    return encoder.partial_fit(X_del, dataset.Y)
 
 
-def fit_em(dataset: rr.RRDataset, param_grid: List[rr.ModelParameters],
+def fit_em(dataset: BerpDataset, param_grid: List[rr.ModelParameters],
            val_dataset=None, n_iter=10, trf_alpha=None,
            solver="sgd",
            epoch_window=(0.0, 1.0),
@@ -137,16 +146,19 @@ def fit_em(dataset: rr.RRDataset, param_grid: List[rr.ModelParameters],
         [f"ts_{i}" for i in range(dataset.X_ts.shape[1])]
     encoder = TemporalReceptiveField(
         tmin, tmax, dataset.sample_rate,
+        optim=AdamSolver(early_stopping=None),
         n_outputs=dataset.Y.shape[-1],
         feature_names=all_features,
         warm_start=True,
         alpha=trf_alpha)
+    delayer = TRFDelayer(tmin, tmax, dataset.sample_rate)
 
     def evaluate(weights: torch.Tensor, encoder: TemporalReceptiveField,
-                 dataset: rr.RRDataset):
+                 delayer: TRFDelayer, dataset: BerpDataset):
         with poutine.block():
             X_mixed = weighted_design_matrix(weights, param_grid, dataset)
-            Y_pred = encoder.predict(X_mixed)
+            X_del, _ = delayer.transform(X_mixed)
+            Y_pred = encoder.predict(X_del)
 
         mse = (Y_pred - dataset.Y).pow(2).sum(axis=1).mean()
         # for sensor_pred_obs in torch.stack([Y_pred, dataset.Y]).transpose(0, 2):
@@ -172,7 +184,7 @@ def fit_em(dataset: rr.RRDataset, param_grid: List[rr.ModelParameters],
     #     pprint(list(zip(metric_names, metrics.mean(axis=0))))
 
     weights = torch.zeros((n_iter, len(param_grid)))
-    coefs = [encoder.coef_.clone()]
+    coefs = [None]
 
     # Prepare M-step solver.
     if solver == "sgd":
@@ -186,14 +198,14 @@ def fit_em(dataset: rr.RRDataset, param_grid: List[rr.ModelParameters],
     patience_counter = 0
     with trange(n_iter) as titer:
         for i in titer:
-            weights[i] = e_step_grid(encoder, dataset, param_grid)
-            encoder = m_step(encoder, weights[i], dataset, param_grid)
+            weights[i] = e_step_grid(encoder, delayer, dataset, param_grid)
+            encoder = m_step(encoder, delayer, weights[i], dataset, param_grid)
             coefs.append(encoder.coef_.clone())
 
-            train_loss = evaluate(weights[i], encoder, dataset)
+            train_loss = evaluate(weights[i], encoder, delayer, dataset)
             iter_results = dict(train_loss=train_loss.item())
             if val_dataset is not None:
-                val_loss = evaluate(weights[i], encoder, val_dataset)
+                val_loss = evaluate(weights[i], encoder, delayer, val_dataset)
                 iter_results["val_loss"] = val_loss.item()
 
                 if early_stopping_patience is not None:
