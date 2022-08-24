@@ -261,7 +261,7 @@ class NaturalLanguageStimulusProcessor(object):
             word_p_word = word_p_token.sum(dim=0)
             # DUMB just take the first one.
             # Could get the GT string though.
-            word_candidate_token_ids = candidate_token_ids[0]
+            word_candidate_token_ids = word_candidate_token_ids[0]
             word_candidate_strs = self._tokenizer.convert_ids_to_tokens(word_candidate_token_ids)
 
             ret_word_ids.append(word_id)
