@@ -86,7 +86,7 @@ def response_model(stim: Stimulus,
     return Y
 
 
-@typechecked
+# @typechecked
 def sample_dataset(params: rr.ModelParameters,
                    stimulus_generator: Union[StimulusGenerator, Callable[[], Stimulus]],
                    num_sensors: int = 1,

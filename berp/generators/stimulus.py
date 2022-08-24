@@ -14,6 +14,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer  # type: ignore
 from transformers.tokenization_utils_base import BatchEncoding
 from tqdm.auto import tqdm, trange
 
+from berp.datasets.processor import NaturalLanguageStimulusProcessor
 from berp.typing import DIMS, is_probability, is_log_probability
 
 
@@ -125,3 +126,31 @@ class RandomStimulusGenerator(StimulusGenerator):
 
         return Stimulus(gt_word_lengths, phoneme_onsets, phoneme_onsets_global,
                         word_onsets, word_surprisals, p_word, candidate_phonemes)
+
+
+class NaturalLanguageStimulusGenerator(StimulusGenerator):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__()
+        self.processor = NaturalLanguageStimulusProcessor(*args, **kwargs)
+
+    def __call__(self, tokens: List[str],
+                 word_features: Dict[int, torch.Tensor],
+                 word_to_token: Optional[Dict[int, List[int]]] = None,
+                 ground_truth_phonemes: Optional[Dict[int, List[str]]] = None) -> Stimulus:
+
+        if word_to_token is None:
+            # Assume words are the same as tokens
+            assert len(word_features) == len(tokens)
+            word_to_token = {idx: [idx] for idx in word_features}
+    
+        nl_stim = self.processor(tokens, word_to_token, word_features, ground_truth_phonemes)
+
+        max_num_phonemes = nl_stim.candidate_phonemes.shape[2]
+        phoneme_onsets, phoneme_onsets_global, word_onsets = \
+            self.sample_stream(nl_stim.word_lengths, max_num_phonemes)
+
+        return Stimulus(
+            nl_stim.word_lengths, phoneme_onsets, phoneme_onsets_global,
+            word_onsets, nl_stim.word_surprisals, nl_stim.p_word, nl_stim.candidate_phonemes
+        )
