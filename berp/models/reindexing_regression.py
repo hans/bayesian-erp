@@ -4,7 +4,7 @@ are a deterministic function of data and these three parameters.
 """
 
 from dataclasses import dataclass
-from typing import NamedTuple, Tuple, Callable, List, Optional
+from typing import NamedTuple, Tuple, Callable, List, Optional, Union
 
 from icecream import ic
 import numpy as np
@@ -54,13 +54,15 @@ class RRResult(NamedTuple):
     q_obs: TensorType[B, T, S, float]
 
 
-@typechecked
+# @typechecked
 def predictive_model(p_word: TensorType[B, N_C, is_log_probability],
                      phonemes: TensorType[B, N_C, N_P, int],
                      confusion: TensorType[V_P, V_P, is_probability],
                      lambda_: TensorType[float],
-                     ground_truth_word_idx=0
-                     ) -> TensorType[B, N_P, is_probability]:
+                     ground_truth_word_idx=0,
+                     return_gt_only=True,
+                     ) -> Union[TensorType[B, N_P, is_probability],
+                                TensorType[B, N_C, N_P, is_probability]]:
     r"""
     Computes the next-word probability estimate
 
@@ -107,8 +109,11 @@ def predictive_model(p_word: TensorType[B, N_C, is_log_probability],
     bayes_p_word = (p_word.unsqueeze(-1) + incremental_word_likelihoods).exp()
     bayes_p_word /= bayes_p_word.sum(dim=1, keepdim=True)
 
-    p_ground_truth = bayes_p_word[:, ground_truth_word_idx, :]
-    return p_ground_truth
+    if return_gt_only:
+        p_ground_truth = bayes_p_word[:, ground_truth_word_idx, :]
+        return p_ground_truth
+    else:
+        return bayes_p_word
 
 
 @typechecked
