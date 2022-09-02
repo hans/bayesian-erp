@@ -380,6 +380,9 @@ class NaturalLanguageStimulusProcessor(object):
             max_num_phonemes = max(len(phonemes) for phonemes in ground_truth_phonemes.values())
         else:
             max_num_phonemes = max(len(self.phonemizer(tok)) for tok in tokens)
+        # TODO this will break when a candidate is longer than ground truth
+        # HACK for now
+        max_num_phonemes = 20
 
         # NB some words may never end up affecting a sample (e.g. the first word in the
         # batches constructed here). So we'll also need to keep a mask for that and do

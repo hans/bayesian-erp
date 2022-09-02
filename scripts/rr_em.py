@@ -100,6 +100,10 @@ def e_step_grid(encoder: TemporalReceptiveField, delayer: TRFDelayer,
     for i, params in enumerate(param_grid):
         _, _, design_matrix = rr.scatter_model(params, dataset)
         X_del, _ = delayer.transform(design_matrix)
+        print(X_del.nonzero(), X_del[58:60, :, 0])
+        print("here3")
+        np.save("nonzero_rr_em.npy", X_del[:, :, 0].detach().numpy().nonzero())
+        return None
         test_ll = encoder.log_likelihood(X_del, dataset.Y).sum()
         results[i] = test_ll
 

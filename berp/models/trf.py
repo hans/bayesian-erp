@@ -186,7 +186,9 @@ class TemporalReceptiveField(BaseEstimator):
 
         X = _reshape_for_est(X)
         coef = self.coef_.reshape((-1, self.n_outputs))
-        return X @ coef
+        Y_pred = X @ coef
+        
+        return Y_pred
 
     @typechecked
     def score(self, X: TRFDesignMatrix, Y: TRFResponse) -> float:
@@ -212,6 +214,7 @@ class TemporalReceptiveField(BaseEstimator):
             sigma = self.sigma
         
         Y_pred = self.predict(X)
+        # print(np.hstack([Y_pred[50:60], Y[50:60]]))
         Y_dist = dist.Normal(Y_pred, sigma)
         return Y_dist.log_prob(Y)
 

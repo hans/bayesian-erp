@@ -196,7 +196,8 @@ class BerpTRFForwardPipeline(BaseEstimator):
         out[:, feature_start_idx:, :] = 0.
 
         # Compute recognition onset times and convert to sample representation.
-        recognition_onsets = torch.gather(dataset.phoneme_onsets, 1, recognition_points.unsqueeze(1)).squeeze(1)
+        recognition_onsets = torch.gather(
+            dataset.phoneme_onsets_global, 1, recognition_points.unsqueeze(1)).squeeze(1)
         recognition_onsets_samp = time_to_sample(recognition_onsets, self.encoder.sfreq)
 
         # Scatter-add, broadcasting over delay axis.
@@ -275,6 +276,10 @@ class BerpTRFForwardPipeline(BaseEstimator):
         independently.
         """
         design_matrices, _ = self._pre_transform_expanded(dataset)
+        print("here3")
+        print(design_matrices[0].nonzero(), design_matrices[0][58:60, :, 0])
+        np.save("nonzero_pipeline.npy", design_matrices[0][:, :, 0].numpy().nonzero())
+        return None
         return torch.stack([self.encoder.log_likelihood(dm, dataset.Y).sum()
                             for dm in design_matrices])
 

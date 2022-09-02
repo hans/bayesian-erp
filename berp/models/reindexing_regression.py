@@ -177,7 +177,7 @@ def scatter_response_model(
         ret_variable[rec_onset_samp] += X_variable_i
 
     # Concatenate with time-series data.
-    ret = torch.concat([ret_variable, X_ts], dim=1)
+    ret = torch.concat([X_ts, ret_variable], dim=1)
 
     return ret
 
