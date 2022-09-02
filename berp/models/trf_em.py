@@ -276,10 +276,10 @@ class BerpTRFForwardPipeline(BaseEstimator):
         independently.
         """
         design_matrices, _ = self._pre_transform_expanded(dataset)
-        print("here3")
-        print(design_matrices[0].nonzero(), design_matrices[0][58:60, :, 0])
-        np.save("nonzero_pipeline.npy", design_matrices[0][:, :, 0].numpy().nonzero())
-        return None
+        # print("here3")
+        # print(design_matrices[0].nonzero(), design_matrices[0][58:60, :, 0])
+        # np.save("nonzero_pipeline.npy", design_matrices[0][:, :, 0].numpy().nonzero())
+        # return None
         return torch.stack([self.encoder.log_likelihood(dm, dataset.Y).sum()
                             for dm in design_matrices])
 

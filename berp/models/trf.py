@@ -50,8 +50,13 @@ class TemporalReceptiveField(BaseEstimator):
             L.warning(f"Unused arguments: {kwargs}")
 
     def _init_coef(self):
-        self.coef_ = torch.randn(self.n_features_, len(self.delays_),
-                                 self.n_outputs) * 1e-1
+        self.coef_ = torch.concat([
+            torch.ones(self.n_features_, len(self.delays_) // 2, self.n_outputs),
+            torch.ones(self.n_features_, len(self.delays_) // 2 + 1, self.n_outputs) / 2,
+        ], dim=1) * 1e-1
+        # self.coef_ = torch.ones(self.n_features_, len(self.delays_),
+        #                         self.n_outputs) * 1e-2
+        print("yay7 coef", self.coef_)
 
     # Provide parameters for SGDEstimatorMixin
     @property
@@ -145,10 +150,13 @@ class TemporalReceptiveField(BaseEstimator):
         X, Y = self._check_shapes_types(X, Y)
         X_orig = X
 
+        print("X_orig2", X_orig[:, :, 0].nonzero())
+
         if not self.warm_start or not hasattr(self, "coef_"):
             self._init_coef()
         elif self.optim._has_early_stopped:
             L.info("Early stopped. skipping")
+            raise RuntimeError()  # DEV
 
         # Preprocess X
         X = _reshape_for_est(X)
@@ -166,6 +174,7 @@ class TemporalReceptiveField(BaseEstimator):
 
         Y_pred = self.predict(X_orig)
         self.residuals_ = Y_pred - Y
+        print("argsort resid", self.residuals_[:, 0].argsort()[:10])
 
         return self
 
