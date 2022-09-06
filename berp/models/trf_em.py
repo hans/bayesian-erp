@@ -75,6 +75,9 @@ def _make_validation_mask(dataset: BerpDataset, validation_fraction: float,
     n_samples = y.shape[0]
     validation_mask = torch.zeros(n_samples).bool()
 
+    # DEV
+    validation_mask[:10] = True
+
     # TODO valid sample boundaries?
     cv = ShuffleSplit(
         test_size=validation_fraction, random_state=random_state

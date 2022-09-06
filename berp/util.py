@@ -127,3 +127,10 @@ def gaussian_window(center: float, width: float,\
 #     ic(mask)
 #
 #     return padded_batch, mask
+
+
+
+def tensor_hash(v):
+    quantized = torch.quantize_per_tensor(v, 0.1, 0, torch.quint8).int_repr()
+    sv = hash(tuple(quantized.view((-1, v.shape[-1])).sum(dim=0).numpy()))
+    return sv

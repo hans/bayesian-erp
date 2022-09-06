@@ -125,6 +125,9 @@ class TemporalReceptiveField(BaseEstimator):
 
     def _loss_fn(self, X, Y: TRFResponse) -> torch.Tensor:
         Y_pred = X @ self.coef_
+        from berp.util import tensor_hash
+        print("loss/Y_pred", tensor_hash(Y_pred))
+        print("loss/alpha", self.alpha)
         loss = (Y_pred - Y).pow(2).sum(axis=1).mean()
 
         # Add ridge term.
@@ -150,7 +153,7 @@ class TemporalReceptiveField(BaseEstimator):
         X, Y = self._check_shapes_types(X, Y)
         X_orig = X
 
-        print("X_orig2", X_orig[:, :, 0].nonzero())
+        print("X_orig2", X_orig[:, :, :].nonzero())
 
         if not self.warm_start or not hasattr(self, "coef_"):
             self._init_coef()
@@ -165,16 +168,23 @@ class TemporalReceptiveField(BaseEstimator):
         # Better to just provide a property for reading nicely shaped coefs
         coef_shape = self.coef_.shape
         self.coef_ = self.coef_.view((-1, self.n_outputs)).requires_grad_()
+        
+        from berp.util import tensor_hash
+        print("coef has", tensor_hash(self.coef_))
 
         # TODO don't need to call this every iteration..
         self.optim.prime(self, X, Y)
         self.optim(self._loss_fn, X, Y, **kwargs)
 
         self.coef_ = self.coef_.detach().view(coef_shape)
+        print("shape", self.coef_.shape)
+        print("X hashs", tensor_hash(X_orig))
+        print("Y hash", tensor_hash(Y))
 
         Y_pred = self.predict(X_orig)
         self.residuals_ = Y_pred - Y
-        print("argsort resid", self.residuals_[:, 0].argsort()[:10])
+        print("Y_pred hash", tensor_hash(Y_pred))
+        print("argsort hash", tensor_hash(self.residuals_[:, 0]))
 
         return self
 

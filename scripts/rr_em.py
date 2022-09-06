@@ -136,7 +136,11 @@ def m_step_sgd(encoder: TemporalReceptiveField, delayer: TRFDelayer,
     """
     X_mixed = weighted_design_matrix(weights, param_grid, dataset)
     X_del, _ = delayer.transform(X_mixed)
-    return encoder.partial_fit(X_del, dataset.Y)
+
+    # DEV to align impl
+    validation_mask = torch.zeros(dataset.Y.shape[0]).bool()
+    validation_mask[:10] = True
+    return encoder.partial_fit(X_del, dataset.Y, validation_mask=validation_mask.numpy())
 
 
 def fit_em(dataset: BerpDataset, param_grid: List[rr.ModelParameters],
@@ -153,9 +157,12 @@ def fit_em(dataset: BerpDataset, param_grid: List[rr.ModelParameters],
         optim=AdamSolver(early_stopping=None),
         n_outputs=dataset.Y.shape[-1],
         feature_names=all_features,
+        early_stopping=False,
         warm_start=True,
         alpha=trf_alpha)
     delayer = TRFDelayer(tmin, tmax, dataset.sample_rate)
+    print(encoder.get_params())
+    print(delayer.get_params())
 
     def evaluate(weights: torch.Tensor, encoder: TemporalReceptiveField,
                  delayer: TRFDelayer, dataset: BerpDataset):
