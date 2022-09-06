@@ -199,7 +199,9 @@ class BerpTRFForwardPipeline(BaseEstimator):
         out[:, feature_start_idx:, :] = 0.
 
         # Compute recognition onset times and convert to sample representation.
-        recognition_onsets = torch.gather(dataset.phoneme_onsets, 1, recognition_points.unsqueeze(1)).squeeze(1)
+        recognition_onsets = torch.gather(
+            dataset.phoneme_onsets_global, 1,
+            recognition_points.unsqueeze(1)).squeeze(1)
         recognition_onsets_samp = time_to_sample(recognition_onsets, self.encoder.sfreq)
 
         # Scatter-add, lagging over delay axis.

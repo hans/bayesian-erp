@@ -117,6 +117,14 @@ class BerpDataset:
     @property
     def n_phonemes(self):
         return len(self.phonemes)
+    
+    @property
+    def phoneme_onsets_global(self) -> TensorType[B, N_P, float, is_positive]:
+        """
+        Onset of each phoneme within each word in seconds, relative to the start of
+        the time series.
+        """
+        return self.word_onsets[:, None] + self.phoneme_onsets
 
     @typechecked
     def __getitem__(self, key) -> "BerpDataset":
