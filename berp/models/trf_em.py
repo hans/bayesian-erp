@@ -179,7 +179,8 @@ class BerpTRFForwardPipeline(BaseEstimator):
                           out_weight: float = 1.,
                           ) -> TRFDesignMatrix:
         """
-        Scatter variable predictors into design matrix.
+        Scatter variable predictors into design matrix, which is a
+        lagged time series.
 
         Args:
             dataset:
@@ -188,6 +189,8 @@ class BerpTRFForwardPipeline(BaseEstimator):
                 returning a modified copy of the dummy design matrix.
             out_weight: apply this weight to the scatter-add.
         """
+        
+        # TODO unittest this !!
 
         assert len(recognition_points) == dataset.X_variable.shape[0]
 
@@ -200,9 +203,13 @@ class BerpTRFForwardPipeline(BaseEstimator):
             dataset.phoneme_onsets_global, 1, recognition_points.unsqueeze(1)).squeeze(1)
         recognition_onsets_samp = time_to_sample(recognition_onsets, self.encoder.sfreq)
 
-        # Scatter-add, broadcasting over delay axis.
-        to_add = (out_weight * dataset.X_variable).unsqueeze(2)
-        out[recognition_onsets_samp, feature_start_idx:, :] += to_add
+        # Scatter-add, lagging over delay axis.
+        to_add = out_weight * dataset.X_variable
+        for delay in range(out.shape[2]):
+            # TODO handle boundary case where onset exceeds bounds (right side) of time series
+            out[recognition_onsets_samp + delay,
+                feature_start_idx:,
+                delay] += to_add
 
         return out
 
