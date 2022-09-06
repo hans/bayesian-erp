@@ -51,7 +51,7 @@ class AdamSolver(Solver):
     @cached_property
     def _optim(self):
         # TODO make sure this is not carried across history
-        return torch.optim.SGD(self._optim_parameters, lr=self.learning_rate)
+        return torch.optim.Adam(self._optim_parameters, lr=self.learning_rate)
 
     def reset(self):
         self._primed = False
@@ -107,12 +107,11 @@ class AdamSolver(Solver):
 
                     self._optim.zero_grad()
                     loss = loss_fn(batch_X, batch_y)
+                    print("optim/loss", loss.detach())
                     loss.backward()
                     self._optim.step()
 
                     losses.append(loss.item())
-                    # DEV
-                    return self
 
                     if n_batches % 10 == 0:
                         if self.early_stopping:

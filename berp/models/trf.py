@@ -50,12 +50,13 @@ class TemporalReceptiveField(BaseEstimator):
             L.warning(f"Unused arguments: {kwargs}")
 
     def _init_coef(self):
-        self.coef_ = torch.concat([
-            torch.ones(self.n_features_, len(self.delays_) // 2, self.n_outputs),
-            torch.ones(self.n_features_, len(self.delays_) // 2 + 1, self.n_outputs) / 2,
-        ], dim=1) * 1e-1
-        # self.coef_ = torch.ones(self.n_features_, len(self.delays_),
-        #                         self.n_outputs) * 1e-2
+        # self.coef_ = torch.concat([
+        #     torch.ones(self.n_features_, len(self.delays_) // 2, self.n_outputs),
+        #     torch.ones(self.n_features_, len(self.delays_) // 2 + 1, self.n_outputs) / 2,
+        # ], dim=1) * 1e-1
+        torch.manual_seed(42)
+        self.coef_ = torch.randn(self.n_features_, len(self.delays_),
+                                 self.n_outputs) * 1e-1
         print("yay7 coef", self.coef_)
 
     # Provide parameters for SGDEstimatorMixin

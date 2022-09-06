@@ -230,8 +230,6 @@ def fit_em(dataset: BerpDataset, param_grid: List[rr.ModelParameters],
 
             titer.set_postfix(**iter_results)
 
-            break  # DEV
-
     # Trim weights if we stopped early.
     weights = weights[:i + 1]
 
