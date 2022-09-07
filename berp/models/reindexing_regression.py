@@ -169,6 +169,7 @@ def scatter_response_model(
 
     # Compute recognition onset as global index
     recognition_onsets_global_samp = time_to_sample(recognition_onset, sample_rate)
+    # import pdb; pdb.set_trace()
 
     # Scatter variable-onset data.
     ret_variable = torch.zeros(total_samples, X_variable.shape[1],
@@ -178,6 +179,7 @@ def scatter_response_model(
 
     # Concatenate with time-series data.
     ret = torch.concat([X_ts, ret_variable], dim=1)
+    # import pdb; pdb.set_trace()
 
     return ret
 

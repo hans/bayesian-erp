@@ -202,6 +202,7 @@ class BerpTRFForwardPipeline(BaseEstimator):
         recognition_onsets = torch.gather(
             dataset.phoneme_onsets_global, 1, recognition_points.unsqueeze(1)).squeeze(1)
         recognition_onsets_samp = time_to_sample(recognition_onsets, self.encoder.sfreq)
+        # import pdb; pdb.set_trace()
 
         # Scatter-add, lagging over delay axis.
         to_add = out_weight * dataset.X_variable
@@ -210,6 +211,7 @@ class BerpTRFForwardPipeline(BaseEstimator):
             out[recognition_onsets_samp + delay,
                 feature_start_idx:,
                 delay] += to_add
+        import pdb; pdb.set_trace()
 
         return out
 
@@ -243,6 +245,7 @@ class BerpTRFForwardPipeline(BaseEstimator):
         feature_start_idx = dataset.n_ts_features
         acc[:, feature_start_idx:, :] = 0.
 
+        print("wwww", self.param_weights)
         for params, weight in zip(self.params, self.param_weights):
             acc = self._pre_transform_single(dataset, params, out=acc, out_weight=weight)
         return acc, primed.validation_mask

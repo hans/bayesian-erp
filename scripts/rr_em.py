@@ -83,6 +83,7 @@ def weighted_design_matrix(weights: torch.Tensor, param_grid: List[rr.ModelParam
                            dataset: BerpDataset):
     num_features = dataset.X_variable.shape[1] + dataset.X_ts.shape[1]
     X_mixed = torch.zeros((dataset.Y.shape[0], num_features))
+    print("wwww", weights)
     for weight, params in zip(weights, param_grid):
         _, _, design_matrix = rr.scatter_model(params, dataset)
         X_mixed += weight * design_matrix
@@ -210,6 +211,8 @@ def fit_em(dataset: BerpDataset, param_grid: List[rr.ModelParameters],
     with trange(n_iter) as titer:
         for i in titer:
             weights[i] = e_step_grid(encoder, delayer, dataset, param_grid)
+            # DEV
+            weights[i] = torch.tensor([0.5, 0.5])
             encoder = m_step(encoder, delayer, weights[i], dataset, param_grid)
             coefs.append(encoder.coef_.clone())
 

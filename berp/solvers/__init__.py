@@ -51,7 +51,7 @@ class AdamSolver(Solver):
     @cached_property
     def _optim(self):
         # TODO make sure this is not carried across history
-        return torch.optim.Adam(self._optim_parameters, lr=self.learning_rate)
+        return torch.optim.SGD(self._optim_parameters, lr=self.learning_rate)
 
     def reset(self):
         self._primed = False
@@ -86,9 +86,9 @@ class AdamSolver(Solver):
             X_train, y_train = X, y
             
         from berp.util import tensor_hash
-        print("solver X train", X_train[64])
-        print(X_train.nonzero()[:15])
-        print("solver Y train", tensor_hash(y_train))
+        # print("solver X train", X_train[64])
+        # print(X_train.nonzero()[:15])
+        # print("solver Y train", tensor_hash(y_train))
 
         best_val_loss = np.inf
         no_improvement_count = 0
@@ -101,9 +101,9 @@ class AdamSolver(Solver):
                 for batch_offset in torch.arange(0, X_train.shape[0], self.batch_size):
                     batch_X = X_train[batch_offset:batch_offset + self.batch_size]
                     batch_y = y_train[batch_offset:batch_offset + self.batch_size]
-                    print("batch size", self.batch_size, batch_offset, X_train.shape, batch_X.shape)
-                    print("optim/batch_X", tensor_hash(batch_X))
-                    print("optim/batch_y", tensor_hash(batch_y))
+                    # print("batch size", self.batch_size, batch_offset, X_train.shape, batch_X.shape)
+                    # print("optim/batch_X", tensor_hash(batch_X))
+                    # print("optim/batch_y", tensor_hash(batch_y))
 
                     self._optim.zero_grad()
                     loss = loss_fn(batch_X, batch_y)
