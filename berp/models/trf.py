@@ -53,6 +53,9 @@ class TemporalReceptiveField(BaseEstimator):
         self.coef_ = torch.randn(self.n_features_, len(self.delays_),
                                  self.n_outputs) * 1e-1
 
+    def _reset_coef(self):
+        del self.coef_
+
     # Provide parameters for SGDEstimatorMixin
     @property
     def _optim_parameters(self):
@@ -174,19 +177,27 @@ class TemporalReceptiveField(BaseEstimator):
         if hasattr(self, "residuals_"):
             # Estimate forward model sigma from variance of residuals
             return self.residuals_.std()
-        else:
-            return torch.tensor(1.)
+        
+        raise RuntimeError("Cannot estimate sigma. Model has not been fit.")
 
     @typechecked
     def predict(self, X: TRFDesignMatrix) -> TRFResponse:
         X = self._check_shapes_types(X)
 
+        del_coef = False
         if not hasattr(self, "coef_"):
+            L.warning("Predicting with untrained model. Temporarily initializing random coefficients.")
+            del_coef = True
             self._init_coef()
 
         X = _reshape_for_est(X)
         coef = self.coef_.reshape((-1, self.n_outputs))
-        return X @ coef
+        Y_pred = X @ coef
+
+        if del_coef:
+            self._reset_coef()
+
+        return Y_pred
 
     @typechecked
     def score(self, X: TRFDesignMatrix, Y: TRFResponse) -> float:
