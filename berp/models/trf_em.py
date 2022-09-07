@@ -332,14 +332,22 @@ class GroupBerpTRFForwardPipeline(ScatterParamsMixin, BaseEstimator):
                  param_weights: Optional[Responsibilities] = None,
                  **kwargs):
         self.encoder = encoder
+        self.pipelines_: Dict[str, BerpTRFForwardPipeline] = {}
+
         self.params = params
         self.param_weights = param_weights if param_weights is not None else \
             torch.ones(len(self.params), dtype=torch.float) / len(self.params)
 
-        self.pipelines_: Dict[str, BerpTRFForwardPipeline] = {}
-
         if kwargs:
             L.warning(f"Unused kwargs: {kwargs}")
+
+    def set_param_weights(self, weights: Responsibilities):
+        self._param_weights = weights
+        for pipeline in self.pipelines_.values():
+            pipeline.param_weights = weights
+    def get_param_weights(self) -> Responsibilities:
+        return self._param_weights
+    param_weights = property(get_param_weights, set_param_weights)
 
     def _prime(self, dataset: NestedBerpDataset):
         if self.pipelines_:
@@ -447,6 +455,7 @@ class BerpTRFEMEstimator(BaseEstimator):
                  early_stopping: Optional[int] = 1,
                  **kwargs):
         self.pipeline = pipeline
+        self.param_resp_ = self.pipeline.param_weights
 
         self.n_iter = n_iter
         self.warm_start = warm_start
@@ -454,6 +463,13 @@ class BerpTRFEMEstimator(BaseEstimator):
         
         if kwargs:
             L.warning(f"Unused kwargs: {kwargs}")
+
+    def set_param_resp(self, resp: Responsibilities):
+        self._param_resp_ = resp
+        self.pipeline.param_weights = resp
+    def get_param_resp(self):
+        return self._param_resp_
+    param_resp_: Responsibilities = property(get_param_resp, set_param_resp)
 
     @typechecked
     def _e_step(self, dataset: NestedBerpDataset) -> Responsibilities:
@@ -485,7 +501,6 @@ class BerpTRFEMEstimator(BaseEstimator):
             L.info("E-step finished")
 
             # Re-estimate encoder parameters
-            self.pipeline.param_weights = self.param_resp_
             self._m_step(X)
             L.info("M-step finished")
 
