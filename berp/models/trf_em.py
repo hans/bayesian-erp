@@ -41,12 +41,16 @@ def BerpTRFEM(trf, latent_params: Dict[str, Dict[str, BaseDistribution]],
 
     # TODO lol complicated
     params = []
+    # TODO should be a parameter of the model
+    confusion = torch.eye(n_phonemes) + 0.2
+    confusion /= confusion.sum(dim=0, keepdim=True)
+
     base_params = PartiallyObservedModelParameters(
         lambda_=torch.tensor(1.),
-        confusion=torch.eye(n_phonemes),  # TODO need this as param
+        confusion=confusion,
         threshold=torch.tensor(0.5),
     )
-    for _ in range(10):
+    for _ in range(100):
         rands = torch.rand(len(latent_params))
         param_updates = {}
         for param_name, param_dist in latent_params.items():
