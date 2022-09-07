@@ -193,10 +193,7 @@ class BerpTRFForwardPipeline(BaseEstimator):
         # TODO unittest this !!
 
         assert len(recognition_points) == dataset.X_variable.shape[0]
-
         feature_start_idx = dataset.n_ts_features
-        
-        out[:, feature_start_idx:, :] = 0.
 
         # Compute recognition onset times and convert to sample representation.
         recognition_onsets = torch.gather(
@@ -239,6 +236,10 @@ class BerpTRFForwardPipeline(BaseEstimator):
         """
         primed = self._prime(dataset)
         acc = primed.design_matrix.clone()
+        
+        # Ensure variable-onset features are zeroed out.
+        feature_start_idx = dataset.n_ts_features
+        acc[:, feature_start_idx:, :] = 0.
 
         for params, weight in zip(self.params, self.param_weights):
             acc = self._pre_transform_single(dataset, params, out=acc, out_weight=weight)
