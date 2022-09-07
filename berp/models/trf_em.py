@@ -258,7 +258,8 @@ class BerpTRFForwardPipeline(BaseEstimator):
         ret = []
         for params in self.params:
             ret.append(self._pre_transform_single(dataset, params,
-                                                  out=primed.design_matrix.clone()))
+                                                  out=primed.design_matrix.clone(),
+                                                  out_weight=1.))
         return ret, primed.validation_mask
 
     def fit(self, dataset: BerpDataset) -> "BerpTRFForwardPipeline":
@@ -481,7 +482,10 @@ class BerpTRFEMEstimator(BaseEstimator):
         Compute responsibility values for each parameter in the grid for the
         given dataset.
         """
-        resp = torch.stack(self.pipeline.log_likelihood_expanded(dataset)).sum(0)
+        # n_pipelines * n_param_options
+        log_liks = self.pipeline.log_likelihood_expanded(dataset)
+        # Compute joint probability of params, treating subject pipelines as independent
+        resp = torch.stack(log_liks).sum(0)
 
         # Convert to probabilities
         resp -= resp.max()
