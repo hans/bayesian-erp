@@ -26,15 +26,17 @@ class AdamSolver(Solver):
     Whenever the dataset or estimator structure changes you should call `.prime()`
     """
 
-    def __init__(self, learning_rate: float = 0.01, n_epochs: int = 1,
+    def __init__(self, learning_rate: float = 0.01,
+                 n_batches: int = 8,
                  batch_size: int = 512,
                  early_stopping: Optional[int] = 5,
                  random_state=None,
                  pbar=False,
                  **kwargs):
         self.learning_rate = learning_rate
-        self.n_epochs = n_epochs
+        self.n_batches = n_batches
         self.batch_size = batch_size
+        self.batch_cursor = 0
 
         self.early_stopping = early_stopping
         self.random_state = random_state
@@ -43,7 +45,11 @@ class AdamSolver(Solver):
 
         self._optim_parameters = None
         self._primed = False
+
+        # trackers for early stopping
         self._has_early_stopped = False
+        self._best_val_loss = np.inf
+        self._no_improvement_count = 0
 
         if kwargs:
             L.warning("Unused kwargs: %s", kwargs)
@@ -64,10 +70,15 @@ class AdamSolver(Solver):
 
         self._primed = True
         self._optim_parameters = estimator._optim_parameters
-        self._has_early_stopped = False
+        
+        # batch iteration
+        self._total_num_batches = int(np.ceil(len(X) / self.batch_size))
 
-    def __call__(self, loss_fn, X, y,
-                 validation_mask: Optional[np.ndarray] = None,
+        # TODO probably should support early stopping resets here. but the clients
+        # currently abusively call prime() every iteration, which would make early
+        # stopping break of course. putting this off.
+
+    def __call__(self, loss_fn, X, y, validation_mask: Optional[np.ndarray] = None,
                  **fit_params):
         if self._has_early_stopped:
             L.info("Early stopped, skipping")
@@ -85,50 +96,37 @@ class AdamSolver(Solver):
         else:
             X_train, y_train = X, y
 
-        best_val_loss = np.inf
-        no_improvement_count = 0
-        n_batches = 0
-        stop = False
-        with trange(self.n_epochs, leave=False, disable=not self.pbar) as pbar:
-            for i in pbar:
-                losses = []
-                postfix = {}
-                for batch_offset in torch.arange(0, X_train.shape[0], self.batch_size):
-                    batch_X = X_train[batch_offset:batch_offset + self.batch_size]
-                    batch_y = y_train[batch_offset:batch_offset + self.batch_size]
+        losses = []
+        # TODO shuffling?
+        for i in range(self.n_batches):
+            batch_start = self.batch_cursor * self.batch_size
+            batch_end = (self.batch_cursor + 1) * self.batch_size
 
-                    self._optim.zero_grad()
-                    loss = loss_fn(batch_X, batch_y)
-                    loss.backward()
-                    self._optim.step()
+            batch_X = X_train[batch_start:batch_end]
+            batch_y = y_train[batch_start:batch_end]
 
-                    losses.append(loss.item())
+            self._optim.zero_grad()
+            loss = loss_fn(batch_X, batch_y)
+            loss.backward()
+            self._optim.step()
 
-                    if n_batches % 10 == 0:
-                        if self.early_stopping:
-                            with torch.no_grad():
-                                valid_loss = loss_fn(X_valid, y_valid)
-                            
-                            postfix["val_loss"] = valid_loss.item()
+            losses.append(loss.item())
 
-                            if valid_loss >= best_val_loss:
-                                no_improvement_count += 1
-                            else:
-                                no_improvement_count = 0
-                                best_val_loss = valid_loss
+            if self.early_stopping and self.batch_cursor % 10 == 0:
+                with torch.no_grad():
+                    valid_loss = loss_fn(X_valid, y_valid)
 
-                            if no_improvement_count > self.early_stopping:
-                                L.debug("Stopping early due to no improvement.")
-                                stop = True
-                                self._has_early_stopped = True
-                                raise EarlyStopException()
-                    
-                    n_batches += 1
+                if valid_loss >= self._best_val_loss:
+                    self._no_improvement_count += 1
+                else:
+                    self._no_improvement_count = 0
+                    self._best_val_loss = valid_loss
 
-                postfix["loss"] = np.mean(losses)
-                pbar.set_postfix(postfix)
+                if self._no_improvement_count > self.early_stopping:
+                    L.debug("Stopping early due to no improvement.")
+                    self._has_early_stopped = True
+                    raise EarlyStopException()
 
-                if stop:
-                    break
+            self.batch_cursor = (self.batch_cursor + 1) % self._total_num_batches
 
         return self
