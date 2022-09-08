@@ -55,14 +55,14 @@ def test_slice_indices():
     assert sliced1.global_slice_indices == (39, 96)
 
     sliced2 = sliced1[1:19]
-    assert sliced2.global_slice_indices == (39 + 1, 96 - 19)
+    assert sliced2.global_slice_indices == (39 + 1, 39 + 1 + 18)
 
     sliced3 = sliced2[9:18]
-    assert sliced3.global_slice_indices == (39 + 1 + 9, 96 - 19 - 18)
+    assert sliced3.global_slice_indices == (39 + 1 + 9, 39 + 1 + 9 + 9)
 
     # Try a second slice from sliced1
     sliced2_2 = sliced1[8:10]
-    assert sliced2_2.global_slice_indices == (39 + 8, 96 - 10)
+    assert sliced2_2.global_slice_indices == (39 + 8, 39 + 8 + (10 - 8))
 
 
 @pytest.fixture

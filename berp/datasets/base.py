@@ -182,7 +182,10 @@ class BerpDataset:
                 global_slice_indices = (start_sample, end_sample)
             else:
                 orig_start, orig_end = self.global_slice_indices
-                global_slice_indices = (orig_start + start_sample, orig_end - end_sample)
+                global_slice_indices = (
+                    orig_start + start_sample,
+                    orig_start + start_sample + (end_sample - start_sample)
+                )
 
             ret = dataclasses.replace(self,
                 name=f"{self.name}/slice:{start_sample}:{end_sample}",
