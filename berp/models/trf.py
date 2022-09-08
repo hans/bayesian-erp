@@ -186,7 +186,7 @@ class TemporalReceptiveField(BaseEstimator):
 
         del_coef = False
         if not hasattr(self, "coef_"):
-            L.warning("Predicting with untrained model. Temporarily initializing random coefficients.")
+            L.debug("Predicting with untrained model. Temporarily initializing random coefficients.")
             del_coef = True
             self._init_coef()
 
