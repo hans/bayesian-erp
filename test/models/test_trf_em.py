@@ -89,10 +89,15 @@ def group_em_estimator(dataset: BerpDataset, trf: TemporalReceptiveField,
     pipeline = GroupBerpTRFForwardPipeline(trf, model_param_grid)
     ret = BerpTRFEMEstimator(pipeline)
 
-    # Make sure we run at least once with the dataset so that the pipeline is primed.
+    # Prime the pipeline.
     dataset.name = "DKZ_1/derp"
     nested = NestedBerpDataset([dataset])
-    ret.partial_fit(nested)
+    pipeline.prime(dataset)
+
+    # # Make sure we run at least once with the dataset so that the pipeline is primed.
+    # dataset.name = "DKZ_1/derp"
+    # nested = NestedBerpDataset([dataset])
+    # ret.partial_fit(nested)
 
     return ret, nested
 
@@ -122,6 +127,11 @@ def test_param_weights_distribute(group_em_estimator):
     est.param_resp_ /= est.param_resp_.sum()
 
     _assert_param_weights_consistent(est)
+
+
+def test_alpha_scatter(group_em_estimator):
+    # TODO verify that when we set_params alpha on the estimator, it distributes to children
+    pass
 
 
 def test_scatter_variable_edges(group_em_estimator):
