@@ -115,8 +115,7 @@ def sample_dataset(params: rr.ModelParameters,
 
     epoch_width = epoch_window[1] - epoch_window[0]
     Y = response_model(stim, recognition_onsets, params, num_sensors, sample_rate,
-                       response_type=response_type,
-                       right_padding=epoch_width)
+                       response_type=response_type)
 
     #############
     # Run epoching.
