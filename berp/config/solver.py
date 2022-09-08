@@ -14,7 +14,7 @@ class SolverConfig:
 @dataclass
 class SGDSolverConfig(SolverConfig):
     learning_rate: float = 0.01
-    n_epochs: int = 1
+    n_batches: int = 1
     batch_size: int = 512
 
 
