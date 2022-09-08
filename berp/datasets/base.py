@@ -230,13 +230,14 @@ class NestedBerpDataset(object):
         self.n_splits = n_splits
 
         # Maps integer indices on this dataset into slices of individual
-        # sub-datasets.
-        self.flat_idxs: List[Tuple[int, slice]] = []
+        # sub-datasets (slices represented as int start:end).
+        flat_idxs: List[Tuple[int, int, int]] = []
         for i, dataset in enumerate(self.datasets):
             split_size = int(np.ceil(len(dataset) / self.n_splits))
             for split_offset in range(0, len(dataset), split_size):
-                self.flat_idxs.append(
-                    (i, slice(split_offset, split_offset + split_size)))
+                flat_idxs.append(
+                    (i, split_offset, split_offset + split_size))
+        self.flat_idxs = np.array(flat_idxs)
 
     @property
     def dtype(self):
@@ -284,11 +285,30 @@ class NestedBerpDataset(object):
     def __getitem__(self, key: Union[int, np.integer, np.ndarray]
                     ) -> Union[BerpDataset, NestedBerpDataset]:
         if isinstance(key, (int, np.integer)):
-            dataset, split = self.flat_idxs[key]
-            return self.datasets[dataset][split]
+            dataset, split_start, split_end = self.flat_idxs[key]
+            return self.datasets[dataset][split_start:split_end]
         elif isinstance(key, np.ndarray):
-            return NestedBerpDataset([self[i] for i in key],
-                                     n_splits=self.n_splits)
+            flat_idxs = self.flat_idxs[key]
+            # Slice in a way that keeps subdatasets maximally contiguous.
+            # We only want to slice when 1) the subdataset index changes, or
+            # 2) the time series indices are not contiguous.
+            grouped_idxs = np.split(
+                flat_idxs,
+                np.where((np.diff(flat_idxs[:, 0]) != 0) |
+                         (flat_idxs[:-1, 2] != flat_idxs[1:, 1]))[0] + 1)
+
+            ret = []
+            for group in grouped_idxs:
+                dataset, split_start, _ = group[0]
+                split_end = group[-1][2]
+
+                if split_start == 0 and split_end >= len(self.datasets[dataset]):
+                    # No need to slice. We are using the whole subdataset.
+                    ret.append(self.datasets[dataset])
+                else:
+                    ret.append(self.datasets[dataset][split_start:split_end])
+
+            return NestedBerpDataset(ret, n_splits=self.n_splits)
         else:
             raise NotImplementedError(f"Unsupported key type {type(key)}")
 
