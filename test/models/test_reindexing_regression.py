@@ -13,6 +13,7 @@ from pyro import distributions as dist
 import pytest
 import torch
 
+from berp.datasets import BerpDataset
 from berp.generators import stimulus
 from berp.generators import thresholded_recognition_simple as generator
 from berp.models import reindexing_regression as rr
