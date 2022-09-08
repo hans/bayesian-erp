@@ -87,6 +87,14 @@ class BerpDataset:
     Response data.
     """
 
+    global_slice_indices: Optional[Tuple[int, int]] = None
+    """
+    If this dataset corresponds to a slice of a larger time series dataset,
+    store the index of this dataset's onset and offset within that dataset
+    (in samples). Otherwise is `None`, indicating that this dataset is not
+    a slice of a larger time series.
+    """
+
     def __len__(self):
         return self.Y.shape[0]
 
@@ -135,6 +143,8 @@ class BerpDataset:
         if isinstance(key, slice):
             if key.step is not None:
                 raise ValueError("Step size not supported.")
+            if key.start < 0 or key.stop < 0:
+                raise ValueError("Negative indices not supported.")
 
             start_sample = key.start or 0
             end_sample = key.stop or self.n_samples
@@ -156,6 +166,14 @@ class BerpDataset:
             # NB phoneme_onsets is relative to word onset, so we don't subtract here.
             word_onsets = word_onsets - start_time
 
+            # Retain global slicing data matching the result's samples to samples in the
+            # original dataset.
+            if self.global_slice_indices is None:
+                global_slice_indices = (start_sample, end_sample)
+            else:
+                orig_start, orig_end = self.global_slice_indices
+                global_slice_indices = (orig_start + start_sample, orig_end - end_sample)
+
             ret = dataclasses.replace(self,
                 name=f"{self.name}/slice:{start_sample}:{end_sample}",
 
@@ -170,6 +188,8 @@ class BerpDataset:
                 X_variable=X_variable,
 
                 Y=self.Y[key],
+
+                global_slice_indices=global_slice_indices,
             )
 
             return ret
