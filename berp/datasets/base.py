@@ -95,6 +95,16 @@ class BerpDataset:
     a slice of a larger time series.
     """
 
+    @property
+    def base_name(self):
+        """
+        Get the name of the base dataset associated with this data, prior to
+        slicing.
+        """
+        if "slice:" in self.name:
+            return self.name[:self.name.index("/slice:")]
+        return self.name
+
     def __len__(self):
         return self.Y.shape[0]
 
