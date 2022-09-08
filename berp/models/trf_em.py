@@ -111,6 +111,11 @@ class ForwardPipelineCache:
         assert self.design_matrix.shape[:2] == (dataset.n_samples, dataset.n_total_features)
         assert self.validation_mask.shape[0] == dataset.n_samples
 
+# Global cache container for all pipeline forwards.
+# This allows us to reuse the cache between e.g. different instantiations of full
+# pipelines with different hparams, but with the same data.
+GLOBAL_CACHE: Dict[Tuple[str, str], ForwardPipelineCache] = {}
+
 
 class BerpTRFForwardPipeline(BaseEstimator):
 
@@ -126,10 +131,12 @@ class BerpTRFForwardPipeline(BaseEstimator):
     # TODO could properly use a pipeline for some of this probably
     # TODO backport to vanilla TRF.
 
-    def __init__(self, encoder: TemporalReceptiveField,
+    def __init__(self, name: str,
+                 encoder: TemporalReceptiveField,
                  params: List[PartiallyObservedModelParameters],
                  param_weights: Optional[Responsibilities] = None,
                  **kwargs):
+        self.name = name
         self.encoder = encoder
         self.params = params
         self.param_weights = param_weights if param_weights is not None else \
@@ -137,33 +144,29 @@ class BerpTRFForwardPipeline(BaseEstimator):
 
         self.delayer = TRFDelayer(encoder.tmin, encoder.tmax, encoder.sfreq)
 
-        self._primed_data: Dict[str, ForwardPipelineCache] = {}
-        """
-        Cache of data used to train/evaluate on each dataset.
-        """
-
         if kwargs:
             L.warning(f"Unused kwargs: {kwargs}")
 
     def _prime(self, dataset: BerpDataset) -> TRFDesignMatrix:
-        if dataset.name in self._primed_data:
+        key = (self.name, dataset.name)
+        if key in GLOBAL_CACHE:
             self._check_primed(dataset)
         else:
             # Prepare scatter and delay transform, and randomly
             # assign validation mask
             L.info("Priming pipeline for dataset %s", dataset.name)
-            self._primed_data[dataset.name] = ForwardPipelineCache(
+            GLOBAL_CACHE[key] = ForwardPipelineCache(
                 design_matrix=self._make_design_matrix(dataset),
                 validation_mask=_make_validation_mask(dataset, 0.1)  # TODO magic number
             )
 
-        return self._primed_data[dataset.name]
+        return GLOBAL_CACHE[key]
 
     def _check_primed(self, dataset: BerpDataset):
         """
         When the pipeline has already been primed, verify that input dataset is compatible.
         """
-        self._primed_data[dataset.name].check_compatible(dataset)
+        GLOBAL_CACHE[self.name, dataset.name].check_compatible(dataset)
 
     def _make_design_matrix(self, dataset: BerpDataset):
         """
@@ -367,6 +370,7 @@ class GroupBerpTRFForwardPipeline(ScatterParamsMixin, BaseEstimator):
                 L.info("Priming pipeline for subject %s", subject_name)
 
                 pipeline = BerpTRFForwardPipeline(
+                    subject_name,
                     clone(self.encoder),
                     self.params,
                     self.param_weights)
