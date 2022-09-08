@@ -1,6 +1,8 @@
+from copy import deepcopy
 from dataclasses import replace
 from typing import List, Tuple
 
+import numpy as np
 import pytest
 import torch
 
@@ -15,7 +17,7 @@ from berp.solvers import Solver, AdamSolver
 from berp.util import time_to_sample
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def synth_params() -> ModelParameters:
     return ModelParameters(
         lambda_=torch.tensor(1.0),
@@ -29,8 +31,7 @@ def synth_params() -> ModelParameters:
         sigma=torch.tensor(5.0),
     )
 
-@pytest.fixture
-def dataset(synth_params) -> BerpDataset:
+def make_dataset(synth_params) -> BerpDataset:
     stim = RandomStimulusGenerator(num_words=1000, num_phonemes=10, phoneme_voc_size=synth_params.confusion.shape[0],
                                    word_surprisal_params=(2.0, 0.5))
     ds_args = dict(
@@ -40,10 +41,15 @@ def dataset(synth_params) -> BerpDataset:
         sample_rate=48)
 
 
-            dataset = generator.sample_dataset(synth_params, stim, **ds_args)
+    dataset = generator.sample_dataset(synth_params, stim, **ds_args)
 
     # TODO test dataset
     return dataset
+
+
+@pytest.fixture(scope="session")
+def dataset(synth_params):
+    return make_dataset(synth_params)
 
 
 @pytest.fixture
@@ -80,27 +86,25 @@ def model_param_grid(model_params):
 
 
 @pytest.fixture
-def group_em_estimator(dataset: BerpDataset, trf: TemporalReceptiveField,
+def group_em_estimator(synth_params: ModelParameters, trf: TemporalReceptiveField,
                        model_param_grid: List[PartiallyObservedModelParameters]):
     pipeline = GroupBerpTRFForwardPipeline(trf, model_param_grid)
     ret = BerpTRFEMEstimator(pipeline)
 
-    # Prime the pipeline.
-    dataset.name = "DKZ_1/derp"
-    nested = NestedBerpDataset([dataset])
-    pipeline.prime(dataset)
-
-    # # Make sure we run at least once with the dataset so that the pipeline is primed.
-    # dataset.name = "DKZ_1/derp"
-    # nested = NestedBerpDataset([dataset])
-    # ret.partial_fit(nested)
+    # Prime the pipeline with two datasets.
+    ds1 = make_dataset(synth_params)
+    ds1.name = "DKZ_1/subj1"
+    ds2 = make_dataset(synth_params)
+    ds2.name = "DKZ_1/subj2"
+    nested = NestedBerpDataset([ds1, ds2])
+    pipeline.prime(nested)
 
     return ret, nested
 
 
 def test_param_weights_distribute(group_em_estimator):
     """
-    When EM estimator responsibilities are updated, the constituent pipeline
+    When EM estimator responsibilities are updated, the pipeline
     parameter weights should automatically update.
     """
 
@@ -109,12 +113,6 @@ def test_param_weights_distribute(group_em_estimator):
             est.param_resp_,
             est.pipeline.param_weights
         )
-
-        for pipe in est.pipeline.pipelines_.values():
-            torch.testing.assert_close(
-                pipe.param_weights,
-                est.pipeline.param_weights
-            )
 
     est, dataset = group_em_estimator
     _assert_param_weights_consistent(est)
@@ -126,8 +124,31 @@ def test_param_weights_distribute(group_em_estimator):
 
 
 def test_alpha_scatter(group_em_estimator):
-    # TODO verify that when we set_params alpha on the estimator, it distributes to children
-    pass
+    est: BerpTRFEMEstimator
+    est, _ = group_em_estimator
+    if len(est.pipeline.encoders_) < 2:
+        pytest.skip("cannot check with fewer than 2 pipelines")
+
+    def assert_alphas_consistent(est: BerpTRFEMEstimator):
+        encoders = list(est.pipeline.encoders_.values())
+        alpha = encoders[0].alpha
+
+        for encoder in encoders[1:]:
+            torch.testing.assert_close(alpha, encoder.alpha)
+
+        return alpha
+
+    assert_alphas_consistent(est)
+
+    alpha = np.random.random()
+    est.pipeline.set_params(encoder__alpha=alpha)
+    ret = assert_alphas_consistent(est)
+    np.testing.assert_approx_equal(ret, alpha)
+
+    alpha = np.random.random()
+    est.set_params(pipeline__encoder__alpha=alpha)
+    ret = assert_alphas_consistent(est)
+    np.testing.assert_approx_equal(ret, alpha)
 
 
 def test_scatter_variable_edges(group_em_estimator):
@@ -141,7 +162,7 @@ def test_scatter_variable_edges(group_em_estimator):
 
     # Set up a long word at the very end of the time series with a recognition point
     # at its last phoneme
-    ds = dataset.datasets[0]
+    ds = deepcopy(dataset.datasets[0])
     max_word_length = ds.phoneme_onsets.shape[1]
     ds.word_lengths[-1] = max_word_length
     last_time = ds.phoneme_onsets_global[-1, -1]
@@ -149,17 +170,13 @@ def test_scatter_variable_edges(group_em_estimator):
     ds.phoneme_onsets[-1, max_word_length - 1] = last_time - ds.word_onsets[-1] - 0.001
     print(ds.phoneme_onsets[-1])
 
-    # precondition
-    assert len(est.pipeline.pipelines_) == 1
-    est_sub = next(iter(est.pipeline.pipelines_.values()))
+    cache = est.pipeline._get_cache_for_dataset(ds)
 
     recognition_points = torch.zeros_like(ds.word_onsets).long()
     recognition_points[-1] = max_word_length - 1
 
-    primed = est_sub._prime(ds)
-
     # Should not raise IndexError.
-    out = primed.design_matrix.clone()
-    est_sub._scatter_variable(ds, recognition_points, out)
+    out = cache.design_matrix.clone()
+    est.pipeline._scatter_variable(ds, recognition_points, out)
 
     # TODO check scatter result

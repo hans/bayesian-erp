@@ -2,7 +2,7 @@ from dataclasses import dataclass, replace
 from functools import singledispatchmethod
 import logging
 import re
-from typing import Optional, List, Dict, Union, Iterator, Tuple
+from typing import Optional, List, Dict, Union, Tuple, TypeVar, Generic
 
 import numpy as np
 from optuna.distributions import BaseDistribution, UniformDistribution
@@ -162,44 +162,142 @@ def make_dummy_design_matrix(dataset: BerpDataset, delayer: TRFDelayer) -> TRFDe
 GLOBAL_CACHE: Dict[str, ForwardPipelineCache] = {}
 
 
-class BerpTRFForwardPipeline(BaseEstimator):
+clones = [0]
+def clone_count(x):
+    clones[0] += 1
+    print("=====+++CLONE", clones[0])
+    return x.clone()
 
-    """
-    This pipeline combines a temporal receptive field with the 
-    Berp latent-onset model.
     
-    Additionally, it amortizes some of the more expensive parts of the
-    pipeline: in particular, the generation of a design matrix for the
-    time series regression.
+class ScatterParamsMixin:
+
+    scatter_key: Optional[str] = None
+    scatter_targets: Optional[List[BaseEstimator]] = None
+
+    def _prepare_params_scatter(self, scatter_key: str, scatter_targets: List[BaseEstimator]):
+        self.scatter_key = scatter_key
+        self.scatter_targets = scatter_targets
+
+    def set_params(self, **params):
+        if self.scatter_key is None:
+            return super().set_params(**params)
+        if not params:
+            return self
+
+        to_pop = []
+        for orig_key, value in params.items():
+            key, delim, sub_key = orig_key.partition("__")
+            if key == self.scatter_key:
+                to_pop.append(orig_key)
+
+                for target in self.scatter_targets:
+                    target.set_params(**{sub_key: value})
+
+        for orig_key in to_pop:
+            params.pop(orig_key)
+
+        return super().set_params(**params)
+
+
+Encoder = TypeVar("Encoder")
+class GroupBerpTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder]):
+    
+    """
+    Jointly estimates many Berp encoders, with shared parameters for
+    latent-onset model.
     """
 
-    # TODO could properly use a pipeline for some of this probably
-    # TODO backport to vanilla TRF.
-
-    def __init__(self, name: str,
-                 encoder: TemporalReceptiveField,
+    def __init__(self, encoder: Encoder,
                  params: List[PartiallyObservedModelParameters],
                  param_weights: Optional[Responsibilities] = None,
                  **kwargs):
-        self.name = name
         self.encoder = encoder
+
+        self.delayer = TRFDelayer(encoder.tmin, encoder.tmax, encoder.sfreq)
+        self.encoders_: Dict[str, Encoder] = {}
+
         self.params = params
         self.param_weights = param_weights if param_weights is not None else \
             torch.ones(len(self.params), dtype=torch.float) / len(self.params)
 
-        self.delayer = TRFDelayer(encoder.tmin, encoder.tmax, encoder.sfreq)
-
         if kwargs:
             L.warning(f"Unused kwargs: {kwargs}")
 
-    def _prime(self, dataset: BerpDataset) -> ForwardPipelineCache: 
+    #region caching and weight sharing logic
+
+    def _build_cache_for_dataset(self, dataset: BerpDataset) -> ForwardPipelineCache:
+        return ForwardPipelineCache(
+            cache_key=dataset.name,
+            design_matrix=make_dummy_design_matrix(dataset, self.delayer),
+            validation_mask=_make_validation_mask(dataset, 0.1),  # TODO magic number
+        )
+
+    def _get_cache_for_dataset(self, dataset: BerpDataset) -> ForwardPipelineCache:
         key = dataset.base_name
         try:
             cache = GLOBAL_CACHE[key]
         except KeyError as e:
-            raise KeyError(f"Pipeline was never primed for key {key}.") from e
+            raise KeyError(f"Pipeline was never primed for dataset key {key}.") from e
         else:
             return cache.get_cache_for(dataset)
+
+    def prime(self, dataset: Union[BerpDataset, NestedBerpDataset]):
+        """
+        Prepare caching pipelines for each subdataset of the given dataset.
+        """
+        datasets = dataset.datasets if isinstance(dataset, NestedBerpDataset) else [dataset]
+        for d in datasets:
+            if d.global_slice_indices is not None:
+                raise ValueError(
+                    f"Dataset {d} is already sliced. Pipeline priming should "
+                     "be invoked before any data slicing.")
+
+            L.info(f"Preparing cache for dataset {d.name}...")
+            # Prepare dataset forward cache.
+            GLOBAL_CACHE[d.name] = self._build_cache_for_dataset(d)
+
+            # Ensure we have an encoder ready for the relevant dataset group.
+            self._get_or_create_encoder(d)
+
+        self._prepare_params_scatter("encoder", list(self.encoders_.values()))
+
+    def _get_encoder_key(self, dataset: BerpDataset) -> str:
+        """
+        Compute a key by which this dataset should be mapped with others to
+        a single encoder. (most intuitively this should be e.g. a subject ID.)
+        """
+        # TODO specific to Gillis
+        return subject_re.match(dataset.name).group(1)
+
+    def _get_encoder(self, dataset: BerpDataset) -> Encoder:
+        """
+        Get the relevant encoder for making predictions on this dataset.
+        """
+        key = self._get_encoder_key(dataset)
+        try:
+            return self.encoders_[key]
+        except KeyError as e:
+            raise KeyError(f"encoder not found for key {key}. Did you prime this model first?") from e
+
+    def _get_or_create_encoder(self, dataset: BerpDataset) -> Encoder:
+        try:
+            return self._get_encoder(dataset)
+        except KeyError:
+            key = self._get_encoder_key(dataset)
+            L.info(f"Creating encoder for key {key}...")
+
+            self.encoders_[key] = clone(self.encoder)
+            return self.encoders_[key]
+
+    def _get_encoders(self, dataset: NestedBerpDataset) -> List[Tuple[BerpDataset, Encoder]]:
+        return [(d, self._get_encoder(d)) for d in dataset.datasets]
+
+    def _get_or_create_encoders(self, dataset: NestedBerpDataset) -> List[Tuple[BerpDataset, Encoder]]:
+        return [(d, self._get_or_create_encoder(d)) for d in dataset.datasets]
+
+    #endregion
+
+    #region domain logic
 
     def _scatter_variable(self,
                           dataset: BerpDataset,
@@ -266,8 +364,9 @@ class BerpTRFForwardPipeline(BaseEstimator):
         """
         Run a forward pass, averaging out model parameters.
         """
-        primed = self._prime(dataset)
-        acc = primed.design_matrix.clone()
+        primed = self._get_cache_for_dataset(dataset)
+        # acc = primed.design_matrix.clone()
+        acc = clone_count(primed.design_matrix)
         
         # Ensure variable-onset features are zeroed out.
         feature_start_idx = dataset.n_ts_features
@@ -281,188 +380,43 @@ class BerpTRFForwardPipeline(BaseEstimator):
         """
         Run a forward pass, returning a list of design matrices for each parameter option.
         """
-        primed = self._prime(dataset)
+        primed = self._get_cache_for_dataset(dataset)
 
         ret = []
         for params in self.params:
             ret.append(self._pre_transform_single(dataset, params,
-                                                  out=primed.design_matrix.clone(),
+                                                #   out=primed.design_matrix.clone(),
+                                                  out=clone_count(primed.design_matrix),
                                                   out_weight=1.))
         return ret, primed.validation_mask
 
-    def fit(self, dataset: BerpDataset) -> "BerpTRFForwardPipeline":
+    #endregion
+
+    #region scikit API
+
+    def _fit(self, encoder: Encoder, dataset: BerpDataset):
         design_matrix, _ = self._pre_transform(dataset)
-        self.encoder.fit(design_matrix, dataset.Y)
-        return self
-
-    def partial_fit(self, dataset: BerpDataset) -> "BerpTRFForwardPipeline":
-        design_matrix, validation_mask = self._pre_transform(dataset)
-        self.encoder.partial_fit(design_matrix, dataset.Y, validation_mask=validation_mask)
-        return self
-
-    def predict(self, dataset: BerpDataset) -> TRFResponse:
-        design_matrix, _ = self._pre_transform(dataset)
-        return self.encoder.predict(design_matrix)
-
-    def score(self, dataset: BerpDataset) -> float:
-        design_matrix, _ = self._pre_transform(dataset)
-        return self.encoder.score(design_matrix, dataset.Y)
-
-    def log_likelihood(self, dataset: BerpDataset) -> TensorType[B, torch.float]:
-        design_matrix, _ = self._pre_transform(dataset)
-        return self.encoder.log_likelihood(design_matrix, dataset.Y).sum()
-
-    def log_likelihood_expanded(self, dataset: BerpDataset) -> TensorType["param_grid", B, torch.float]:
-        """
-        Compute dataset log-likelihood for each parameter option
-        independently.
-        """
-        design_matrices, _ = self._pre_transform_expanded(dataset)
-        return torch.stack([self.encoder.log_likelihood(dm, dataset.Y).sum()
-                            for dm in design_matrices])
-
-
-class ScatterParamsMixin:
-
-    scatter_key: Optional[str] = None
-    scatter_targets: Optional[List[BaseEstimator]] = None
-
-    def _prepare_params_scatter(self, scatter_key: str, scatter_targets: List[BaseEstimator]):
-        self.scatter_key = scatter_key
-        self.scatter_targets = scatter_targets
-
-    def set_params(self, **params):
-        import ipdb; ipdb.set_trace()
-        if self.scatter_key is None:
-            return super().set_params(**params)
-        if not params:
-            return self
-
-        to_pop = []
-        for orig_key, value in params.items():
-            key, delim, sub_key = orig_key.partition("__")
-            if key == self.scatter_key:
-                to_pop.append(key)
-
-                for target in self.scatter_targets:
-                    target.set_params(**{sub_key: value})
-
-        for orig_key in to_pop:
-            params.pop(orig_key)
-
-        return super().set_params(**params)
-
-
-class GroupBerpTRFForwardPipeline(ScatterParamsMixin, BaseEstimator):
-    
-    """
-    Jointly estimates many Berp encoders, with shared parameters for
-    latent-onset model.
-    """
-
-    def __init__(self, encoder: TemporalReceptiveField,
-                 params: List[PartiallyObservedModelParameters],
-                 param_weights: Optional[Responsibilities] = None,
-                 **kwargs):
-        self.encoder = encoder
-        self.delayer = TRFDelayer(encoder.tmin, encoder.tmax, encoder.sfreq)
-
-        self.pipelines_: Dict[str, BerpTRFForwardPipeline] = {}
-
-        self.params = params
-        self.param_weights = param_weights if param_weights is not None else \
-            torch.ones(len(self.params), dtype=torch.float) / len(self.params)
-
-        if kwargs:
-            L.warning(f"Unused kwargs: {kwargs}")
-
-    def set_param_weights(self, weights: Responsibilities):
-        self._param_weights = weights
-        for pipeline in self.pipelines_.values():
-            pipeline.param_weights = weights
-    def get_param_weights(self) -> Responsibilities:
-        return self._param_weights
-    param_weights = property(get_param_weights, set_param_weights)
-
-    def _build_cache_for_dataset(self, dataset: BerpDataset) -> ForwardPipelineCache:
-        return ForwardPipelineCache(
-            cache_key=dataset.name,
-            design_matrix=make_dummy_design_matrix(dataset, self.delayer),
-            validation_mask=_make_validation_mask(dataset, 0.1),  # TODO magic number
-        )
-
-    def prime(self, dataset: Union[BerpDataset, NestedBerpDataset]):
-        """
-        Prepare caching pipelines for each subdataset of the given dataset.
-        """
-        datasets = dataset.datasets if isinstance(dataset, NestedBerpDataset) else [dataset]
-        for d in datasets:
-            if d.global_slice_indices is not None:
-                raise ValueError(
-                    f"Dataset {d} is already sliced. Pipeline priming should "
-                     "be invoked before any data slicing.")
-
-            L.info(f"Preparing cache for dataset {d.name}...")
-            # Prepare dataset forward cache.
-            GLOBAL_CACHE[d.name] = self._build_cache_for_dataset(d)
-
-            # Ensure we have a pipeline ready for the relevant dataset group.
-            self._get_or_create_pipeline(d)
-
-        self._prepare_params_scatter("encoder", self.pipelines_)
-
-    def _get_pipeline_key(self, dataset: BerpDataset) -> str:
-        """
-        Compute a key by which this dataset should be mapped with others to
-        a single forward pipeline. (most intuitively this should be e.g.
-        a subject ID.)
-        """
-        # TODO specific to Gillis
-        return subject_re.match(dataset.name).group(1)
-
-    def _get_pipeline(self, dataset: BerpDataset) -> BerpTRFForwardPipeline:
-        """
-        Get the relevant pipeline for making predictions on this dataset.
-        """
-        key = self._get_pipeline_key(dataset)
-        try:
-            return self.pipelines_[key]
-        except KeyError as e:
-            raise KeyError(f"Pipeline not found for key {key}. Did you prime this model first?") from e
-
-    def _get_or_create_pipeline(self, dataset: BerpDataset) -> BerpTRFForwardPipeline:
-        try:
-            return self._get_pipeline(dataset)
-        except KeyError:
-            key = self._get_pipeline_key(dataset)
-            L.info(f"Creating pipeline for key {key}...")
-
-            self.pipelines_[key] = BerpTRFForwardPipeline(
-                key,
-                clone(self.encoder),
-                self.params,
-                self.param_weights)
-            return self.pipelines_[key]
-
-    def _get_pipelines(self, dataset: NestedBerpDataset) -> List[Tuple[BerpDataset, BerpTRFForwardPipeline]]:
-        return [(d, self._get_pipeline(d)) for d in dataset.datasets]
-
-    def _get_or_create_pipelines(self, dataset: NestedBerpDataset) -> List[Tuple[BerpDataset, BerpTRFForwardPipeline]]:
-        return [(d, self._get_or_create_pipeline(d)) for d in dataset.datasets]
+        encoder.fit(design_matrix, dataset.Y)
 
     def fit(self, dataset: NestedBerpDataset, y=None) -> "GroupBerpTRFForwardPipeline":
-        for d, pipe in self._get_or_create_pipelines(dataset):
-            pipe.fit(d)
-        return self
+        for d, enc in self._get_or_create_encoders(dataset):
+            self._fit(enc, d)
+            return self
+
+    def _partial_fit(self, encoder: Encoder, dataset: BerpDataset):
+        design_matrix, validation_mask = self._pre_transform(dataset)
+        encoder.partial_fit(design_matrix, dataset.Y, validation_mask=validation_mask)
 
     def partial_fit(self, dataset: NestedBerpDataset, y=None) -> "GroupBerpTRFForwardPipeline":
-        for d, pipe in self._get_or_create_pipelines(dataset):
-            pipe.partial_fit(d)
+        for d, enc in self._get_or_create_encoders(dataset):
+            self._partial_fit(enc, d)
         return self
 
     @typechecked
     def predict(self, dataset: BerpDataset) -> TRFResponse:
-        return self._get_or_create_pipeline(dataset).predict(dataset)
+        enc = self._get_or_create_encoder(dataset)
+        design_matrix, _ = self._pre_transform(dataset)
+        return enc.predict(design_matrix)
 
     @singledispatchmethod
     def score(self, dataset) -> float:
@@ -471,7 +425,9 @@ class GroupBerpTRFForwardPipeline(ScatterParamsMixin, BaseEstimator):
     @score.register
     @typechecked
     def _(self, dataset: BerpDataset) -> float:
-        return self._get_or_create_pipeline(dataset).score(dataset)
+        enc = self._get_or_create_encoder(dataset)
+        design_matrix, _ = self._pre_transform(dataset)
+        return enc.score(design_matrix, dataset.Y)
 
     @score.register
     @typechecked
@@ -479,15 +435,21 @@ class GroupBerpTRFForwardPipeline(ScatterParamsMixin, BaseEstimator):
         scores = [self.score(d) for d in dataset.datasets]
         return np.mean(scores)
 
+    @singledispatchmethod
+    def log_likelihood(self, dataset):
+        raise NotImplementedError
+
+    @log_likelihood.register
     @typechecked
-    def log_likelihood(self, dataset: Union[BerpDataset, NestedBerpDataset]
-                       ) -> Union[TensorType[B, torch.float],
-                                  List[TensorType[B, torch.float]]]:
-        if isinstance(dataset, BerpDataset):
-            return self._get_or_create_pipeline(dataset).log_likelihood(dataset)
-        else:
-            return [pipe.log_likelihood(d)
-                    for d, pipe in self._get_or_create_pipelines(dataset)]
+    def _(self, dataset: BerpDataset) -> TensorType[B, torch.float]:
+        enc = self._get_or_create_encoder(dataset)
+        design_matrix, _ = self._pre_transform(dataset)
+        return enc.log_likelihood(design_matrix, dataset.Y).sum()
+
+    @log_likelihood.register
+    @typechecked
+    def _(self, dataset: NestedBerpDataset) -> List[TensorType[B, torch.float]]:
+        return [self.log_likelihood(d) for d in dataset.datasets]
 
     @singledispatchmethod
     def log_likelihood_expanded(self, dataset):
@@ -495,16 +457,21 @@ class GroupBerpTRFForwardPipeline(ScatterParamsMixin, BaseEstimator):
 
     @log_likelihood_expanded.register
     @typechecked
-    def _(self, dataset: BerpDataset) -> TensorType["param_grid", B, torch.float]:
-        return self._get_or_create_pipeline(dataset).log_likelihood_expanded(dataset)
+    def _(self, dataset: BerpDataset) -> TensorType["param_grid", torch.float]:
+        enc = self._get_or_create_encoder(dataset)
+        design_matrices, _ = self._pre_transform_expanded(dataset)
+        return torch.stack([enc.log_likelihood(dm, dataset.Y).sum()
+                            for dm in design_matrices])
 
     @log_likelihood_expanded.register
     @typechecked
     def _(self, dataset: NestedBerpDataset
-          ) -> Union[List[TensorType["param_grid", B, torch.float]],
+          ) -> Union[List[TensorType["param_grid", torch.float]],
                      List[torch.Tensor]]:
-        return [pipe.log_likelihood_expanded(d)
-                for d, pipe in self._get_or_create_pipelines(dataset)]
+        return [self.log_likelihood_expanded(d)
+                for d in dataset.datasets]
+
+    #endregion
 
 
 class BerpTRFEMEstimator(BaseEstimator):
