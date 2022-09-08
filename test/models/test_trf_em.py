@@ -12,6 +12,7 @@ from berp.models.reindexing_regression import PartiallyObservedModelParameters, 
 from berp.models.trf import TemporalReceptiveField
 from berp.models.trf_em import BerpTRFEMEstimator, GroupBerpTRFForwardPipeline
 from berp.solvers import Solver, AdamSolver
+from berp.util import time_to_sample
 
 
 @pytest.fixture
@@ -51,7 +52,7 @@ def dataset(synth_params) -> BerpDataset:
 
 @pytest.fixture
 def optim() -> Solver:
-    return AdamSolver(early_stopping=False)
+    return AdamSolver(early_stopping=False, n_batches=1)
 
 @pytest.fixture
 def trf(dataset: BerpDataset, optim):
@@ -76,7 +77,7 @@ def model_params(dataset: BerpDataset):
 def model_param_grid(model_params):
     # Generate a grid of threshold values.
     grid = []
-    for _ in range(50):
+    for _ in range(2):
         grid.append(replace(model_params, threshold=torch.rand(1)))
 
     return grid
@@ -93,30 +94,66 @@ def group_em_estimator(dataset: BerpDataset, trf: TemporalReceptiveField,
     nested = NestedBerpDataset([dataset])
     ret.partial_fit(nested)
 
-    return ret
+    return ret, nested
 
 
-def test_param_weights_distribute(group_em_estimator: BerpTRFEMEstimator):
+def test_param_weights_distribute(group_em_estimator):
     """
     When EM estimator responsibilities are updated, the constituent pipeline
     parameter weights should automatically update.
     """
 
-    def _assert_param_weights_consistent(group_em_estimator: BerpTRFEMEstimator):
+    def _assert_param_weights_consistent(est: BerpTRFEMEstimator):
         torch.testing.assert_close(
-            group_em_estimator.param_resp_,
-            group_em_estimator.pipeline.param_weights
+            est.param_resp_,
+            est.pipeline.param_weights
         )
 
-        for pipe in group_em_estimator.pipeline.pipelines_.values():
+        for pipe in est.pipeline.pipelines_.values():
             torch.testing.assert_close(
                 pipe.param_weights,
-                group_em_estimator.pipeline.param_weights
+                est.pipeline.param_weights
             )
 
-    _assert_param_weights_consistent(group_em_estimator)
+    est, dataset = group_em_estimator
+    _assert_param_weights_consistent(est)
 
-    group_em_estimator.param_resp_ = torch.rand_like(group_em_estimator.param_resp_)
-    group_em_estimator.param_resp_ /= group_em_estimator.param_resp_.sum()
+    est.param_resp_ = torch.rand_like(est.param_resp_)
+    est.param_resp_ /= est.param_resp_.sum()
 
-    _assert_param_weights_consistent(group_em_estimator)
+    _assert_param_weights_consistent(est)
+
+
+def test_scatter_variable_edges(group_em_estimator):
+    """
+    For recognition points on the edge of time series, make sure that no indexing
+    errors are triggered.
+    """
+    est: BerpTRFEMEstimator
+    dataset: NestedBerpDataset
+    est, dataset = group_em_estimator
+
+    # Set up a long word at the very end of the time series with a recognition point
+    # at its last phoneme
+    ds = dataset.datasets[0]
+    max_word_length = ds.phoneme_onsets.shape[1]
+    ds.word_lengths[-1] = max_word_length
+    last_time = ds.phoneme_onsets_global[-1, -1]
+    # last_sample = time_to_sample(last_time, dataset.sample_rate)
+    ds.phoneme_onsets[-1, max_word_length - 1] = last_time - ds.word_onsets[-1] - 0.001
+    print(ds.phoneme_onsets[-1])
+
+    # precondition
+    assert len(est.pipeline.pipelines_) == 1
+    est_sub = next(iter(est.pipeline.pipelines_.values()))
+
+    recognition_points = torch.zeros_like(ds.word_onsets).long()
+    recognition_points[-1] = max_word_length - 1
+
+    primed = est_sub._prime(ds)
+
+    # Should not raise IndexError.
+    out = primed.design_matrix.clone()
+    est_sub._scatter_variable(ds, recognition_points, out)
+
+    # TODO check scatter result

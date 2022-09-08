@@ -208,10 +208,13 @@ class BerpTRFForwardPipeline(BaseEstimator):
         # Scatter-add, lagging over delay axis.
         to_add = out_weight * dataset.X_variable
         for delay in range(out.shape[2]):
-            # TODO handle boundary case where onset exceeds bounds (right side) of time series
-            out[recognition_onsets_samp + delay,
+            # Mask out items which, with this delay, would exceed the right edge
+            # of the time series.
+            mask = recognition_onsets_samp + delay < out.shape[0]
+
+            out[recognition_onsets_samp[mask] + delay,
                 feature_start_idx:,
-                delay] += to_add
+                delay] += to_add[mask]
 
         return out
 
