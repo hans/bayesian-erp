@@ -39,12 +39,8 @@ def dataset(synth_params) -> BerpDataset:
         include_intercept=False,
         sample_rate=48)
 
-    # HACK: resample until it doesn't error. should fix sloppy indexing at some point.
-    while True:
-        try:
+
             dataset = generator.sample_dataset(synth_params, stim, **ds_args)
-        except RuntimeError: continue
-        else: break
 
     # TODO test dataset
     return dataset

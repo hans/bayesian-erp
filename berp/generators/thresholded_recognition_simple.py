@@ -81,6 +81,9 @@ def response_model(stim: Stimulus,
 
         start_idx = rec_onset_samp
         end_idx = start_idx + len(response_values)
+
+        if end_idx >= Y.shape[0]:
+            response_values = response_values[:Y.shape[0] - start_idx]
         Y[start_idx:end_idx] += response_values
 
     return Y
