@@ -389,7 +389,7 @@ class GroupBerpTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Enc
                                                   out=clone_count(primed.design_matrix),
                                                   out_weight=1.))
         return ret, primed.validation_mask
-
+    
     #endregion
 
     #region scikit API
@@ -401,7 +401,7 @@ class GroupBerpTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Enc
     def fit(self, dataset: NestedBerpDataset, y=None) -> "GroupBerpTRFForwardPipeline":
         for d, enc in self._get_or_create_encoders(dataset):
             self._fit(enc, d)
-            return self
+        return self
 
     def _partial_fit(self, encoder: Encoder, dataset: BerpDataset):
         design_matrix, validation_mask = self._pre_transform(dataset)
