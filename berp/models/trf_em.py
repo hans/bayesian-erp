@@ -2,7 +2,7 @@ from dataclasses import dataclass, replace
 from functools import singledispatchmethod
 import logging
 import re
-from typing import Optional, List, Dict, Union, Tuple, TypeVar, Generic
+from typing import Optional, List, Dict, Union, Tuple, TypeVar, Generic, Iterator
 
 import numpy as np
 from optuna.distributions import BaseDistribution, UniformDistribution
@@ -376,19 +376,19 @@ class GroupBerpTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Enc
             acc = self._pre_transform_single(dataset, params, out=acc, out_weight=weight)
         return acc, primed.validation_mask
 
-    def _pre_transform_expanded(self, dataset: BerpDataset) -> Tuple[List[TRFDesignMatrix], np.ndarray]:
+    def _pre_transform_expanded(self, dataset: BerpDataset) -> Iterator[Tuple[List[TRFDesignMatrix], np.ndarray]]:
         """
-        Run a forward pass, returning a list of design matrices for each parameter option.
+        Run a forward pass, generating a design matrix for each parameter option.
         """
         primed = self._get_cache_for_dataset(dataset)
 
         ret = []
         for params in self.params:
-            ret.append(self._pre_transform_single(dataset, params,
-                                                #   out=primed.design_matrix.clone(),
-                                                  out=clone_count(primed.design_matrix),
-                                                  out_weight=1.))
-        return ret, primed.validation_mask
+            yield (self._pre_transform_single(dataset, params,
+                                          #   out=primed.design_matrix.clone(),
+                                              out=clone_count(primed.design_matrix),
+                                              out_weight=1.),
+                   primed.validation_mask)
     
     #endregion
 
@@ -459,9 +459,10 @@ class GroupBerpTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Enc
     @typechecked
     def _(self, dataset: BerpDataset) -> TensorType["param_grid", torch.float]:
         enc = self._get_or_create_encoder(dataset)
-        design_matrices, _ = self._pre_transform_expanded(dataset)
-        return torch.stack([enc.log_likelihood(dm, dataset.Y).sum()
-                            for dm in design_matrices])
+        ret = []
+        for design_matrix, _ in self._pre_transform_expanded(dataset):
+            ret.append(enc.log_likelihood(design_matrix, dataset.Y).sum())
+        return torch.stack(ret)
 
     @log_likelihood_expanded.register
     @typechecked
