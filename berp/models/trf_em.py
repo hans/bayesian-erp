@@ -408,8 +408,19 @@ class GroupBerpTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Enc
         encoder.partial_fit(design_matrix, dataset.Y, validation_mask=validation_mask)
 
     def partial_fit(self, dataset: NestedBerpDataset, y=None) -> "GroupBerpTRFForwardPipeline":
-        for d, enc in self._get_or_create_encoders(dataset):
-            self._partial_fit(enc, d)
+        n_early_stops = 0
+
+        encs = self._get_or_create_encoders(dataset)
+        for d, enc in encs:
+            try:
+                self._partial_fit(enc, d)
+            except EarlyStopException:
+                n_early_stops += 1
+
+        # Only raise EarlyStop if all encoder children have reached an early stop.
+        if n_early_stops == len(encs):
+            raise EarlyStopException()
+
         return self
 
     @typechecked
@@ -522,10 +533,10 @@ class BerpTRFEMEstimator(BaseEstimator):
     def _m_step(self, dataset: NestedBerpDataset):
         """
         Re-estimate TRF model conditioned on the current parameter weights.
+
+        May raise `EarlyStopException`.
         """
-        try:
-            self.pipeline.partial_fit(dataset)
-        except EarlyStopException: pass
+        self.pipeline.partial_fit(dataset)
 
     def partial_fit(self, X: NestedBerpDataset, y=None,
                     X_val: Optional[NestedBerpDataset] = None

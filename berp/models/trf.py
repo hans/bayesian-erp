@@ -9,6 +9,7 @@ import torch.distributions as dist
 from torchtyping import TensorType
 from typeguard import typechecked
 
+from berp.cv import EarlyStopException
 from berp.datasets.base import BerpDataset, NestedBerpDataset
 from berp.models.pipeline import PartialPipeline, XYTransformerMixin, StandardXYScaler
 from berp.solvers import Solver
@@ -151,7 +152,7 @@ class TemporalReceptiveField(BaseEstimator):
         if not self.warm_start or not hasattr(self, "coef_"):
             self._init_coef()
         elif self.optim._has_early_stopped:
-            L.info("Early stopped. skipping")
+            raise EarlyStopException()
 
         # Preprocess X
         X = _reshape_for_est(X)

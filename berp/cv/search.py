@@ -311,12 +311,6 @@ class _Objective(object):
 
         with trange(self.max_iter) as pbar:
             for step in pbar:
-                postfix = {"early_stopped": early_stopped.sum()}
-
-                if all(early_stopped):
-                    self._store_scores(trial, scores)
-                    break
-
                 for i, (train, test) in enumerate(self.cv.split(self.X, self.y, groups=self.groups)):
                     try:
                         out = self._partial_fit_and_score(estimators[i], train, test, partial_fit_params)
@@ -332,14 +326,16 @@ class _Objective(object):
                     scores["score_time"][i] += out[2]
 
                 intermediate_value = np.nanmean(scores["test_score"])
-                postfix["test_score"] = intermediate_value
-
                 trial.report(intermediate_value, step=step)
+
+                postfix = {
+                    "early_stopped": early_stopped.sum(),
+                    "test_score": intermediate_value
+                }
                 pbar.set_postfix(postfix)
 
-                if trial.should_prune():
+                if all(early_stopped) or trial.should_prune():
                     self._store_scores(trial, scores)
-
                     raise TrialPruned("trial was pruned at iteration {}.".format(step))
 
         return scores
