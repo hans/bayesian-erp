@@ -13,20 +13,7 @@ from tqdm.auto import tqdm
 
 from berp.config import Config, CVConfig
 from berp.cv import OptunaSearchCV
-
-
-def score(estimator: BaseEstimator, X, Y):
-    # TODO: valid samples
-    # TODO Should be implemented in score probably
-    _, Y_gt = estimator.pre_transform(X, Y)
-    Y_pred = estimator.predict(X)
-
-    # Compute correlations per sensor: E(Y_pred - E[Y_pred]) * E(Y_gt - E[Y_gt])
-    Y_gt = Y_gt - Y_gt.mean(axis=0)
-    Y_pred = Y_pred - Y_pred.mean(axis=0)
-
-    corrs = (Y_pred * Y_gt).sum(axis=0) / (Y_pred.norm(2, dim=0) * Y_gt.norm(2, dim=0))
-    return corrs.mean().item()
+from berp.viz.trf import trf_to_dataframe, plot_trf_coefficients
 
 
 def make_cv(model, cfg: CVConfig):
@@ -48,7 +35,6 @@ def make_cv(model, cfg: CVConfig):
         enable_pruning=True,
         max_iter=10, n_trials=20,
         param_distributions=param_distributions,
-        # scoring=score,
         error_score="raise",
         cv=KFold(n_splits=cfg.n_inner_folds, shuffle=False),
         refit=True,
@@ -105,6 +91,14 @@ def main(cfg: Config):
     )
     berp_params_df["weight"] = est.pipeline.param_weights.numpy()
     berp_params_df.to_csv(params_dir / "berp_params.csv", index=False)
+
+    # Table-ize and render TRF coefficients.
+    for key, encoder in tqdm(est.pipeline.encoders_.items(), desc="Visualizing encoders"):
+        coefs_df = trf_to_dataframe(encoder)
+        coefs_df["name"] = key
+        coefs_df.to_csv(params_dir / f"encoder_coefs.{key}.csv", index=False)
+
+        plot_trf_coefficients(encoder).savefig(params_dir / f"encoder_coefs.{key}.png")
 
     # # TODO do we need to clear cache?
     # for dataset in tqdm(dataset.datasets, desc="Datasets"):
