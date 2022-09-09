@@ -168,7 +168,7 @@ def clone_count(x):
     # print("=====+++CLONE", clones[0])
     return x.clone()
 
-    
+
 class ScatterParamsMixin:
 
     scatter_key: Optional[str] = None
@@ -526,7 +526,9 @@ class BerpTRFEMEstimator(BaseEstimator):
             self.pipeline.partial_fit(dataset)
         except EarlyStopException: pass
 
-    def partial_fit(self, X: NestedBerpDataset, y=None) -> "BerpTRFEMEstimator":
+    def partial_fit(self, X: NestedBerpDataset, y=None,
+                    X_val: Optional[NestedBerpDataset] = None
+                    ) -> "BerpTRFEMEstimator":
         best_score = -np.inf
         no_improvement_count = 0
         for _ in range(self.n_iter):
@@ -537,17 +539,17 @@ class BerpTRFEMEstimator(BaseEstimator):
             self._m_step(X)
             L.info("M-step finished")
 
-            # TODO score on validation set
-            val_score = self.score(X)
-            L.info("Val score: %f", val_score)
-            if val_score > best_score:
-                best_score = val_score
-                no_improvement_count = 0
-            elif self.early_stopping is not None and no_improvement_count > self.early_stopping:
-                L.warning("Early stopping")
-                break
-            else:
-                no_improvement_count += 1
+            if X_val is not None:
+                val_score = self.score(X_val)
+                L.info("Val score: %f", val_score)
+                if val_score > best_score:
+                    best_score = val_score
+                    no_improvement_count = 0
+                elif self.early_stopping is not None and no_improvement_count > self.early_stopping:
+                    L.warning("Early stopping")
+                    break
+                else:
+                    no_improvement_count += 1
 
         return self
 
