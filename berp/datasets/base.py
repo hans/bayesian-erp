@@ -269,7 +269,7 @@ class NestedBerpDataset(object):
             split_size = int(np.ceil(len(dataset) / self.n_splits))
             for split_offset in range(0, len(dataset), split_size):
                 flat_idxs.append(
-                    (i, split_offset, split_offset + split_size))
+                    (i, split_offset, min(len(dataset), split_offset + split_size)))
         self.flat_idxs = np.array(flat_idxs)
 
     @property
