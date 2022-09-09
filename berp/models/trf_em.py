@@ -42,7 +42,7 @@ def BerpTRFEM(trf, latent_params: Dict[str, Dict[str, BaseDistribution]],
     # TODO lol complicated
     params = []
     # TODO should be a parameter of the model
-    confusion = torch.eye(n_phonemes) + 0.2
+    confusion = torch.eye(n_phonemes) + 0.01
     confusion /= confusion.sum(dim=0, keepdim=True)
 
     base_params = PartiallyObservedModelParameters(
@@ -50,7 +50,7 @@ def BerpTRFEM(trf, latent_params: Dict[str, Dict[str, BaseDistribution]],
         confusion=confusion,
         threshold=torch.tensor(0.5),
     )
-    for _ in range(100):
+    for _ in range(50):  # DEV
         rands = torch.rand(len(latent_params))
         param_updates = {}
         for param_name, param_dist in latent_params.items():
@@ -58,7 +58,7 @@ def BerpTRFEM(trf, latent_params: Dict[str, Dict[str, BaseDistribution]],
             param_dist = next(iter(param_dist.values()))
 
             if isinstance(param_dist, UniformDistribution):
-                param_updates[param_name] = rands * (param_dist.high - param_dist.low) + param_dist.low
+                param_updates[param_name] = (rands * (param_dist.high - param_dist.low) + param_dist.low).squeeze()
             else:
                 raise NotImplementedError(f"Unsupported distribution {param_dist} for {param_name}")
 
@@ -165,7 +165,7 @@ GLOBAL_CACHE: Dict[str, ForwardPipelineCache] = {}
 clones = [0]
 def clone_count(x):
     clones[0] += 1
-    print("=====+++CLONE", clones[0])
+    # print("=====+++CLONE", clones[0])
     return x.clone()
 
     

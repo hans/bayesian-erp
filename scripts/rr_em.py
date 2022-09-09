@@ -146,7 +146,7 @@ def fit_em(dataset: BerpDataset, param_grid: List[rr.ModelParameters],
         [f"ts_{i}" for i in range(dataset.X_ts.shape[1])]
     encoder = TemporalReceptiveField(
         tmin, tmax, dataset.sample_rate,
-        optim=AdamSolver(early_stopping=None),
+        optim=AdamSolver(early_stopping=None, n_batches=32),
         n_outputs=dataset.Y.shape[-1],
         feature_names=all_features,
         warm_start=True,
