@@ -164,9 +164,19 @@ class TemporalReceptiveField(BaseEstimator):
 
         # TODO don't need to call this every iteration..
         self.optim.prime(self, X, Y)
-        self.optim(self._loss_fn, X, Y, **kwargs)
+
+        to_raise = None
+        try:
+            self.optim(self._loss_fn, X, Y, **kwargs)
+        except EarlyStopException as exc:
+            # Keep this for later. Make sure we restore coef shape, etc.
+            to_raise = exc
 
         self.coef_ = self.coef_.detach().view(coef_shape)
+
+        # Now safe to raise exceptions.
+        if to_raise is not None:
+            raise to_raise
 
         Y_pred = self.predict(X_orig)
         self.residuals_ = Y_pred - Y
