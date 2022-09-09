@@ -205,6 +205,8 @@ class GroupBerpTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Enc
     """
     Jointly estimates many Berp encoders, with shared parameters for
     latent-onset model.
+
+    NOT THREAD SAFE. Updates in-place on `ForwardPipelineCache` instances.
     """
 
     def __init__(self, encoder: Encoder,
@@ -379,14 +381,23 @@ class GroupBerpTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Enc
     def _pre_transform_expanded(self, dataset: BerpDataset) -> Iterator[Tuple[List[TRFDesignMatrix], np.ndarray]]:
         """
         Run a forward pass, generating a design matrix for each parameter option.
+
+        NB, the same memory yielded in each iterator step will be reused at the
+        next iterator step. If you want to store the yielded memory, you must
+        clone it in order to keep it safe.
         """
         primed = self._get_cache_for_dataset(dataset)
+        feature_start_idx = dataset.n_ts_features
 
-        ret = []
         for params in self.params:
+            # NB _pre_transform_single operates in place, so we'll reset variable-onset
+            # features each time.
+            # TODO does this break things downstream?
+            primed.design_matrix[:, feature_start_idx:, :] = 0.
+
             yield (self._pre_transform_single(dataset, params,
                                           #   out=primed.design_matrix.clone(),
-                                              out=clone_count(primed.design_matrix),
+                                              out=primed.design_matrix,
                                               out_weight=1.),
                    primed.validation_mask)
     
