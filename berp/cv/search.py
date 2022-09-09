@@ -334,7 +334,12 @@ class _Objective(object):
                 }
                 pbar.set_postfix(postfix)
 
-                if all(early_stopped) or trial.should_prune():
+                if all(early_stopped):
+                    self._store_scores(trial, scores)
+                    # NB we're not pruning trial -- this has the semantics of "trial is worthless."
+                    # We just want to store results and return.
+                    break
+                elif trial.should_prune():
                     self._store_scores(trial, scores)
                     raise TrialPruned("trial was pruned at iteration {}.".format(step))
 
