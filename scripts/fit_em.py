@@ -1,16 +1,18 @@
-import hydra
+import json
+from pathlib import Path
+import pickle
 
+import hydra
 from omegaconf import OmegaConf
 import optuna
+import numpy as np
+import pandas as pd
 from sklearn.base import clone, BaseEstimator
 from sklearn.model_selection import KFold, train_test_split
 from tqdm.auto import tqdm
 
 from berp.config import Config, CVConfig
 from berp.cv import OptunaSearchCV
-from berp.datasets import NestedBerpDataset
-from berp.models.pipeline import PartialPipeline
-from berp.viz.trf import trf_to_dataframe
 
 
 def score(estimator: BaseEstimator, X, Y):
@@ -79,6 +81,30 @@ def main(cfg: Config):
     data_train, data_test = train_test_split(dataset, test_size=0.25, shuffle=False)
     cv = make_cv(model, cfg.cv)
     cv.fit(data_train)
+
+    # Save study information for all hparam options.
+    cv.study.trials_dataframe().to_csv("trials.csv", index=False)
+
+    params_dir = Path("params")
+    params_dir.mkdir()
+    np.savez(params_dir / "hparams.npz", **cv.best_params_)
+    est = cv.best_estimator_
+    # Save the whole pipeline first in pickle format. This includes
+    # latent model parameters as well as all encoder weights. It does
+    # not include pre-transformed TRF design matrices
+    with (params_dir / "pipeline.pkl").open("wb") as f:
+        pickle.dump(est.pipeline, f)
+
+    # Extract and save particular parameters from the ModelParameters grid.
+    # TODO should just be linked to the ones we know we are searching over
+    berp_params_to_extract = ["threshold", "lambda_"]
+    berp_params_df = pd.DataFrame(
+        [[getattr(param_set, param_name).item() for param_name in berp_params_to_extract]
+         for param_set in est.pipeline.params],
+        columns=berp_params_to_extract
+    )
+    berp_params_df["weight"] = est.pipeline.param_weights.numpy()
+    berp_params_df.to_csv(params_dir / "berp_params.csv", index=False)
 
     # # TODO do we need to clear cache?
     # for dataset in tqdm(dataset.datasets, desc="Datasets"):
