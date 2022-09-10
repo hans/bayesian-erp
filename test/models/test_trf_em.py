@@ -88,7 +88,7 @@ def model_param_grid(model_params):
 @pytest.fixture
 def group_em_estimator(synth_params: ModelParameters, trf: TemporalReceptiveField,
                        model_param_grid: List[PartiallyObservedModelParameters]):
-    pipeline = GroupBerpTRFForwardPipeline(trf, model_param_grid)
+    pipeline = GroupBerpTRFForwardPipeline(trf, params=model_param_grid)
     ret = BerpTRFEMEstimator(pipeline)
 
     # Prime the pipeline with two datasets.

@@ -64,12 +64,51 @@ def BerpTRFEM(trf, latent_params: Dict[str, Dict[str, BaseDistribution]],
 
         params.append(replace(base_params, **param_updates))
 
-    pipeline = GroupBerpTRFForwardPipeline(trf, params, **kwargs)
+    pipeline = GroupBerpTRFForwardPipeline(trf, params=params, **kwargs)
     return BerpTRFEMEstimator(pipeline, **kwargs)
+
+
+def BasicTRF(trf, n_outputs: int, **kwargs):
+    pipeline = GroupVanillaTRFForwardPipeline(trf, params, **kwargs)
+    return pipeline
 
 
 # HACK specific to DKZ/gillis. generalize this feature
 subject_re = re.compile(r"^DKZ_\d/([^/]+)")
+
+
+def scatter_add(design_matrix: TRFDesignMatrix,
+                target_samples: TensorType[B, torch.long],
+                target_values: TensorType[B, "n_target_features", float],
+                add=True):
+    """
+    Scatter-add or update values to the given samples of the TRF design matrix,
+    maintaining lag structure (i.e. duplicating target values at different lags).
+
+    If `add` is `True`, scatter-add to existing values; otherwise replace with
+    given values.
+
+    Operates in-place.
+    """
+
+    # TODO unittest
+
+    assert target_samples.shape[0] == target_values.shape[0]
+    assert target_values.shape[1] == design_matrix.shape[1]
+    assert target_values.dtype == design_matrix.dtype
+
+    # NB no copy.
+    out = design_matrix
+
+    for delay in range(out.shape[2]):
+        # Mask out items which, with this delay, would exceed the right edge
+        # of the time series.
+        mask = target_samples + delay < out.shape[0]
+
+        if add:
+            out[target_samples[mask] + delay, :, delay] += target_values[mask]
+        else:
+            out[target_samples[mask] + delay, :, delay] = target_values[mask]
 
 
 def _make_validation_mask(dataset: BerpDataset, validation_fraction: float,
@@ -200,27 +239,20 @@ class ScatterParamsMixin:
 
 
 Encoder = TypeVar("Encoder")
-class GroupBerpTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder]):
-    
+class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder]):
+
     """
-    Jointly estimates many Berp encoders, with shared parameters for
-    latent-onset model.
+    Abstract class. Jointly estimates many TRF encoders, optionally storing
+    group-level parameters as well (e.g. latent onset model parameters).
 
     NOT THREAD SAFE. Updates in-place on `ForwardPipelineCache` instances.
     """
 
-    def __init__(self, encoder: Encoder,
-                 params: List[PartiallyObservedModelParameters],
-                 param_weights: Optional[Responsibilities] = None,
-                 **kwargs):
+    def __init__(self, encoder: Encoder, **kwargs):
         self.encoder = encoder
 
         self.delayer = TRFDelayer(encoder.tmin, encoder.tmax, encoder.sfreq)
         self.encoders_: Dict[str, Encoder] = {}
-
-        self.params = params
-        self.param_weights = param_weights if param_weights is not None else \
-            torch.ones(len(self.params), dtype=torch.float) / len(self.params)
 
         if kwargs:
             L.warning(f"Unused kwargs: {kwargs}")
@@ -301,6 +333,134 @@ class GroupBerpTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Enc
 
     #region domain logic
 
+    def pre_transform(self, dataset: BerpDataset) -> Tuple[TRFDesignMatrix, np.ndarray]:
+        """
+        Run a forward pass of the pre-transformation step, averaging out any
+        other model parameters.
+        """
+        raise NotImplementedError()
+
+    def pre_transform_expanded(self, dataset: BerpDataset) -> Iterator[Tuple[TRFDesignMatrix, np.ndarray]]:
+        """
+        Run a forward pass of the pre-transformation step, generating a design
+        matrix for each latent parameter setting.
+        
+        NB, the same memory yielded in each iterator step will be reused at the
+        next iterator step. If you want to store the yielded memory, you must
+        clone it in order to keep it safe.
+        """
+        # By default, if there are no latent parameters, just yield the only
+        # design matrix we have.
+        yield self.pre_transform(dataset)
+    
+    #endregion
+
+    #region scikit API
+
+    def _fit(self, encoder: Encoder, dataset: BerpDataset):
+        design_matrix, _ = self.pre_transform(dataset)
+        encoder.fit(design_matrix, dataset.Y)
+
+    def fit(self, dataset: NestedBerpDataset, y=None) -> "GroupBerpTRFForwardPipeline":
+        for d, enc in self._get_or_create_encoders(dataset):
+            self._fit(enc, d)
+        return self
+
+    def _partial_fit(self, encoder: Encoder, dataset: BerpDataset):
+        design_matrix, validation_mask = self.pre_transform(dataset)
+        encoder.partial_fit(design_matrix, dataset.Y, validation_mask=validation_mask)
+
+    def partial_fit(self, dataset: NestedBerpDataset, y=None) -> "GroupBerpTRFForwardPipeline":
+        n_early_stops = 0
+
+        encs = self._get_or_create_encoders(dataset)
+        for d, enc in encs:
+            try:
+                self._partial_fit(enc, d)
+            except EarlyStopException:
+                n_early_stops += 1
+
+        # Only raise EarlyStop if all encoder children have reached an early stop.
+        if n_early_stops == len(encs):
+            raise EarlyStopException()
+
+        return self
+
+    @typechecked
+    def predict(self, dataset: BerpDataset) -> TRFResponse:
+        enc = self._get_or_create_encoder(dataset)
+        design_matrix, _ = self.pre_transform(dataset)
+        return enc.predict(design_matrix)
+
+    @singledispatchmethod
+    def score(self, dataset) -> float:
+        raise NotImplementedError
+
+    @score.register
+    @typechecked
+    def _(self, dataset: BerpDataset) -> float:
+        enc = self._get_or_create_encoder(dataset)
+        design_matrix, _ = self.pre_transform(dataset)
+        return enc.score(design_matrix, dataset.Y)
+
+    @score.register
+    @typechecked
+    def _(self, dataset: NestedBerpDataset) -> float:
+        scores = [self.score(d) for d in dataset.datasets]
+        return np.mean(scores)
+
+    @singledispatchmethod
+    def log_likelihood(self, dataset):
+        raise NotImplementedError
+
+    @log_likelihood.register
+    @typechecked
+    def _(self, dataset: BerpDataset) -> TensorType[B, torch.float]:
+        enc = self._get_or_create_encoder(dataset)
+        design_matrix, _ = self.pre_transform(dataset)
+        return enc.log_likelihood(design_matrix, dataset.Y).sum()
+
+    @log_likelihood.register
+    @typechecked
+    def _(self, dataset: NestedBerpDataset) -> List[TensorType[B, torch.float]]:
+        return [self.log_likelihood(d) for d in dataset.datasets]
+
+    @singledispatchmethod
+    def log_likelihood_expanded(self, dataset):
+        raise NotImplementedError
+
+    @log_likelihood_expanded.register
+    @typechecked
+    def _(self, dataset: BerpDataset) -> TensorType["param_grid", torch.float]:
+        enc = self._get_or_create_encoder(dataset)
+        ret = []
+        for design_matrix, _ in self.pre_transform_expanded(dataset):
+            ret.append(enc.log_likelihood(design_matrix, dataset.Y).sum())
+        return torch.stack(ret)
+
+    @log_likelihood_expanded.register
+    @typechecked
+    def _(self, dataset: NestedBerpDataset
+          ) -> Union[List[TensorType["param_grid", torch.float]],
+                     List[torch.Tensor]]:
+        return [self.log_likelihood_expanded(d)
+                for d in dataset.datasets]
+
+    #endregion
+
+
+class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
+
+    def __init__(self, encoder: Encoder,
+                 params: List[PartiallyObservedModelParameters],
+                 param_weights: Optional[Responsibilities] = None,
+                 **kwargs):
+        super().__init__(encoder, **kwargs)
+
+        self.params = params
+        self.param_weights = param_weights if param_weights is not None else \
+            torch.ones(len(self.params), dtype=torch.float) / len(self.params)
+
     def _scatter_variable(self,
                           dataset: BerpDataset,
                           recognition_points: TensorType[B, torch.long],
@@ -332,14 +492,7 @@ class GroupBerpTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Enc
 
         # Scatter-add, lagging over delay axis.
         to_add = out_weight * dataset.X_variable
-        for delay in range(out.shape[2]):
-            # Mask out items which, with this delay, would exceed the right edge
-            # of the time series.
-            mask = recognition_onsets_samp + delay < out.shape[0]
-
-            out[recognition_onsets_samp[mask] + delay,
-                feature_start_idx:,
-                delay] += to_add[mask]
+        scatter_add(out[:, feature_start_idx:, :], recognition_onsets_samp, to_add)
 
         return out
 
@@ -362,10 +515,7 @@ class GroupBerpTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Enc
             out=out, out_weight=out_weight)
         return design_matrix
     
-    def _pre_transform(self, dataset: BerpDataset) -> Tuple[TRFDesignMatrix, np.ndarray]:
-        """
-        Run a forward pass, averaging out model parameters.
-        """
+    def pre_transform(self, dataset: BerpDataset) -> Tuple[TRFDesignMatrix, np.ndarray]:
         primed = self._get_cache_for_dataset(dataset)
         # acc = primed.design_matrix.clone()
         acc = clone_count(primed.design_matrix)
@@ -378,14 +528,7 @@ class GroupBerpTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Enc
             acc = self._pre_transform_single(dataset, params, out=acc, out_weight=weight)
         return acc, primed.validation_mask
 
-    def _pre_transform_expanded(self, dataset: BerpDataset) -> Iterator[Tuple[List[TRFDesignMatrix], np.ndarray]]:
-        """
-        Run a forward pass, generating a design matrix for each parameter option.
-
-        NB, the same memory yielded in each iterator step will be reused at the
-        next iterator step. If you want to store the yielded memory, you must
-        clone it in order to keep it safe.
-        """
+    def pre_transform_expanded(self, dataset: BerpDataset) -> Iterator[Tuple[TRFDesignMatrix, np.ndarray]]:
         primed = self._get_cache_for_dataset(dataset)
         feature_start_idx = dataset.n_ts_features
 
@@ -400,101 +543,30 @@ class GroupBerpTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Enc
                                               out=primed.design_matrix,
                                               out_weight=1.),
                    primed.validation_mask)
-    
-    #endregion
 
-    #region scikit API
 
-    def _fit(self, encoder: Encoder, dataset: BerpDataset):
-        design_matrix, _ = self._pre_transform(dataset)
-        encoder.fit(design_matrix, dataset.Y)
+class GroupVanillaTRFForwardPipeline(GroupTRFForwardPipeline):
 
-    def fit(self, dataset: NestedBerpDataset, y=None) -> "GroupBerpTRFForwardPipeline":
-        for d, enc in self._get_or_create_encoders(dataset):
-            self._fit(enc, d)
-        return self
+    def _scatter(self, dataset: BerpDataset, design_matrix: TRFDesignMatrix):
+        """
+        Scatter-add variable-onset data onto word onset points in time series
+        represented in `design_matrix`. Operates in-place.
+        """
+        recognition_onsets = dataset.word_onsets
+        recognition_onsets_samp = time_to_sample(recognition_onsets, self.encoder.sfreq)
 
-    def _partial_fit(self, encoder: Encoder, dataset: BerpDataset):
-        design_matrix, validation_mask = self._pre_transform(dataset)
-        encoder.partial_fit(design_matrix, dataset.Y, validation_mask=validation_mask)
+        feature_start_idx = dataset.n_ts_features
+        scatter_add(design_matrix[:, feature_start_idx:, :],
+                    recognition_onsets_samp,
+                    dataset.X_variable)
 
-    def partial_fit(self, dataset: NestedBerpDataset, y=None) -> "GroupBerpTRFForwardPipeline":
-        n_early_stops = 0
+    def pre_transform(self, dataset: BerpDataset) -> Tuple[TRFDesignMatrix, np.ndarray]:
+        primed = self._get_cache_for_dataset(dataset)
+        
+        # Fine to not clone cached values -- they are constant.
+        self._scatter(dataset, primed.design_matrix, add=False)
 
-        encs = self._get_or_create_encoders(dataset)
-        for d, enc in encs:
-            try:
-                self._partial_fit(enc, d)
-            except EarlyStopException:
-                n_early_stops += 1
-
-        # Only raise EarlyStop if all encoder children have reached an early stop.
-        if n_early_stops == len(encs):
-            raise EarlyStopException()
-
-        return self
-
-    @typechecked
-    def predict(self, dataset: BerpDataset) -> TRFResponse:
-        enc = self._get_or_create_encoder(dataset)
-        design_matrix, _ = self._pre_transform(dataset)
-        return enc.predict(design_matrix)
-
-    @singledispatchmethod
-    def score(self, dataset) -> float:
-        raise NotImplementedError
-
-    @score.register
-    @typechecked
-    def _(self, dataset: BerpDataset) -> float:
-        enc = self._get_or_create_encoder(dataset)
-        design_matrix, _ = self._pre_transform(dataset)
-        return enc.score(design_matrix, dataset.Y)
-
-    @score.register
-    @typechecked
-    def _(self, dataset: NestedBerpDataset) -> float:
-        scores = [self.score(d) for d in dataset.datasets]
-        return np.mean(scores)
-
-    @singledispatchmethod
-    def log_likelihood(self, dataset):
-        raise NotImplementedError
-
-    @log_likelihood.register
-    @typechecked
-    def _(self, dataset: BerpDataset) -> TensorType[B, torch.float]:
-        enc = self._get_or_create_encoder(dataset)
-        design_matrix, _ = self._pre_transform(dataset)
-        return enc.log_likelihood(design_matrix, dataset.Y).sum()
-
-    @log_likelihood.register
-    @typechecked
-    def _(self, dataset: NestedBerpDataset) -> List[TensorType[B, torch.float]]:
-        return [self.log_likelihood(d) for d in dataset.datasets]
-
-    @singledispatchmethod
-    def log_likelihood_expanded(self, dataset):
-        raise NotImplementedError
-
-    @log_likelihood_expanded.register
-    @typechecked
-    def _(self, dataset: BerpDataset) -> TensorType["param_grid", torch.float]:
-        enc = self._get_or_create_encoder(dataset)
-        ret = []
-        for design_matrix, _ in self._pre_transform_expanded(dataset):
-            ret.append(enc.log_likelihood(design_matrix, dataset.Y).sum())
-        return torch.stack(ret)
-
-    @log_likelihood_expanded.register
-    @typechecked
-    def _(self, dataset: NestedBerpDataset
-          ) -> Union[List[TensorType["param_grid", torch.float]],
-                     List[torch.Tensor]]:
-        return [self.log_likelihood_expanded(d)
-                for d in dataset.datasets]
-
-    #endregion
+        return primed.design_matrix, primed.validation_mask
 
 
 class BerpTRFEMEstimator(BaseEstimator):
