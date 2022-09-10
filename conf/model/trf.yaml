@@ -1,10 +1,11 @@
 defaults:
   - base_trf_pipeline
 
-type: trf
-tmin: 0
-tmax: 1
-sfreq: 128
-alpha: 1
-standardize_X: true
-standardize_Y: true
+trf:
+  type: trf
+  tmin: 0
+  tmax: 1
+  sfreq: 128
+  alpha: 1
+  # HACK: unknown for the moment, but will be re-set by code
+  n_outputs: 1

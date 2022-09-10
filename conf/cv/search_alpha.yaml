@@ -6,14 +6,14 @@ param_sampler:
   multivariate: true
 
 params:
-  pipeline__encoder__alpha:
+  encoder__alpha:
     type: float
     low: 1
     high: 1e10
     log: true
     # shape: [129]
 
-  pipeline__encoder__optim__learning_rate:
+  encoder__optim__learning_rate:
     type: float
     low: 1e-4
     high: 5e-1

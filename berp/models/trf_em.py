@@ -69,7 +69,8 @@ def BerpTRFEM(trf, latent_params: Dict[str, Dict[str, BaseDistribution]],
 
 
 def BasicTRF(trf, n_outputs: int, **kwargs):
-    pipeline = GroupVanillaTRFForwardPipeline(trf, params, **kwargs)
+    trf.set_params(n_outputs=n_outputs)
+    pipeline = GroupVanillaTRFForwardPipeline(trf, **kwargs)
     return pipeline
 
 
@@ -393,19 +394,19 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
         return enc.predict(design_matrix)
 
     @singledispatchmethod
-    def score(self, dataset) -> float:
+    def score(self, dataset, y=None) -> float:
         raise NotImplementedError
 
     @score.register
     @typechecked
-    def _(self, dataset: BerpDataset) -> float:
+    def _(self, dataset: BerpDataset, y=None) -> float:
         enc = self._get_or_create_encoder(dataset)
         design_matrix, _ = self.pre_transform(dataset)
         return enc.score(design_matrix, dataset.Y)
 
     @score.register
     @typechecked
-    def _(self, dataset: NestedBerpDataset) -> float:
+    def _(self, dataset: NestedBerpDataset, y=None) -> float:
         scores = [self.score(d) for d in dataset.datasets]
         return np.mean(scores)
 

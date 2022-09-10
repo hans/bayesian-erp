@@ -13,6 +13,7 @@ from tqdm.auto import tqdm
 
 from berp.config import Config, CVConfig
 from berp.cv import OptunaSearchCV
+from berp.models.trf_em import GroupBerpTRFForwardPipeline, GroupTRFForwardPipeline
 from berp.viz.trf import trf_to_dataframe, plot_trf_coefficients
 
 
@@ -75,25 +76,32 @@ def main(cfg: Config):
     params_dir.mkdir()
     np.savez(params_dir / "hparams.npz", **cv.best_params_)
     est = cv.best_estimator_
+
+    # May have a wrapper around it.
+    if hasattr(est, "pipeline"):
+        est = est.pipeline
+    assert isinstance(est, GroupTRFForwardPipeline)
+
     # Save the whole pipeline first in pickle format. This includes
     # latent model parameters as well as all encoder weights. It does
     # not include pre-transformed TRF design matrices
     with (params_dir / "pipeline.pkl").open("wb") as f:
-        pickle.dump(est.pipeline, f)
+        pickle.dump(est, f)
 
     # Extract and save particular parameters from the ModelParameters grid.
-    # TODO should just be linked to the ones we know we are searching over
-    berp_params_to_extract = ["threshold", "lambda_"]
-    berp_params_df = pd.DataFrame(
-        [[getattr(param_set, param_name).item() for param_name in berp_params_to_extract]
-         for param_set in est.pipeline.params],
-        columns=berp_params_to_extract
-    )
-    berp_params_df["weight"] = est.pipeline.param_weights.numpy()
-    berp_params_df.to_csv(params_dir / "berp_params.csv", index=False)
+    if hasattr(est, "params"):
+        # TODO should just be linked to the ones we know we are searching over
+        berp_params_to_extract = ["threshold", "lambda_"]
+        berp_params_df = pd.DataFrame(
+            [[getattr(param_set, param_name).item() for param_name in berp_params_to_extract]
+            for param_set in est.params],
+            columns=berp_params_to_extract
+        )
+        berp_params_df["weight"] = est.param_weights.numpy()
+        berp_params_df.to_csv(params_dir / "berp_params.csv", index=False)
 
     # Table-ize and render TRF coefficients.
-    for key, encoder in tqdm(est.pipeline.encoders_.items(), desc="Visualizing encoders"):
+    for key, encoder in tqdm(est.encoders_.items(), desc="Visualizing encoders"):
         coefs_df = trf_to_dataframe(encoder)
         coefs_df["name"] = key
         coefs_df.to_csv(params_dir / f"encoder_coefs.{key}.csv", index=False)

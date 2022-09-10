@@ -32,11 +32,10 @@ class TRFModelConfig(ModelConfig):
     _target_: str = "berp.models.trf.TemporalReceptiveField"
 
 @dataclass
-class TRFPipelineConfig(TRFModelConfig):
-    standardize_X: bool = True
-    standardize_Y: bool = True
+class TRFPipelineConfig(ModelConfig):
+    trf: TRFModelConfig
 
-    _target_: str = "berp.models.trf.BerpTRF"
+    _target_: str = "berp.models.trf_em.BasicTRF"
 
 
 @dataclass

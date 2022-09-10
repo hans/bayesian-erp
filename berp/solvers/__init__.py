@@ -132,7 +132,7 @@ class SGDSolver(Solver):
 
 
 # TODO clean up and move
-class AdamSolver(Solver):
+class AdamSolver(SGDSolver):
 
     @cached_property
     def _optim(self):
