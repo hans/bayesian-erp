@@ -101,12 +101,23 @@ def main(cfg: Config):
         berp_params_df.to_csv(params_dir / "berp_params.csv", index=False)
 
     # Table-ize and render TRF coefficients.
+    ts_feature_names = dataset.ts_feature_names if dataset.ts_feature_names is not None else \
+        [str(x) for x in range(dataset.n_ts_features)]
+    variable_feature_names = dataset.variable_feature_names if dataset.variable_feature_names is not None else \
+        [f"var_{x}" for x in range(dataset.n_variable_features)]
+    feature_names = ts_feature_names + variable_feature_names
     for key, encoder in tqdm(est.encoders_.items(), desc="Visualizing encoders"):
-        coefs_df = trf_to_dataframe(encoder)
+        coefs_df = trf_to_dataframe(encoder, feature_names=feature_names)
         coefs_df["name"] = key
         coefs_df.to_csv(params_dir / f"encoder_coefs.{key}.csv", index=False)
 
-        plot_trf_coefficients(encoder).savefig(params_dir / f"encoder_coefs.{key}.png")
+        fig = plot_trf_coefficients(
+            encoder,
+            feature_names=feature_names,
+            feature_match_patterns=cfg.viz.feature_patterns)
+        fig.savefig(params_dir / f"encoder_coefs.{key}.png")
+
+    # TODO calculate score on test set. or do full CV.
 
     # # TODO do we need to clear cache?
     # for dataset in tqdm(dataset.datasets, desc="Datasets"):
@@ -119,22 +130,6 @@ def main(cfg: Config):
     #     coefs_df = trf_to_dataframe(trf)
     #     coefs_df["dataset"] = dataset.name
     #     coefs_df.to_csv(f"coefs.{dataset.name.replace('/', '-')}.csv", index=False)
-
-    # # TODO use cfg
-    # # DEV: tiny training set
-    # 
-    # # Re-merge into nested datasets for further CV fun.
-    # data_train = NestedBerpDataset(data_train)
-    # data_test = NestedBerpDataset(data_test)
-
-    # # DEV: No nested CV. Just fit coefs.
-    # cv = make_cv(model, cfg.cv)
-    # cv.fit(data_train)
-
-    # trf = cv.best_estimator_.named_steps["trf"]
-    # coefs_df = trf_to_dataframe(trf)
-    # coefs_df.to_csv("coefs.csv")
-    # plot_trf_coefficients(trf).savefig("coefficients.png")
 
     #########
 

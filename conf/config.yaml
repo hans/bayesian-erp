@@ -6,6 +6,7 @@ defaults:
   - dataset: dkz_1_2
   - train_test: conservative
   - cv: search_alpha
+  - viz: basic
 
   - override hydra/job_logging: colorlog
   - override hydra/hydra_logging: colorlog

@@ -7,6 +7,7 @@ from berp.config.cv import TrainTestConfig, CVConfig
 from berp.config.dataset import DatasetConfig
 from berp.config.model import ModelConfig
 from berp.config.solver import SolverConfig
+from berp.config.viz import VizConfig
 
 
 @dataclass
@@ -17,6 +18,8 @@ class Config:
 
     train_test: TrainTestConfig
     cv: CVConfig
+
+    viz: VizConfig
 
 
 cs = ConfigStore.instance()
@@ -29,4 +32,5 @@ __all__ = [
     "DatasetConfig",
     "ModelConfig",
     "SolverConfig",
+    "VizConfig",
 ]
