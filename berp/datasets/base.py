@@ -95,6 +95,12 @@ class BerpDataset:
     a slice of a larger time series.
     """
 
+    ts_feature_names: Optional[List[str]] = None
+    variable_feature_names: Optional[List[str]] = None
+
+    def __post_init__(self):
+        self.check_shapes()
+
     @property
     def base_name(self):
         """
@@ -117,6 +123,10 @@ class BerpDataset:
         return len(self)
 
     @property
+    def n_words(self):
+        return len(self.word_lengths)
+
+    @property
     def n_ts_features(self):
         return self.X_ts.shape[1]
 
@@ -134,7 +144,23 @@ class BerpDataset:
 
     @property
     def n_phonemes(self):
+        """Number of available phoneme types"""
         return len(self.phonemes)
+
+    @property
+    def max_n_phonemes(self):
+        """
+        The maximum length of a word/candidate in the representation, in
+        phonemes.
+        """
+        return self.candidate_phonemes.shape[2]
+
+    @property
+    def n_candidates(self):
+        """
+        Number of represented candidate completions for each context.
+        """
+        return self.p_word.shape[1]
     
     @property
     def phoneme_onsets_global(self) -> TensorType[B, N_P, float, is_positive]:
@@ -209,6 +235,24 @@ class BerpDataset:
 
         return super().__getitem__(key)
 
+    def check_shapes(self):
+        """
+        Check that all data arrays have the expected shape.
+        """
+        assert self.p_word.shape == (self.n_words, self.n_candidates)
+        assert self.word_lengths.shape == (self.n_words,)
+        assert self.candidate_phonemes.shape == (self.n_words, self.n_candidates, self.max_n_phonemes)
+        assert self.word_onsets.shape == (self.n_words,)
+        assert self.phoneme_onsets.shape == (self.n_words, self.max_n_phonemes)
+        assert self.X_ts.shape == (self.n_samples, self.n_ts_features)
+        assert self.X_variable.shape == (self.n_words, self.n_variable_features)
+        assert self.Y.shape == (self.n_samples, self.n_sensors)
+
+        if self.ts_feature_names is not None:
+            assert len(self.ts_feature_names) == self.n_ts_features
+        if self.variable_feature_names is not None:
+            assert len(self.variable_feature_names) == self.n_variable_features
+
     def ensure_torch(self, dtype=torch.float32) -> BerpDataset:
         """
         Convert all tensors to torch tensors.
@@ -254,6 +298,11 @@ class NestedBerpDataset(object):
             assert dataset.X_variable.shape[1:] == ds0.X_variable.shape[1:]
             assert dataset.Y.shape[1:] == ds0.Y.shape[1:]
             assert dataset.X_ts.shape[0] == dataset.Y.shape[0]
+
+            if ds0.ts_feature_names is not None:
+                assert ds0.ts_feature_names == dataset.ts_feature_names
+            if ds0.variable_feature_names is not None:
+                assert ds0.variable_feature_names == dataset.variable_feature_names
 
         self.datasets = datasets
         self.n_datasets = len(datasets)
@@ -311,6 +360,14 @@ class NestedBerpDataset(object):
     @property
     def n_sensors(self):
         return self.datasets[0].n_sensors
+
+    @property
+    def ts_feature_names(self):
+        return self.datasets[0].ts_feature_names
+
+    @property
+    def variable_feature_names(self):
+        return self.datasets[0].variable_feature_names
 
     # TODO will be super slow to always typecheck. remove once we know this
     # works
