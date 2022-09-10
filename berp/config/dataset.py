@@ -23,6 +23,10 @@ class EEGDatasetConfig(DatasetConfig):
     is a reference to a montage channel name (not an index).
     """
 
+    normalize_X_ts: bool = True
+    normalize_X_variable: bool = True
+    normalize_Y: bool = True
+
     _target_: str = "berp.datasets.eeg.load_eeg_dataset"
 
     @property
