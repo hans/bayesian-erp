@@ -36,6 +36,7 @@ p.add_argument("aligned_phonemes_path", type=Path)
 p.add_argument("-m", "--model", default="GroNLP/gpt2-small-dutch")
 p.add_argument("-n", "--n_candidates", type=int, default=10)
 p.add_argument("--vocab_path", type=Path, default="../../data/gillis2021/vocab.pkl")
+p.add_argument("--celex_path", type=Path, default="../../data/gillis2021/celex_dpw_cx.txt")
 
 if IS_INTERACTIVE:
     args = Namespace(tokenized_path=Path("tokenized/DKZ_1.txt"),
@@ -43,7 +44,8 @@ if IS_INTERACTIVE:
                      aligned_phonemes_path=Path("aligned_phonemes.csv"),
                      model="GroNLP/gpt2-small-dutch",
                      n_candidates=1000,
-                     vocab_path=Path("../../data/gillis2021/vocab.pkl"))
+                     vocab_path=Path("../../data/gillis2021/vocab.pkl"),
+                     celex_path=Path("../../data/gillis2021/celex_dpw_cx.txt"))
 else:
     args = p.parse_args()
 
@@ -150,7 +152,7 @@ def convert_celex_to_cgn(celex):
 
 
 # Load CELEX pronunciation database. Keep only the most frequent pronunciation for a word.
-phonemizer_df = pd.read_csv("../../data/gillis2021/celex_dpw_cx.txt", sep="\\", header=None,
+phonemizer_df = pd.read_csv(args.celex_path, sep="\\", header=None,
                             usecols=[1, 2, 6], names=["word", "inl_freq", "celex_syl"]).dropna()
 phonemizer_df["word"] = phonemizer_df.word.str.lower()
 phonemizer_df = phonemizer_df \

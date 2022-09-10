@@ -10,6 +10,7 @@ textgrid_dir = file("${params.data_dir}/textgrids")
 stim_dir = file("${params.data_dir}/predictors")
 raw_text_dir = file("${params.data_dir}/raw_text")
 vocab_path = file("${params.data_dir}/vocab.pkl")
+celex_path = file("${params.data_dir}/celex_dpw_cx.txt")
 
 outDir = "${baseDir}/results/gillis2021"
 
@@ -114,6 +115,7 @@ process runLanguageModeling {
         -m ${params.model} \
         -n ${params.n_candidates} \
         --vocab_path ${vocab_path} \
+        --celex_path ${celex_path} \
         ${tokenized} \
         ${aligned_words} \
         ${aligned_phonemes}
