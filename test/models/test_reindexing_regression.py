@@ -112,7 +112,7 @@ def model_forward(dataset, parameters, conditioning=None):
 
 
 def _run_soundness_check(conditions, background_condition,
-                         dataset: rr.RRDataset,
+                         dataset: BerpDataset,
                          parameters: Callable[[], rr.ModelParameters]):
     """
     Verify that the probability of the ground truth data is greatest under the
