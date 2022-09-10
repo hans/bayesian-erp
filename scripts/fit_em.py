@@ -62,7 +62,7 @@ def main(cfg: Config):
     # return
 
     # Before splitting datasets, prime model pipeline with full data.
-    model.pipeline.prime(dataset)
+    model.prime(dataset)
 
     data_train, data_test = train_test_split(dataset, test_size=0.25, shuffle=False)
     cv = make_cv(model, cfg.cv)

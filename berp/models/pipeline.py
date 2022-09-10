@@ -170,6 +170,11 @@ class PartialPipeline(Pipeline):
         self.cache_name = cache_name or f"PartialPipeline{id(self)}"
         self.cache_ = Cache.load_cache(self.cache_name)
 
+    def prime(self, *args, **kwargs):
+        # no-op here. used by other pipelines that do aggressive caching
+        # and want to see a whole dataset first.
+        pass
+
     # Estimator interface
 
     def _fit(self, X, y=None, **fit_params_steps):

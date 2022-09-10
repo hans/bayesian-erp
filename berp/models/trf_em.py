@@ -549,6 +549,9 @@ class BerpTRFEMEstimator(BaseEstimator):
         """
         self.pipeline.partial_fit(dataset)
 
+    def prime(self, dataset):
+        return self.pipeline.prime(dataset)
+
     def partial_fit(self, X: NestedBerpDataset, y=None,
                     X_val: Optional[NestedBerpDataset] = None
                     ) -> "BerpTRFEMEstimator":

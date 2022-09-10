@@ -97,7 +97,7 @@ def group_em_estimator(synth_params: ModelParameters, trf: TemporalReceptiveFiel
     ds2 = make_dataset(synth_params)
     ds2.name = "DKZ_1/subj2"
     nested = NestedBerpDataset([ds1, ds2])
-    pipeline.prime(nested)
+    ret.prime(nested)
 
     return ret, nested
 
