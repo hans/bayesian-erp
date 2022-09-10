@@ -17,11 +17,10 @@ class Solver(BaseEstimator):
     pass
 
 
-# TODO clean up and move
-class AdamSolver(Solver):
+class SGDSolver(Solver):
     """
     Model mixin which supports advanced stochastic gradient descent
-    methods.
+    methods and provides early stopping facilities.
 
     Whenever the dataset or estimator structure changes you should call `.prime()`
     """
@@ -57,7 +56,7 @@ class AdamSolver(Solver):
     @cached_property
     def _optim(self):
         # TODO make sure this is not carried across history
-        return torch.optim.Adam(self._optim_parameters, lr=self.learning_rate)
+        return torch.optim.SGD(self._optim_parameters, lr=self.learning_rate)
 
     def reset(self):
         self._primed = False
@@ -130,3 +129,12 @@ class AdamSolver(Solver):
             self.batch_cursor = (self.batch_cursor + 1) % self._total_num_batches
 
         return self
+
+
+# TODO clean up and move
+class AdamSolver(Solver):
+
+    @cached_property
+    def _optim(self):
+        # TODO make sure this is not carried across history
+        return torch.optim.Adam(self._optim_parameters, lr=self.learning_rate)

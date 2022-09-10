@@ -552,19 +552,23 @@ class GroupVanillaTRFForwardPipeline(GroupTRFForwardPipeline):
         Scatter-add variable-onset data onto word onset points in time series
         represented in `design_matrix`. Operates in-place.
         """
+        if dataset.n_variable_features == 0:
+            return
+
         recognition_onsets = dataset.word_onsets
         recognition_onsets_samp = time_to_sample(recognition_onsets, self.encoder.sfreq)
 
         feature_start_idx = dataset.n_ts_features
         scatter_add(design_matrix[:, feature_start_idx:, :],
                     recognition_onsets_samp,
-                    dataset.X_variable)
+                    dataset.X_variable,
+                    add=False)
 
     def pre_transform(self, dataset: BerpDataset) -> Tuple[TRFDesignMatrix, np.ndarray]:
         primed = self._get_cache_for_dataset(dataset)
         
         # Fine to not clone cached values -- they are constant.
-        self._scatter(dataset, primed.design_matrix, add=False)
+        self._scatter(dataset, primed.design_matrix)
 
         return primed.design_matrix, primed.validation_mask
 
