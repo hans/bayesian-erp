@@ -98,6 +98,7 @@ celex_cgn_mapping = {
     "I": "I",
     "N": "N",
     "O": "O",
+    "O:": "O:",
     "S": "S",
     "U": "Y",
     "UI": "Y+",
