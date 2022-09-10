@@ -58,7 +58,9 @@ story_name = args.natural_language_stimulus_path.stem
 
 with args.natural_language_stimulus_path.open("rb") as f:
     story_stim = pickle.load(f)
-time_series_features = np.load(args.stim_path)[story_name]
+ts_features_dict = np.load(args.stim_path)
+ts_feature_names = ts_features_dict["feature_names"].tolist()
+time_series_features = ts_features_dict[story_name]
 
 # Variable onset features are simply word features and word surprisals.
 X_variable = torch.concat([story_stim.word_features,
@@ -153,7 +155,10 @@ ret = BerpDataset(
     phoneme_onsets=phoneme_onsets,
     
     X_ts=X_ts,
+    ts_feature_names=ts_feature_names,
     X_variable=X_variable,
+    # NB word_frequency comes from stimulus processor setup in previous script
+    variable_feature_names=["word_frequency", "word_surprisal"],
     
     Y=eeg.get_data().T
 )
