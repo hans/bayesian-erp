@@ -57,6 +57,9 @@ class CVConfig:
     param_sampler: TPESamplerConfig
     params: Dict[str, DistributionConfig]
 
+    max_iter: int = 50
+    n_trials: int = 20
+
 
 cs = ConfigStore.instance()
 cs.store(group="train_test", name="base_train_test", node=TrainTestConfig)

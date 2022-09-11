@@ -9,10 +9,10 @@ import numpy as np
 import pandas as pd
 from sklearn.base import clone, BaseEstimator
 from sklearn.model_selection import KFold, train_test_split
-from tqdm.auto import tqdm
+from tqdm.auto import tqdm, trange
 
 from berp.config import Config, CVConfig
-from berp.cv import OptunaSearchCV
+from berp.cv import OptunaSearchCV, EarlyStopException
 from berp.models.trf_em import GroupBerpTRFForwardPipeline, GroupTRFForwardPipeline
 from berp.viz.trf import trf_to_dataframe, plot_trf_coefficients
 
@@ -30,11 +30,12 @@ def make_cv(model, cfg: CVConfig):
     sampler = optuna.samplers.TPESampler(multivariate=True)
     study = optuna.create_study(sampler=sampler, direction="maximize")
     
+    n_trials = cfg.n_trials if len(cfg.params) > 0 else 1
     return OptunaSearchCV(
         estimator=clone(model),
         study=study,
         enable_pruning=True,
-        max_iter=10, n_trials=20,
+        max_iter=cfg.max_iter, n_trials=n_trials,
         param_distributions=param_distributions,
         error_score="raise",
         cv=KFold(n_splits=cfg.n_inner_folds, shuffle=False),
@@ -54,28 +55,35 @@ def main(cfg: Config):
                              n_outputs=dataset.n_sensors,
                              optim=cfg.solver)
     from pprint import pprint; pprint(model.get_params())
-    # model.partial_fit(dataset)
-    # model.set_params(trf__alpha=np.ones(129))
-    # nbd = NestedBerpDataset([dataset.datasets[0]], n_splits=4)
-    # model.partial_fit(nbd)
-    # model.partial_fit(nbd)
-    # import ipdb; ipdb.set_trace()
-    # return
 
     # Before splitting datasets, prime model pipeline with full data.
     model.prime(dataset)
 
     data_train, data_test = train_test_split(dataset, test_size=0.25, shuffle=False)
-    cv = make_cv(model, cfg.cv)
-    cv.fit(data_train)
-
-    # Save study information for all hparam options.
-    cv.study.trials_dataframe().to_csv("trials.csv", index=False)
 
     params_dir = Path("params")
     params_dir.mkdir()
-    np.savez(params_dir / "hparams.npz", **cv.best_params_)
-    est = cv.best_estimator_
+
+    # TODO support running without CV / k-fold? Not efficient. Although it does
+    # allow us to get error bounds on threshold params. If we keep the underlying
+    # fold estimators that is ..
+    if True:  # len(cfg.cv.params) > 0:
+        # Run K-fold cross validation to estimate hyperparameters.
+        cv = make_cv(model, cfg.cv)
+        cv.fit(data_train)
+
+        # Save study information for all hparam options.
+        cv.study.trials_dataframe().to_csv("trials.csv", index=False)
+
+        np.savez(params_dir / "hparams.npz", **cv.best_params_)
+        est = cv.best_estimator_
+    # else:
+    #     for _ in trange(cfg.cv.max_iter):
+    #         try:
+    #             model.partial_fit(data_train)
+    #         except EarlyStopException:
+    #             break
+    #     est = model
 
     # May have a wrapper around it.
     if hasattr(est, "pipeline"):
