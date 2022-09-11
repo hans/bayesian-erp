@@ -7,6 +7,7 @@ import pickle
 import re
 import sys
 sys.path.append(str(Path(".").resolve().parent.parent))
+from typing import List
 
 import h5py
 import mne
@@ -28,6 +29,7 @@ IS_INTERACTIVE
 # %autoreload 2
 
 from berp.datasets import NaturalLanguageStimulusProcessor
+from berp.languages import dutch
 
 p = ArgumentParser()
 p.add_argument("tokenized_path", type=Path)
@@ -85,112 +87,18 @@ words_df["frequency"] = words_df.frequency.fillna(oov_freq)
 
 # ## Process story language data
 
-# NB # in CGN denotes cough, sneeze, etc.
-celex_cgn_mapping = {
-    "&:": "2",
-    "@": "@",
-    "A": "A",
-    "AU": "A+",
-    "E": "E",
-    "E:": "E:",
-    "EI": "E+",
-    "G": "G",
-    "I": "I",
-    "N": "N",
-    "O": "O",
-    "O:": "O:",
-    "S": "S",
-    "U": "Y",
-    "UI": "Y+",
-    "a:": "a",
-    "b": "b",
-    "d": "d",
-    "e:": "e",
-    "f": "f",
-    "g": "g",
-    "h": "h",
-    "i:": "i",
-    "j": "j",
-    "k": "k",
-    "l": "l",
-    "m": "m",
-    "n": "n",
-    "o:": "o",
-    "p": "p",
-    "r": "r",
-    "s": "s",
-    "t": "t",
-    "u:": "u",
-    "v": "v",
-    "w": "w",
-    "x": "x",
-    "y:": "y",
-    "z": "z",
-    "Z": "Z",
-}
 
-
-def convert_celex_to_cgn(celex):
-    # Greedily consume phonemes
-    celex_keys = sorted(celex_cgn_mapping.keys(), key=lambda code: -len(code))
-    ret = []
-    orig = celex
-    i = 0
-    while celex:
-        for key in celex_keys:
-            if celex.startswith(key):
-                ret.append(celex_cgn_mapping[key])
-                celex = celex[len(key):]
-                break
-        else:
-            raise KeyError(f"{orig} -> {celex}")
-            
-        i += 1
-        if i == 10:
-            break
-            
-    return ret
-
-
-# Load CELEX pronunciation database. Keep only the most frequent pronunciation for a word.
-phonemizer_df = pd.read_csv(args.celex_path, sep="\\", header=None,
-                            usecols=[1, 2, 6], names=["word", "inl_freq", "celex_syl"]).dropna()
-phonemizer_df["word"] = phonemizer_df.word.str.lower()
-phonemizer_df = phonemizer_df \
-    .sort_values("inl_freq", ascending=False) \
-    .drop_duplicates(subset="word").set_index("word")
-phonemizer_df["celex"] = phonemizer_df.celex_syl.str.replace(r"[\[\]]", "", regex=True)
-phonemizer_df
-
-celex_chars = set([char for celex in phonemizer_df.celex.tolist() for char in celex])
-cgn_chars = set(celex_cgn_mapping.values()) | {"#"}
-
-punct_only_re = re.compile(r"^[.?!:'\"]+$")
-missing_from_celex = Counter()
-def celex_phonemizer(string):
-    if punct_only_re.match(string):
-        return ""
-
-    try:
-        celex_form = phonemizer_df.loc[string].celex
-    except KeyError:
-        missing_from_celex[string] += 1
-        if missing_from_celex[string] == 1:
-            logging.warning(f"Candidate word {string} is not in CELEX.")
-            
-        # Dumb -- just return the subset of characters that are in CGN code
-        return [char for char in string if char in cgn_chars]
-    else:
-        cgn_form = convert_celex_to_cgn(celex_form)
-        return cgn_form
-
+celex_phonemizer = dutch.CelexPhonemizer(args.celex_path)
 
 # +
-phonemes = sorted(cgn_chars) + [PAD_PHONEME]
+# TODO handle #. should probably be removed from onsets list as well as phon vocabulary
+
+# +
+phonemes = sorted(dutch.smits_ipa_chars) + ["#", PAD_PHONEME]
 
 proc = NaturalLanguageStimulusProcessor(phonemes=phonemes, hf_model=args.model,
                                         num_candidates=args.n_candidates,
-                                        disallowed_re=f"[^{''.join(celex_chars)}]",
+                                        disallowed_re=f"[^{''.join(dutch.celex_chars)}]",
                                         phonemizer=celex_phonemizer)
 
 # +
@@ -204,6 +112,12 @@ word_to_token = words_df \
 ground_truth_phonemes = phonemes_df[~phonemes_df.original_idx.isna()] \
     .astype({"original_idx": int}) \
     .groupby("original_idx").apply(lambda xs: list(xs.text)).to_dict()
+# Convert CGN representation to IPA representation.
+ground_truth_phonemes = {
+    idx: [dutch.convert_to_smits_ipa(dutch.cgn_ipa_mapping[phon])
+          if phon != "#" else "#" for phon in phons]
+    for idx, phons in ground_truth_phonemes.items()
+}
 
 # Prepare word-level features.
 word_features = dict(words_df.groupby(["original_idx"])
@@ -212,9 +126,7 @@ word_features = dict(words_df.groupby(["original_idx"])
 stim = proc(tokens, word_to_token, word_features, ground_truth_phonemes)
 # -
 
-missing_from_celex
+celex_phonemizer.missing_counter.most_common(50)
 
 with open(f"{story_name}.pkl", "wb") as f:
     pickle.dump(stim, f)
-
-

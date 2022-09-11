@@ -89,6 +89,16 @@ class NaturalLanguageStimulus:
         """
         return -self.p_word[:, 0] / np.log(2)
 
+    def get_candidate_strs(self, word_idx) -> List[str]:
+        """
+        Get string representations for the candidates of the given word.
+        """
+        phonemes = self.candidate_phonemes[word_idx]
+        rets = ["".join(self.phonemes[phon_idx] for phon_idx in word
+                        if phon_idx != self.pad_phoneme_id)
+                for word in phonemes]
+        return rets
+
 
 class NaturalLanguageStimulusProcessor(object):
     """
@@ -318,6 +328,10 @@ class NaturalLanguageStimulusProcessor(object):
                 phoneme_ids += [self.pad_phoneme_id] * (max_num_phonemes - len(phoneme_ids))
 
                 phoneme_seqs_i.append(phoneme_ids)
+
+            # NB we're currently letting duplicates pass in here, because
+            # many candidates will be the same after _clean_word. That could
+            # be a problem downstream.
 
             candidate_phoneme_seqs.append(phoneme_seqs_i)
         
