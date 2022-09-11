@@ -163,5 +163,5 @@ ret = BerpDataset(
     Y=eeg.get_data().T
 )
 
-with open(f"{subject}.{story_name}.pkl", "wb") as f:
+with open(f"{story_name}.{subject}.pkl", "wb") as f:
     pickle.dump(ret, f)

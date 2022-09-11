@@ -12,6 +12,9 @@ raw_text_dir = file("${params.data_dir}/raw_text")
 vocab_path = file("${params.data_dir}/vocab.pkl")
 celex_path = file("${params.data_dir}/celex_dpw_cx.txt")
 
+// Strip this from all EEG data files when computing subject names
+EEG_SUFFIX = "_1_256_8_average_4_128"
+
 outDir = "${baseDir}/results/gillis2021"
 
 params.model = "GroNLP/gpt2-small-dutch"
@@ -130,6 +133,7 @@ process produceDataset {
 
     container null
     conda params.berp_env
+    tag "${story_name}/${subject_name}"
 
     publishDir "${outDir}/datasets"
 
@@ -140,9 +144,10 @@ process produceDataset {
         path(stim_features)
 
     output:
-    path "*.pkl"
+    tuple val(subject_name), val(story_name), path("${story_name}.${subject_name}.pkl")
 
     script:
+    subject_name = eeg_data.baseName.replace(EEG_SUFFIX, "")
     """
     export PYTHONPATH=${baseDir}
     python ${baseDir}/scripts/gillis2021/produce_dataset.py \
@@ -151,6 +156,65 @@ process produceDataset {
         ${eeg_data} ${stim_features}
     """
 
+}
+
+
+/**
+ * Fit vanilla TRF encoders and learn alphas per-subject.
+ */
+process fitVanillaEncoders {
+    container null
+    conda params.berp_env
+    tag "${subject_name}"
+
+    publishDir "${outDir}/models_vanilla"
+
+    input:
+    tuple val(subject_name), val(datasets)
+
+    output:
+    path("${subject_name}")
+
+    script:
+    dataset_path_str = datasets.collect { it[1] }.join(",")
+    """
+    export PYTHONPATH=${baseDir}
+    python ${baseDir}/scripts/fit_em.py \
+        model=trf \
+        'dataset.paths=[${dataset_path_str}]' \
+        hydra.run.dir="${subject_name}"
+    """
+}
+
+
+/**
+ * Fit Berp TRF encoder using pretrained vanilla encoders for pipeline init.
+ */
+process fitBerp {
+    container null
+    conda params.berp_env
+
+    publishDir "${outDir}/models_berp"
+
+    input:
+    path datasets
+    path vanilla_models
+
+    output:
+    tuple val(subject_name), path("${subject_name}")
+
+    script:
+    vanilla_pipelines = (vanilla_models.collect { it + "/params/pipeline.pkl" }.join(","))
+    dataset_path_str = datasets.join(",")
+    """
+    export PYTHONPATH=${baseDir}
+    python ${baseDir}/scripts/fit_em.py \
+        model=trf-em \
+        'dataset.paths=[${dataset_path_str}]' \
+        'model.pretrained_pipeline_paths=[${vanilla_pipelines}]' \
+        'cv.params={}' \
+        hydra.run.dir="berp"
+    """
 }
 
 
@@ -171,8 +235,14 @@ workflow {
     eeg_data = channel.fromPath(eeg_dir / "*" / "*.mat") | map {[it.parent.name, it]}
     // TODO only gets one per story?
     // Group by story and join with NL stimuli, then send to produceDataset.
-    eeg_data.join(nl_stimuli).join(aligned).combine(stimulus_features) \
+    full_datasets = eeg_data.join(nl_stimuli).join(aligned).combine(stimulus_features) \
         // Analyze.
         // Produce dataset.
         | produceDataset
+
+    // Group by subject and fit vanilla encoders.
+    vanilla_results = full_datasets | map { tuple(it[0], tuple(it[1], it[2])) } | groupTuple() \
+        | fitVanillaEncoders
+
+    fitBerp(full_datasets.collect { it[2] }, vanilla_results.collect())
 }

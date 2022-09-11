@@ -1,0 +1,9 @@
+# Dummy CV spec which turns off runs no hparam search.
+
+n_outer_folds: 1
+n_inner_folds: 4
+
+param_sampler:
+  _target_: optuna.samplers.TPESampler
+
+params: {}

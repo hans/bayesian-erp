@@ -6,6 +6,7 @@ import pickle
 import re
 from typing import Optional, List, Dict, Union, Tuple, TypeVar, Generic, Iterator
 
+from hydra.utils import to_absolute_path
 import numpy as np
 from optuna.distributions import BaseDistribution, UniformDistribution
 from sklearn.base import BaseEstimator, clone
@@ -656,7 +657,15 @@ def update_with_pretrained(pipeline: GroupBerpTRFForwardPipeline,
                   "Berp pipeline. Not sure what to do here. TODO.")
 
     # Take encoders.
-    pipeline.encoders_ = deepcopy(pretrained.encoders_)
+    new_encoder_keys = sorted(pretrained.encoders_.keys())
+    L.info("Adding pretrained encoders with keys: %r", new_encoder_keys)
+    if set(new_encoder_keys) & set(pipeline.encoders_.keys()):
+        overlap = sorted(set(new_encoder_keys) & set(pipeline.encoders_.keys()))
+        raise ValueError(
+            "Pipeline already has encoders with keys matching those in this "
+           f"pretrained pipeline. What to do?\n{', '.join(overlap)}")
+
+    pipeline.encoders_.update(deepcopy(pretrained.encoders_))
 
     return pipeline
 
@@ -665,7 +674,7 @@ def BerpTRFEM(trf: TemporalReceptiveField,
               latent_params: Dict[str, Dict[str, BaseDistribution]],
               n_outputs: int, phonemes: List[str], 
               confusion_path: Optional[str] = None,
-              pretrained_pipeline_path: Optional[str] = None,
+              pretrained_pipeline_paths: Optional[List[str]] = None,
               **kwargs):
     trf.set_params(n_outputs=n_outputs)
 
@@ -702,10 +711,10 @@ def BerpTRFEM(trf: TemporalReceptiveField,
 
     pipeline = GroupBerpTRFForwardPipeline(trf, params=params, **kwargs)
 
-    if pretrained_pipeline_path is not None:
-        with open(pretrained_pipeline_path, "rb") as f:
-            pretrained_pipeline = pickle.load(f)
-        pipeline = update_with_pretrained(pipeline, pretrained_pipeline)
+    if pretrained_pipeline_paths is not None:
+        for path in pretrained_pipeline_paths:
+            with open(to_absolute_path(path), "rb") as f:
+                pipeline = update_with_pretrained(pipeline, pickle.load(f))
 
     return BerpTRFEMEstimator(pipeline, **kwargs)
 

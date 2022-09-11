@@ -50,7 +50,7 @@ class BerpTRFEMModelConfig(ModelConfig):
     vocabulary declared in the dataset.
     """
 
-    pretrained_pipeline_path: Optional[str] = None
+    pretrained_pipeline_paths: Optional[List[str]] = None
     """
     Optional path to a pretrained pipeline to use to initialize this model.
     (Depending on the type of pipeline this will have different effects.)
