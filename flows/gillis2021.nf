@@ -235,7 +235,7 @@ process fitBerp {
     path confusion
 
     output:
-    tuple val(subject_name), path("${subject_name}")
+    path "berp"
 
     script:
     vanilla_pipelines = (vanilla_models.collect { it + "/params/pipeline.pkl" }.join(","))
