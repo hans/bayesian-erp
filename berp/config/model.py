@@ -44,6 +44,21 @@ class BerpTRFEMModelConfig(ModelConfig):
 
     latent_params: Dict[str, DistributionConfig]
 
+    confusion_path: Optional[str] = None
+    """
+    Path to a confusion matrix. Must be compatible with the phoneme
+    vocabulary declared in the dataset.
+    """
+
+    pretrained_pipeline_path: Optional[str] = None
+    """
+    Optional path to a pretrained pipeline to use to initialize this model.
+    (Depending on the type of pipeline this will have different effects.)
+    For a vanilla pipeline, the encoder coefficents and optimal regularization
+    parameters will be used as initialization and fixed hyperparameters,
+    respectively.
+    """
+
     warm_start: bool = True
     fit_intercept: bool = True
     type: str = "trf_em"

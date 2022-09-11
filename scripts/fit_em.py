@@ -50,8 +50,8 @@ def main(cfg: Config):
     dataset.set_n_splits(4)
 
     model = hydra.utils.call(cfg.model,
+                             phonemes=dataset.phonemes,
                              n_outputs=dataset.n_sensors,
-                             n_phonemes=dataset.n_phonemes,
                              optim=cfg.solver)
     from pprint import pprint; pprint(model.get_params())
     # model.partial_fit(dataset)

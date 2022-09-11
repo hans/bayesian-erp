@@ -1,6 +1,8 @@
+from copy import deepcopy
 from dataclasses import dataclass, replace
 from functools import singledispatchmethod
 import logging
+import pickle
 import re
 from typing import Optional, List, Dict, Union, Tuple, TypeVar, Generic, Iterator
 
@@ -29,49 +31,6 @@ B, N_C, N_P, N_F, N_F_T, V_P, T, S = \
     DIMS.B, DIMS.N_C, DIMS.N_P, DIMS.N_F, DIMS.N_F_T, DIMS.V_P, DIMS.T, DIMS.S
 P = "num_params"
 Responsibilities = TensorType[P, is_probability]
-
-
-def BerpTRFEM(trf, latent_params: Dict[str, Dict[str, BaseDistribution]],
-              n_outputs: int, n_phonemes: int, **kwargs):
-    trf.set_params(n_outputs=n_outputs)
-
-    # TODO param_grid
-    from pprint import pprint
-    pprint(kwargs)
-
-    # TODO lol complicated
-    params = []
-    # TODO should be a parameter of the model
-    confusion = torch.eye(n_phonemes) + 0.01
-    confusion /= confusion.sum(dim=0, keepdim=True)
-
-    base_params = PartiallyObservedModelParameters(
-        lambda_=torch.tensor(1.),
-        confusion=confusion,
-        threshold=torch.tensor(0.5),
-    )
-    for _ in range(50):  # DEV
-        rands = torch.rand(len(latent_params))
-        param_updates = {}
-        for param_name, param_dist in latent_params.items():
-            # TODO this structure is dumb
-            param_dist = next(iter(param_dist.values()))
-
-            if isinstance(param_dist, UniformDistribution):
-                param_updates[param_name] = (rands * (param_dist.high - param_dist.low) + param_dist.low).squeeze()
-            else:
-                raise NotImplementedError(f"Unsupported distribution {param_dist} for {param_name}")
-
-        params.append(replace(base_params, **param_updates))
-
-    pipeline = GroupBerpTRFForwardPipeline(trf, params=params, **kwargs)
-    return BerpTRFEMEstimator(pipeline, **kwargs)
-
-
-def BasicTRF(trf, n_outputs: int, **kwargs):
-    trf.set_params(n_outputs=n_outputs)
-    pipeline = GroupVanillaTRFForwardPipeline(trf, **kwargs)
-    return pipeline
 
 
 # HACK specific to DKZ/gillis. generalize this feature
@@ -667,3 +626,91 @@ class BerpTRFEMEstimator(BaseEstimator):
 
     def log_likelihood(self, dataset: NestedBerpDataset, y=None) -> torch.Tensor:
         return self.pipeline.log_likelihood(dataset)
+
+
+def load_confusion_parameters(
+    confusion_path: str, dataset_phonemes: List[str]) -> torch.Tensor:
+    confusion = np.load(confusion_path)
+    
+    # Set of phonemes should be superset of dataset phonemes
+    if not set(dataset_phonemes).issubset(set(confusion["phonemes"])):
+        diff = set(dataset_phonemes) - set(confusion["phonemes"])
+        raise ValueError(f"Some phonemes provided to the pipeline are not represented "
+                         f"in the confusion parameters: {', '.join(diff)}")
+
+    # Reindex.
+    # TODO finish
+    confusion_matrix = confusion["confusion"]
+
+    # TODO check shape and normalize
+
+    return torch.tensor(confusion_matrix)
+
+
+def update_with_pretrained(pipeline: GroupBerpTRFForwardPipeline,
+                           pretrained: GroupTRFForwardPipeline):
+    if not isinstance(pretrained, GroupTRFForwardPipeline):
+        raise ValueError(f"Unknown pretrained pipeline type {type(pretrained)}")
+    if isinstance(pretrained, GroupBerpTRFForwardPipeline):
+        L.warning("Initializing Berp pipeline with another pretrained "
+                  "Berp pipeline. Not sure what to do here. TODO.")
+
+    # Take encoders.
+    pipeline.encoders_ = deepcopy(pretrained.encoders_)
+
+    return pipeline
+
+
+def BerpTRFEM(trf: TemporalReceptiveField,
+              latent_params: Dict[str, Dict[str, BaseDistribution]],
+              n_outputs: int, phonemes: List[str], 
+              confusion_path: Optional[str] = None,
+              pretrained_pipeline_path: Optional[str] = None,
+              **kwargs):
+    trf.set_params(n_outputs=n_outputs)
+
+    # TODO param_grid
+    from pprint import pprint
+    pprint(kwargs)
+
+    if confusion_path is not None:
+        confusion = load_confusion_parameters(confusion_path, phonemes)
+    else:
+        confusion = torch.eye(len(phonemes)) + 0.01
+        confusion /= confusion.sum(dim=0, keepdim=True)
+
+    # TODO lol complicated
+    params = []
+    base_params = PartiallyObservedModelParameters(
+        lambda_=torch.tensor(1.),
+        confusion=confusion,
+        threshold=torch.tensor(0.5),
+    )
+    for _ in range(2):  # DEV
+        rands = torch.rand(len(latent_params))
+        param_updates = {}
+        for param_name, param_dist in latent_params.items():
+            # TODO this structure is dumb
+            param_dist = next(iter(param_dist.values()))
+
+            if isinstance(param_dist, UniformDistribution):
+                param_updates[param_name] = (rands * (param_dist.high - param_dist.low) + param_dist.low).squeeze()
+            else:
+                raise NotImplementedError(f"Unsupported distribution {param_dist} for {param_name}")
+
+        params.append(replace(base_params, **param_updates))
+
+    pipeline = GroupBerpTRFForwardPipeline(trf, params=params, **kwargs)
+
+    if pretrained_pipeline_path is not None:
+        with open(pretrained_pipeline_path, "rb") as f:
+            pretrained_pipeline = pickle.load(f)
+        pipeline = update_with_pretrained(pipeline, pretrained_pipeline)
+
+    return BerpTRFEMEstimator(pipeline, **kwargs)
+
+
+def BasicTRF(trf, n_outputs: int, **kwargs):
+    trf.set_params(n_outputs=n_outputs)
+    pipeline = GroupVanillaTRFForwardPipeline(trf, **kwargs)
+    return pipeline

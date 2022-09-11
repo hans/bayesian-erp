@@ -2,12 +2,14 @@ defaults:
   - base_trf_em
 
 type: trf-em
+
 trf:
   tmin: 0
   tmax: 1
   sfreq: 128
   n_outputs: 64
   alpha: 1
+
 latent_params:
   threshold:
     type: float
