@@ -634,16 +634,24 @@ def load_confusion_parameters(
     confusion = np.load(confusion_path)
     
     # Set of phonemes should be superset of dataset phonemes
-    if not set(dataset_phonemes).issubset(set(confusion["phonemes"])):
+    if not dataset_phonemes == confusion["phonemes"].tolist():
         diff = set(dataset_phonemes) - set(confusion["phonemes"])
-        raise ValueError(f"Some phonemes provided to the pipeline are not represented "
-                         f"in the confusion parameters: {', '.join(diff)}")
+        if diff:
+            raise ValueError(f"Some phonemes provided to the pipeline are not represented "
+                             f"in the confusion parameters: {', '.join(diff)}")
+        else:
+            raise ValueError("Dataset phonemes and confusion matrix phonemes are out of order.")
 
-    # Reindex.
-    # TODO finish
     confusion_matrix = confusion["confusion"]
+    
+    # Check shapes.
+    assert confusion_matrix.shape == (len(dataset_phonemes), len(dataset_phonemes))
 
-    # TODO check shape and normalize
+    # Smooth.
+    confusion_matrix += 1.
+
+    # Normalize. Each column should be a probability distribution.
+    confusion_matrix /= confusion_matrix.sum(axis=0, keepdims=True) + 1e-5
 
     return torch.tensor(confusion_matrix)
 
@@ -683,7 +691,8 @@ def BerpTRFEM(trf: TemporalReceptiveField,
     pprint(kwargs)
 
     if confusion_path is not None:
-        confusion = load_confusion_parameters(confusion_path, phonemes)
+        confusion = load_confusion_parameters(
+            to_absolute_path(confusion_path), phonemes)
     else:
         confusion = torch.eye(len(phonemes)) + 0.01
         confusion /= confusion.sum(dim=0, keepdim=True)

@@ -1,8 +1,5 @@
 
 
-// Questions
-// - word annotations: SKIP1? SKIP2? GBG-LOOP?
-
 baseDir = projectDir.parent
 params.data_dir = "${baseDir}/data/gillis2021"
 eeg_dir = file("${params.data_dir}/eeg")
@@ -12,8 +9,19 @@ raw_text_dir = file("${params.data_dir}/raw_text")
 vocab_path = file("${params.data_dir}/vocab.pkl")
 celex_path = file("${params.data_dir}/celex_dpw_cx.txt")
 
+confusion_args = """${params.data_dir}/confusion/smits_2003_consonants.csv \
+${params.data_dir}/confusion/smits_2003_vowels.csv"""
+
 // Strip this from all EEG data files when computing subject names
 EEG_SUFFIX = "_1_256_8_average_4_128"
+
+/**
+ * NB, resources on different phonological annotation schemes for dutch:
+ *
+ * CELEX: https://catalog.ldc.upenn.edu/docs/LDC96L14/dug_let.ps
+ * CGN (Corpus Gesproken Nederlands) as annotated in Gillis et al. data:
+ *   https://lands.let.ru.nl/cgn/doc_Dutch/topics/version_1.0/annot/phonetics/fon_prot.pdf
+ */
 
 outDir = "${baseDir}/results/gillis2021"
 
@@ -159,6 +167,31 @@ process produceDataset {
 }
 
 
+process prepareConfusionMatrix {
+
+    container null
+    conda params.berp_env
+
+    publishDir "${outDir}/confusion"
+
+    input:
+    path single_berp_dataset
+
+    output:
+    path "confusion.npz"
+
+    script:
+    """
+    export PYTHONPATH=${baseDir}
+    python ${baseDir}/scripts/gillis2021/prepare_confusion.py \
+        ${confusion_args} \
+        ${single_berp_dataset} \
+        confusion.npz
+    """
+
+}
+
+
 /**
  * Fit vanilla TRF encoders and learn alphas per-subject.
  */
@@ -199,6 +232,7 @@ process fitBerp {
     input:
     path datasets
     path vanilla_models
+    path confusion
 
     output:
     tuple val(subject_name), path("${subject_name}")
@@ -212,7 +246,8 @@ process fitBerp {
         model=trf-em \
         'dataset.paths=[${dataset_path_str}]' \
         'model.pretrained_pipeline_paths=[${vanilla_pipelines}]' \
-        'cv.params={}' \
+        model.confusion_path=${confusion} \
+        cv=off \
         hydra.run.dir="berp"
     """
 }
@@ -236,7 +271,6 @@ workflow {
     // TODO only gets one per story?
     // Group by story and join with NL stimuli, then send to produceDataset.
     full_datasets = eeg_data.join(nl_stimuli).join(aligned).combine(stimulus_features) \
-        // Analyze.
         // Produce dataset.
         | produceDataset
 
@@ -244,5 +278,8 @@ workflow {
     vanilla_results = full_datasets | map { tuple(it[0], tuple(it[1], it[2])) } | groupTuple() \
         | fitVanillaEncoders
 
-    fitBerp(full_datasets.collect { it[2] }, vanilla_results.collect())
+    // Prepare confusion matrix data with a sample dataset (any is good)
+    confusion = prepareConfusionMatrix(full_datasets.map { it[2] } | first)
+
+    fitBerp(full_datasets.collect { it[2] }, vanilla_results.collect(), confusion)
 }
