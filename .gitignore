@@ -9,7 +9,10 @@ work
 .nextflow
 .nextflow*
 
+# Hydra dev output
 outputs
+# Nextflow output
+results
 # Intermediate outputs
 *.csv
 *.txt
@@ -17,3 +20,4 @@ outputs
 *.png
 *.npz
 *.npy
+
