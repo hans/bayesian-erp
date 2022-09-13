@@ -13,7 +13,7 @@ from sklearn.base import BaseEstimator, clone
 from sklearn.model_selection import ShuffleSplit
 import torch
 from torchtyping import TensorType  # type: ignore
-from tqdm.auto import tqdm
+from tqdm.auto import tqdm, trange
 from typeguard import typechecked
 
 from berp.cv import EarlyStopException
@@ -462,6 +462,8 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
                               out: TRFDesignMatrix,
                               out_weight: float = 1.,
                               ) -> TRFDesignMatrix:
+        # TODO cache rec point computation?
+        # profile and find out if it's worth it
         p_word_posterior = predictive_model(
             dataset.p_word, dataset.candidate_phonemes,
             params.confusion, params.lambda_
@@ -550,6 +552,9 @@ class BerpTRFEMEstimator(BaseEstimator):
         self.n_iter = n_iter
         self.warm_start = warm_start
         self.early_stopping = early_stopping
+
+        self._best_val_score_ = -np.inf
+        self._no_improvement_count_ = 0
         
         if kwargs:
             L.warning(f"Unused kwargs: {kwargs}")
@@ -590,34 +595,63 @@ class BerpTRFEMEstimator(BaseEstimator):
         return self.pipeline.prime(dataset)
 
     def partial_fit(self, X: NestedBerpDataset, y=None,
-                    X_val: Optional[NestedBerpDataset] = None
+                    X_val: Optional[NestedBerpDataset] = None,
+                    use_tqdm=False,
                     ) -> "BerpTRFEMEstimator":
-        best_score = -np.inf
-        no_improvement_count = 0
-        for _ in range(self.n_iter):
-            self.param_resp_ = self._e_step(X)
-            L.info("E-step finished")
+        if X_val is None and self.early_stopping is not None:
+            L.warning("Early stopping requested, but no validation set provided.")
 
-            # Re-estimate encoder parameters
-            self._m_step(X)
-            L.info("M-step finished")
-
+        with trange(self.n_iter, desc="EM", disable=not use_tqdm) as pbar:
+            postfix = {"train_score": self.score(X)}
             if X_val is not None:
-                val_score = self.score(X_val)
-                L.info("Val score: %f", val_score)
-                if val_score > best_score:
-                    best_score = val_score
-                    no_improvement_count = 0
-                elif self.early_stopping is not None and no_improvement_count > self.early_stopping:
-                    L.warning("Early stopping")
-                    break
-                else:
-                    no_improvement_count += 1
+                val_score = self._check_validation_score(X_val)
+                pbar.set_postfix(val_score=val_score, **postfix)
+
+            for _ in pbar:
+                self.param_resp_ = self._e_step(X)
+                L.info("E-step finished")
+
+                # HACK: print inferred threshold value
+                print(self.param_resp_.numpy().round(3))
+                print((self.param_resp_ * torch.stack([p.threshold for p in self.pipeline.params])).sum())
+
+                # Re-estimate encoder parameters
+                self._m_step(X)
+                L.info("M-step finished")
+
+                # Calculate scores
+                postfix = {"train_score": self.score(X)}
+                if X_val is not None:
+                    try:
+                        val_score = self._check_validation_score(X_val)
+                    except EarlyStopException:
+                        L.info("Early stopping")
+                        break
+
+                    pbar.set_postfix(val_score=val_score, **postfix)
 
         return self
 
-    def fit(self, X: NestedBerpDataset, y=None) -> "BerpTRFEMEstimator":
-        return self.partial_fit(X)
+    def _check_validation_score(self, X_val: NestedBerpDataset) -> float:
+        """
+        Evaluate validation score and update early stopping tracker.
+        May raise EarlyStopException.
+        """
+
+        val_score = self.score(X_val)
+        L.info("Val score: %f", val_score)
+        if val_score > self._best_val_score_:
+            self._best_val_score_ = val_score
+            self._no_improvement_count_ = 0
+        elif self.early_stopping is not None and self._no_improvement_count_ >= self.early_stopping:
+            raise EarlyStopException()
+        else:
+            self._no_improvement_count_ += 1
+
+        return val_score
+
+    def fit(self, *args, **kwargs) -> "BerpTRFEMEstimator":
+        return self.partial_fit(*args, **kwargs)
 
     def predict(self, dataset: NestedBerpDataset) -> TRFResponse:
         return self.pipeline.predict(dataset)
@@ -704,7 +738,7 @@ def BerpTRFEM(trf: TemporalReceptiveField,
         confusion=confusion,
         threshold=torch.tensor(0.5),
     )
-    for _ in range(2):  # DEV
+    for _ in range(3):  # DEV
         rands = torch.rand(len(latent_params))
         param_updates = {}
         for param_name, param_dist in latent_params.items():

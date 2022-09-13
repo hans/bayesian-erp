@@ -44,6 +44,17 @@ class BerpTRFEMModelConfig(ModelConfig):
 
     latent_params: Dict[str, DistributionConfig]
 
+    n_iter: int = 1
+    """
+    Maximum number of EM iterations to run.
+    """
+
+    early_stopping: Optional[int] = 1
+    """
+    Number of EM iterations to tolerate no improvement in validation
+    loss before stopping. If `None`, do not early stop.
+    """
+
     confusion_path: Optional[str] = None
     """
     Path to a confusion matrix. Must be compatible with the phoneme
