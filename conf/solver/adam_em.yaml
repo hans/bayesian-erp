@@ -1,0 +1,19 @@
+# The SGD solver integrated into EM should be far more conservative
+# and take fewer steps.
+#
+# NB learning_rate here is not relevant -- it will be overridden by 
+# the pretrained vanilla pipelines.
+
+defaults:
+  - base_adam
+
+type: adam
+
+learning_rate: 0.01
+
+n_batches: 5
+batch_size: 512
+
+beta_1: 0.9
+beta_2: 0.999
+epsilon: 1e-08

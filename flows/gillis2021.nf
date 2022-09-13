@@ -248,6 +248,7 @@ process fitBerp {
         'model.pretrained_pipeline_paths=[${vanilla_pipelines}]' \
         model.confusion_path=${confusion} \
         cv=off \
+        solver=adam_em \
         hydra.run.dir="berp"
     """
 }
