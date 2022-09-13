@@ -290,6 +290,13 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
     def _get_or_create_encoders(self, dataset: NestedBerpDataset) -> List[Tuple[BerpDataset, Encoder]]:
         return [(d, self._get_or_create_encoder(d)) for d in dataset.datasets]
 
+    def reset_early_stopping(self):
+        """
+        Reset early stopping tracker for all encoders.
+        """
+        for encoder in self.encoders_.values():
+            encoder.optim.reset_early_stopping()
+
     #endregion
 
     #region domain logic
@@ -591,6 +598,10 @@ class BerpTRFEMEstimator(BaseEstimator):
         """
         self.pipeline.partial_fit(dataset)
 
+    def _reset_pipeline_early_stopping(self):
+        if hasattr(self.pipeline, "reset_early_stopping"):
+            self.pipeline.reset_early_stopping()
+
     def prime(self, dataset):
         return self.pipeline.prime(dataset)
 
@@ -601,6 +612,7 @@ class BerpTRFEMEstimator(BaseEstimator):
         if X_val is None and self.early_stopping is not None:
             L.warning("Early stopping requested, but no validation set provided.")
 
+        m_step_did_early_stop = False
         with trange(self.n_iter, desc="EM", disable=not use_tqdm) as pbar:
             postfix = {"train_score": self.score(X)}
             if X_val is not None:
@@ -616,7 +628,14 @@ class BerpTRFEMEstimator(BaseEstimator):
                 print((self.param_resp_ * torch.stack([p.threshold for p in self.pipeline.params])).sum())
 
                 # Re-estimate encoder parameters
-                self._m_step(X)
+                try:
+                    self._m_step(X)
+                except EarlyStopException:
+                    m_step_did_early_stop = True
+                    L.info("M-step early stopped. Will run at least one more E-step")
+                    self._reset_pipeline_early_stopping()
+                else:
+                    m_step_did_early_stop = False
                 L.info("M-step finished")
 
                 # Calculate scores
@@ -625,8 +644,11 @@ class BerpTRFEMEstimator(BaseEstimator):
                     try:
                         val_score = self._check_validation_score(X_val)
                     except EarlyStopException:
-                        L.info("Early stopping")
-                        break
+                        if m_step_did_early_stop:
+                            L.info("EM early stopping")
+                            break
+                        else:
+                            L.info("Val score halted, but M-step did not early stop. Will run at least one more M-step")
 
                     pbar.set_postfix(val_score=val_score, **postfix)
 

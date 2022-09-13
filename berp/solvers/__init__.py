@@ -45,10 +45,8 @@ class SGDSolver(Solver):
         self._optim_parameters = None
         self._primed = False
 
-        # trackers for early stopping
-        self._has_early_stopped = False
-        self._best_val_loss = np.inf
-        self._no_improvement_count = 0
+        # prepare trackers for early stopping
+        self.reset_early_stopping(reset_loss=True)
 
         if kwargs:
             L.warning("Unused kwargs: %s", kwargs)
@@ -61,6 +59,15 @@ class SGDSolver(Solver):
     def reset(self):
         self._primed = False
         self.validation_mask = None
+
+    def reset_early_stopping(self, reset_loss=False):
+        """
+        Reset early stopping tracker. If `reset_loss`, also forget about best val loss.
+        """
+        self._has_early_stopped = False
+        self._no_improvement_count = 0
+        if reset_loss:
+            self._best_val_loss = np.inf
 
     def prime(self, estimator, X, y):
         if self._primed:
@@ -125,7 +132,7 @@ class SGDSolver(Solver):
                     self._best_val_loss = valid_loss
 
                 if self._no_improvement_count > self.early_stopping:
-                    L.debug("Stopping early due to no improvement.")
+                    L.info("Stopping early due to no improvement. %r", self)
                     self._has_early_stopped = True
                     raise EarlyStopException()
 
