@@ -254,8 +254,6 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
             # Ensure we have an encoder ready for the relevant dataset group.
             self._get_or_create_encoder(d)
 
-        self._prepare_params_scatter("encoder", list(self.encoders_.values()))
-
     def _get_encoder_key(self, dataset: BerpDataset) -> str:
         """
         Compute a key by which this dataset should be mapped with others to
@@ -274,14 +272,18 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
         except KeyError as e:
             raise KeyError(f"encoder not found for key {key}. Did you prime this model first?") from e
 
+    def _set_encoder(self, key: str, encoder: Encoder):
+        self.encoders_[key] = encoder
+        self._prepare_params_scatter("encoder", list(self.encoders_.values()))
+
     def _get_or_create_encoder(self, dataset: BerpDataset) -> Encoder:
         try:
             return self._get_encoder(dataset)
         except KeyError:
             key = self._get_encoder_key(dataset)
             L.info(f"Creating encoder for key {key}...")
+            self._set_encoder(key, clone(self.encoder))
 
-            self.encoders_[key] = clone(self.encoder)
             return self.encoders_[key]
 
     def _get_encoders(self, dataset: NestedBerpDataset) -> List[Tuple[BerpDataset, Encoder]]:
@@ -729,7 +731,25 @@ def update_with_pretrained(pipeline: GroupBerpTRFForwardPipeline,
             "Pipeline already has encoders with keys matching those in this "
            f"pretrained pipeline. What to do?\n{', '.join(overlap)}")
 
-    pipeline.encoders_.update(deepcopy(pretrained.encoders_))
+    # Keep the following encoder parameters from the current pipeline.
+    # TODO should probably be the reverse -- configurably override just
+    # a set of the current pipeline parameters from the pretrained pipeline.
+    keep_params = ["optim__n_batches"]
+    this_params = pipeline.encoder.get_params()
+
+    for name, enc in pretrained.encoders_.items():
+        enc = deepcopy(enc)
+        enc.set_params(**{k: this_params[k] for k in keep_params})
+        pipeline._set_encoder(name, enc)
+
+    return pipeline
+
+
+def update_with_pretrained_paths(pipeline: GroupBerpTRFForwardPipeline,
+                                 paths: List[str]):
+    for path in paths:
+        with open(to_absolute_path(path), "rb") as f:
+            pipeline = update_with_pretrained(pipeline, pickle.load(f))
 
     return pipeline
 
@@ -777,9 +797,7 @@ def BerpTRFEM(trf: TemporalReceptiveField,
     pipeline = GroupBerpTRFForwardPipeline(trf, params=params, **kwargs)
 
     if pretrained_pipeline_paths is not None:
-        for path in pretrained_pipeline_paths:
-            with open(to_absolute_path(path), "rb") as f:
-                pipeline = update_with_pretrained(pipeline, pickle.load(f))
+        pipeline = update_with_pretrained_paths(pipeline, pretrained_pipeline_paths)
 
     return BerpTRFEMEstimator(pipeline, **kwargs)
 
