@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Optional
 
 from hydra.core.config_store import ConfigStore
 
@@ -16,6 +17,7 @@ class SGDSolverConfig(SolverConfig):
     learning_rate: float = 0.01
     n_batches: int = 1
     batch_size: int = 512
+    early_stopping: Optional[int] = 5
 
 
 @dataclass
