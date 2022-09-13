@@ -201,9 +201,10 @@ class TemporalReceptiveField(BaseEstimator):
             del_coef = True
             self._init_coef()
 
-        X = _reshape_for_est(X)
-        coef = self.coef_.reshape((-1, self.n_outputs))
-        Y_pred = X @ coef
+        with torch.no_grad():
+            X = _reshape_for_est(X)
+            coef = self.coef_.reshape((-1, self.n_outputs))
+            Y_pred = X @ coef
 
         if del_coef:
             self._reset_coef()
