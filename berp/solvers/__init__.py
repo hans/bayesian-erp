@@ -69,9 +69,6 @@ class SGDSolver(Solver):
 
         self._primed = True
         self._optim_parameters = estimator._optim_parameters
-        
-        # batch iteration
-        self._total_num_batches = int(np.ceil(len(X) / self.batch_size))
 
         # TODO probably should support early stopping resets here. but the clients
         # currently abusively call prime() every iteration, which would make early
@@ -95,6 +92,8 @@ class SGDSolver(Solver):
         else:
             X_train, y_train = X, y
 
+        total_num_batches = int(np.ceil(len(X_train) / self.batch_size))
+
         losses = []
         # TODO shuffling?
         for i in range(self.n_batches):
@@ -106,6 +105,10 @@ class SGDSolver(Solver):
 
             self._optim.zero_grad()
             loss = loss_fn(batch_X, batch_y)
+            if torch.isnan(loss):
+                import ipdb; ipdb.set_trace()
+            assert not torch.isnan(loss)
+
             loss.backward()
             self._optim.step()
 
@@ -126,7 +129,7 @@ class SGDSolver(Solver):
                     self._has_early_stopped = True
                     raise EarlyStopException()
 
-            self.batch_cursor = (self.batch_cursor + 1) % self._total_num_batches
+            self.batch_cursor = (self.batch_cursor + 1) % total_num_batches
 
         return self
 
