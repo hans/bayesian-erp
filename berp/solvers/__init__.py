@@ -5,6 +5,7 @@ from typing import *
 import numpy as np
 from sklearn.base import BaseEstimator
 from sklearn.model_selection import ShuffleSplit
+from sklearn.utils import check_random_state
 import torch
 from tqdm.auto import tqdm, trange
 
@@ -35,10 +36,9 @@ class SGDSolver(Solver):
         self.learning_rate = learning_rate
         self.n_batches = n_batches
         self.batch_size = batch_size
-        self.batch_cursor = 0
 
         self.early_stopping = early_stopping
-        self.random_state = random_state
+        self.random_state = check_random_state(random_state)
 
         self.pbar = pbar
 
@@ -100,12 +100,17 @@ class SGDSolver(Solver):
             X_train, y_train = X, y
 
         total_num_batches = int(np.ceil(len(X_train) / self.batch_size))
+        batch_cursor = 0
+
+        # Shuffle
+        indices = np.arange(len(X_train))
+        self.random_state.shuffle(indices)
+        X_train, y_train = X_train[indices], y_train[indices]
 
         losses = []
-        # TODO shuffling?
         for i in range(self.n_batches):
-            batch_start = self.batch_cursor * self.batch_size
-            batch_end = (self.batch_cursor + 1) * self.batch_size
+            batch_start = batch_cursor * self.batch_size
+            batch_end = (batch_cursor + 1) * self.batch_size
 
             batch_X = X_train[batch_start:batch_end]
             batch_y = y_train[batch_start:batch_end]
@@ -121,7 +126,7 @@ class SGDSolver(Solver):
 
             losses.append(loss.item())
 
-            if self.early_stopping and self.batch_cursor % 10 == 0:
+            if self.early_stopping and batch_cursor % 10 == 0:
                 with torch.no_grad():
                     valid_loss = loss_fn(X_valid, y_valid)
 
@@ -136,7 +141,7 @@ class SGDSolver(Solver):
                     self._has_early_stopped = True
                     raise EarlyStopException()
 
-            self.batch_cursor = (self.batch_cursor + 1) % total_num_batches
+            batch_cursor = (batch_cursor + 1) % total_num_batches
 
         return self
 
