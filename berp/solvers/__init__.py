@@ -85,7 +85,7 @@ class SGDSolver(Solver):
         # stopping break of course. putting this off.
 
     def _tb_scalar(self, tag, value):
-        tag = f"{str(self.__class__)}/{self.name}/{tag}"
+        tag = f"{self.__class__.__name__}/{self.name}/{tag}"
         tb_add_scalar(tag, value)
 
     def _process_loss(self, loss: Union[torch.Tensor, List[torch.Tensor]],
