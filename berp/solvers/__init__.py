@@ -10,6 +10,7 @@ import torch
 from tqdm.auto import tqdm, trange
 
 from berp.cv import EarlyStopException
+from berp.tensorboard import tb_add_scalar
 
 L = logging.getLogger(__name__)
 
@@ -117,9 +118,8 @@ class SGDSolver(Solver):
 
             self._optim.zero_grad()
             loss = loss_fn(batch_X, batch_y)
-            if torch.isnan(loss):
-                import ipdb; ipdb.set_trace()
-            assert not torch.isnan(loss)
+            tb_add_scalar("loss", loss.item())
+            assert not torch.isnan(loss), "nan loss"
 
             loss.backward()
             self._optim.step()

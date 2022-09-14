@@ -1,5 +1,6 @@
 defaults:
   - base_viz
+  - tensorboard: default
 
 feature_patterns:
   - word_frequency

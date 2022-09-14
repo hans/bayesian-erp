@@ -15,6 +15,7 @@ from tqdm.auto import tqdm, trange
 from berp.config import Config, CVConfig
 from berp.cv import OptunaSearchCV, EarlyStopException
 from berp.models.trf_em import GroupTRFForwardPipeline, BerpTRFEMEstimator
+from berp.tensorboard import Tensorboard
 from berp.viz.trf import trf_to_dataframe, plot_trf_coefficients
 
 
@@ -48,6 +49,9 @@ def make_cv(model, cfg: CVConfig):
 @hydra.main(version_base=None, config_path="../conf", config_name="config.yaml")
 def main(cfg: Config):
     print(OmegaConf.to_yaml(cfg))
+
+    # Set up Tensorboard singleton instance before instantiating data/model classes.
+    tb = hydra.utils.call(cfg.viz.tensorboard)
 
     dataset = hydra.utils.call(cfg.dataset)
     dataset.set_n_splits(4)
