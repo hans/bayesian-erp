@@ -148,7 +148,7 @@ class SGDSolver(Solver):
 
             if self.early_stopping and batch_cursor % 10 == 0:
                 with torch.no_grad():
-                    valid_loss = loss_fn(X_valid, y_valid)
+                    valid_loss = loss_fn(X_valid, y_valid, include_l2=False)
                 valid_loss = self._process_loss(valid_loss, "val/")
 
                 if valid_loss >= self._best_val_loss:
