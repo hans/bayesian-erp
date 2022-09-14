@@ -32,6 +32,7 @@ class SGDSolver(Solver):
                  batch_size: int = 512,
                  early_stopping: Optional[int] = 5,
                  random_state=None,
+                 name=None,
                  pbar=False,
                  **kwargs):
         self.learning_rate = learning_rate
@@ -41,6 +42,7 @@ class SGDSolver(Solver):
         self.early_stopping = early_stopping
         self.random_state = check_random_state(random_state)
 
+        self.name = name
         self.pbar = pbar
 
         self._optim_parameters = None
@@ -82,7 +84,25 @@ class SGDSolver(Solver):
         # currently abusively call prime() every iteration, which would make early
         # stopping break of course. putting this off.
 
-    def __call__(self, loss_fn, X, y, validation_mask: Optional[np.ndarray] = None,
+    def _tb_scalar(self, tag, value):
+        tag = f"{str(self.__class__)}/{self.name}/{tag}"
+        tb_add_scalar(tag, value)
+
+    def _process_loss(self, loss: Union[torch.Tensor, List[torch.Tensor]],
+                      tag_prefix="") -> torch.Tensor:
+        if isinstance(loss, (list, tuple)):
+            for i, loss_i in enumerate(loss):
+                self._tb_scalar(f"{tag_prefix}loss_{i}", loss_i.item())
+            loss = sum(loss)
+        else:
+            self._tb_scalar(f"{tag_prefix}loss", loss.item())
+
+        return loss
+
+    def __call__(self, loss_fn: Callable[[torch.Tensor, torch.Tensor],
+                                         List[torch.Tensor]],
+                 X, y,
+                 validation_mask: Optional[np.ndarray] = None,
                  **fit_params):
         if self._has_early_stopped:
             L.info("Early stopped, skipping")
@@ -118,7 +138,7 @@ class SGDSolver(Solver):
 
             self._optim.zero_grad()
             loss = loss_fn(batch_X, batch_y)
-            tb_add_scalar("loss", loss.item())
+            loss: torch.Tensor = self._process_loss(loss)
             assert not torch.isnan(loss), "nan loss"
 
             loss.backward()
@@ -129,6 +149,7 @@ class SGDSolver(Solver):
             if self.early_stopping and batch_cursor % 10 == 0:
                 with torch.no_grad():
                     valid_loss = loss_fn(X_valid, y_valid)
+                valid_loss = self._process_loss(valid_loss, "val/")
 
                 if valid_loss >= self._best_val_loss:
                     self._no_improvement_count += 1

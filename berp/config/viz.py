@@ -15,7 +15,7 @@ class TensorboardConfig:
     Directory to store tensorboard logs. Relative to Hydra output path.
     """
 
-    flush_secs: int = 60
+    flush_secs: int = 15
 
     _target_: str = "berp.tensorboard.Tensorboard.instance"
 

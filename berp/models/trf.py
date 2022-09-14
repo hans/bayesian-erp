@@ -1,5 +1,6 @@
 import logging
 from typing import Tuple, List, Optional, Any, Union
+from uuid import uuid4
 
 import hydra
 import numpy as np
@@ -30,6 +31,7 @@ class TemporalReceptiveField(BaseEstimator):
                  fit_intercept=False,
                  warm_start=True,
                  alpha=1,
+                 name=None,
                  **kwargs):
         self.sfreq = sfreq
         self.n_outputs = n_outputs
@@ -42,8 +44,11 @@ class TemporalReceptiveField(BaseEstimator):
         self.warm_start = warm_start
         self.alpha = alpha
 
+        self.name = name if name is not None else uuid4().hex
+
         # Prepare optimizer mixin
         self.optim = optim
+        self.optim.name = name
 
         self.delays_ = _times_to_delays(self.tmin, self.tmax, self.sfreq)
 
@@ -90,6 +95,10 @@ class TemporalReceptiveField(BaseEstimator):
         
         self.alpha = torch.as_tensor(self.alpha, dtype=torch.float32)
 
+    def set_name(self, name: str):
+        self.name = name
+        self.optim.name = name
+
     @typechecked
     def fit(self, X: TRFDesignMatrix, Y: TRFResponse,
             ) -> "TemporalReceptiveField":
@@ -122,21 +131,23 @@ class TemporalReceptiveField(BaseEstimator):
         self.residuals_ = Y_pred - Y
         return self
 
-    def _loss_fn(self, X, Y: TRFResponse) -> torch.Tensor:
+    def _loss_fn(self, X, Y: TRFResponse, include_l2=True) -> Union[torch.Tensor, Tuple[torch.Tensor]]:
         Y_pred = X @ self.coef_
         loss = (Y_pred - Y).pow(2).sum(axis=1).mean()
+        if not include_l2:
+            return loss
 
         # Add ridge term.
         if self.alpha.ndim == 0:
             # loss += self.alpha * self.coef_.pow(2).sum()
-            loss += self.alpha * torch.norm(self.coef_, p=2)
+            l2_loss = self.alpha * torch.norm(self.coef_, p=2)
         else:
             # Compute different alpha per lag. Tile alpha along last axis.
             # TODO hacky to reshape yet again inside loss
             coef_for_l2 = self.coef_.view((self.n_features_, self.n_delays_, self.n_outputs))
-            loss += torch.mul(coef_for_l2.pow(2).sum(dim=2), self.alpha.unsqueeze(0)).sum()
+            l2_loss = torch.mul(coef_for_l2.pow(2).sum(dim=2), self.alpha.unsqueeze(0)).sum()
 
-        return loss
+        return loss, l2_loss
 
     @typechecked
     def partial_fit(self, X: TRFDesignMatrix, Y: TRFResponse,
