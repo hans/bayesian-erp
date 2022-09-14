@@ -3,18 +3,6 @@ from typing import Dict, Any
 from torch.utils.tensorboard import SummaryWriter
 
 
-class Singleton(type):
-    _instances: Dict[type, "Singleton"] = {}
-
-    def __call__(cls, *args: Any, **kwargs: Any) -> Any:
-        if cls not in cls._instances:
-            cls._instances[cls] = super(Singleton, cls).__call__(*args, **kwargs)
-        return cls._instances[cls]
-
-    def instance(cls: Any, *args: Any, **kwargs: Any) -> Any:
-        return cls(*args, **kwargs)
-
-
 class Tensorboard:
     """
     Single access point for Tensorboard SummaryWriter which manages global steps.
@@ -22,7 +10,9 @@ class Tensorboard:
 
     @staticmethod
     def instance(*args, **kwargs):
-        return Singleton(Tensorboard, *args, **kwargs)
+        if not hasattr(Tensorboard, "_instance"):
+            Tensorboard._instance = Tensorboard(*args, **kwargs)
+        return Tensorboard._instance
 
     def __init__(self, log_dir=".", **kwargs):
         # We use default log_dir=. because we've already changed dir into the Hydra
