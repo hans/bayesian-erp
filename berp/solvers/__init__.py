@@ -137,7 +137,7 @@ class SGDSolver(Solver):
                     self._best_val_loss = valid_loss
 
                 if self._no_improvement_count > self.early_stopping:
-                    L.info("Stopping early due to no improvement. %r", self)
+                    L.info("Stopping early due to no improvement.")
                     self._has_early_stopped = True
                     raise EarlyStopException()
 
