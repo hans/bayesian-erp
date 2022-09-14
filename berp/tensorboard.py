@@ -38,6 +38,11 @@ class Tensorboard:
             global_step = self.global_step
         self.summary_writer.add_histogram(tag, values, global_step)
 
+    def add_figure(self, tag, figure, global_step=None):
+        if global_step is None:
+            global_step = self.global_step
+        self.summary_writer.add_figure(tag, figure, global_step)
+
     def flush(self):
         self.summary_writer.flush()
 
@@ -51,3 +56,7 @@ def tb_add_scalar(tag, scalar_value, global_step=None):
 
 def tb_add_histogram(tag, values, global_step=None):
     Tensorboard.instance().add_histogram(tag, values, global_step)
+
+
+def tb_add_figure(tag, figure, global_step=None):
+    Tensorboard.instance().add_figure(tag, figure, global_step)

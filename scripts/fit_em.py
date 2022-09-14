@@ -152,6 +152,9 @@ def main(cfg: Config):
             feature_names=feature_names,
             feature_match_patterns=cfg.viz.feature_patterns)
         fig.savefig(params_dir / f"encoder_coefs.{key}.png")
+        tb.add_figure(f"encoder_coefs/{key}", fig)
+
+    tb.close()
 
     # TODO calculate score on test set. or do full CV.
 
