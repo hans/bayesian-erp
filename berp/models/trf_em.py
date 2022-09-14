@@ -734,7 +734,7 @@ def update_with_pretrained(pipeline: GroupBerpTRFForwardPipeline,
     # Keep the following encoder parameters from the current pipeline.
     # TODO should probably be the reverse -- configurably override just
     # a set of the current pipeline parameters from the pretrained pipeline.
-    keep_params = ["optim__n_batches"]
+    keep_params = ["optim__n_batches", "optim__early_stopping"]
     this_params = pipeline.encoder.get_params()
 
     for name, enc in pretrained.encoders_.items():
