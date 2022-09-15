@@ -29,7 +29,8 @@ optuna.logging.disable_default_handler()
 def tb_callback(study, trial):
     tb = Tensorboard.instance()
     if study.best_trial.number == trial.number:
-        tb.add_scalar("optuna/threshold", trial.params["threshold"])
+        for param, value in trial.params.items():
+            tb.add_scalar(f"optuna/{param}", value)
         tb.add_scalar("optuna/test_score", trial.value)
 
 
