@@ -1,3 +1,4 @@
+from collections import Counter, defaultdict
 from functools import cached_property
 import logging
 from typing import *
@@ -25,6 +26,8 @@ class SGDSolver(Solver):
     methods and provides early stopping facilities.
 
     Whenever the dataset or estimator structure changes you should call `.prime()`
+
+    Tracks early stopping statistics separately per dataset tag (see __call__ kwarg).
     """
 
     def __init__(self, learning_rate: float = 0.01,
@@ -65,12 +68,15 @@ class SGDSolver(Solver):
 
     def reset_early_stopping(self, reset_loss=False):
         """
-        Reset early stopping tracker. If `reset_loss`, also forget about best val loss.
+        Reset early stopping trackers. If `reset_loss`, also forget about best val loss.
         """
-        self._has_early_stopped = False
-        self._no_improvement_count = 0
+        self._has_early_stopped = defaultdict(lambda: False)
+        self._no_improvement_count = Counter()
         if reset_loss:
-            self._best_val_loss = np.inf
+            self._best_val_loss = defaultdict(lambda: np.inf)
+
+    def has_early_stopped(self, dataset_tag):
+        return self._has_early_stopped[dataset_tag]
 
     def prime(self, estimator, X, y):
         if self._primed:
@@ -105,7 +111,14 @@ class SGDSolver(Solver):
                  validation_mask: Optional[np.ndarray] = None,
                  dataset_tag: Optional[str] = None,
                  **fit_params):
-        if self._has_early_stopped:
+        """
+        Args:
+            dataset_tag: Tag for the given dataset. This is used internally to
+                track early stopping statistics (best val loss, # batches without
+                val loss improvement). Should be distinct for each dataset sent
+                to the solver. Also used to log to tensorboard.
+        """
+        if self._has_early_stopped[dataset_tag]:
             L.info("Early stopped, skipping")
             return
 
@@ -152,25 +165,25 @@ class SGDSolver(Solver):
 
             losses.append(loss.item())
 
-            if self.early_stopping and batch_cursor % 10 == 0:
+            batch_cursor = (batch_cursor + 1) % total_num_batches
+            tb_global_step()
+
+            if self.early_stopping:
                 with torch.no_grad():
                     valid_loss = loss_fn(X_valid, y_valid, include_l2=False)
                 valid_loss = self._process_loss(
                     valid_loss, tag_prefix=valid_tag_str)
 
-                if valid_loss >= self._best_val_loss:
-                    self._no_improvement_count += 1
+                if valid_loss >= self._best_val_loss[dataset_tag]:
+                    self._no_improvement_count[dataset_tag] += 1
                 else:
-                    self._no_improvement_count = 0
-                    self._best_val_loss = valid_loss
+                    self._no_improvement_count[dataset_tag] = 0
+                    self._best_val_loss[dataset_tag] = valid_loss
 
-                if self._no_improvement_count > self.early_stopping:
-                    L.info("Stopping early due to no improvement.")
-                    self._has_early_stopped = True
+                if self._no_improvement_count[dataset_tag] >= self.early_stopping:
+                    L.info("Stopping early after %d batches due to no improvement.", i)
+                    self._has_early_stopped[dataset_tag] = True
                     raise EarlyStopException()
-
-            batch_cursor = (batch_cursor + 1) % total_num_batches
-            tb_global_step()
 
         return self
 

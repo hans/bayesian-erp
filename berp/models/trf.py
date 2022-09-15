@@ -151,6 +151,7 @@ class TemporalReceptiveField(BaseEstimator):
 
     @typechecked
     def partial_fit(self, X: TRFDesignMatrix, Y: TRFResponse,
+                    dataset_tag=None,
                     **kwargs) -> "TemporalReceptiveField":
         """
         Update the TRF encoder weights with gradient descent.
@@ -162,7 +163,7 @@ class TemporalReceptiveField(BaseEstimator):
 
         if not self.warm_start or not hasattr(self, "coef_"):
             self._init_coef()
-        elif self.optim._has_early_stopped:
+        elif self.optim.has_early_stopped(dataset_tag):
             raise EarlyStopException()
 
         # Preprocess X
@@ -178,7 +179,8 @@ class TemporalReceptiveField(BaseEstimator):
 
         to_raise = None
         try:
-            self.optim(self._loss_fn, X, Y, **kwargs)
+            self.optim(self._loss_fn, X, Y, dataset_tag=dataset_tag,
+                       **kwargs)
         except EarlyStopException as exc:
             # Keep this for later. Make sure we restore coef shape, etc.
             to_raise = exc
