@@ -221,7 +221,8 @@ process fitVanillaEncoders {
 
 
 /**
- * Fit Berp TRF encoder using pretrained vanilla encoders for pipeline init.
+ * Fit Berp TRF encoder using pretrained vanilla encoders for pipeline init,
+ * using expectation maximization.
  */
 process fitBerp {
     container null
@@ -254,6 +255,36 @@ process fitBerp {
 }
 
 
+/**
+ * Fit Berp TRF encoder using a grid search.
+ */
+process fitBerpGrid {
+    container null
+    conda params.berp_env
+
+    publishDir "${outDir}/models_berp_grid"
+
+    input:
+    path datasets
+    path confusion
+
+    output:
+    path "berp-fixed"
+
+    script:
+    dataset_path_str = datasets.join(",")
+    """
+    export PYTHONPATH=${baseDir}
+    python ${baseDir}/scripts/fit_em.py \
+        model=trf-berp-fixed \
+        'dataset.paths=[${dataset_path_str}]' \
+        model.confusion_path=${confusion} \
+        cv=search_alpha_threshold \
+        solver=adam \
+        hydra.run.dir="berp-fixed"
+    """
+}
+
 workflow {
     // Prepare stimulus features.
     stimulus_features = convertStimulusFeatures(stim_dir)
@@ -275,12 +306,13 @@ workflow {
         // Produce dataset.
         | produceDataset
 
-    // Group by subject and fit vanilla encoders.
-    vanilla_results = full_datasets | map { tuple(it[0], tuple(it[1], it[2])) } | groupTuple() \
-        | fitVanillaEncoders
+    // // Group by subject and fit vanilla encoders.
+    // vanilla_results = full_datasets | map { tuple(it[0], tuple(it[1], it[2])) } | groupTuple() \
+    //     | fitVanillaEncoders
 
     // Prepare confusion matrix data with a sample dataset (any is good)
     confusion = prepareConfusionMatrix(full_datasets.map { it[2] } | first)
 
-    fitBerp(full_datasets.collect { it[2] }, vanilla_results.collect(), confusion)
+    // fitBerp(full_datasets.collect { it[2] }, vanilla_results.collect(), confusion)
+    fitBerpGrid(full_datasets.collect { it[2] }, confusion)
 }
