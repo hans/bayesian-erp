@@ -312,12 +312,10 @@ class _Objective(object):
         with trange(self.max_iter) as pbar:
             for step in pbar:
                 for i, (train, test) in enumerate(self.cv.split(self.X, self.y, groups=self.groups)):
-                    try:
-                        out = self._partial_fit_and_score(estimators[i], train, test, partial_fit_params)
-                    except EarlyStopException:
-                        early_stopped[i] = True
-                        continue
+                    out, early_stopped_i = self._partial_fit_and_score(estimators[i], train, test, partial_fit_params)
 
+                    if early_stopped_i:
+                        early_stopped[i] = True
                     if self.return_train_score:
                         scores["train_score"][i] = out.pop(0)
 
@@ -358,23 +356,27 @@ class _Objective(object):
         train: List[int],
         test: List[int],
         partial_fit_params: Dict[str, Any],
-    ) -> List[Number]:
+    ) -> Tuple[List[Number], bool]:
+        """
+        Returns:
+            A tuple of (scores, did_early_stop).
+        """
 
         X_train, y_train = _safe_split(estimator, self.X, self.y, train)
         X_test, y_test = _safe_split(estimator, self.X, self.y, test, train_indices=train)
 
         start_time = time()
 
+        early_stopped = False
+        should_evaluate = True
+
         try:
             estimator.partial_fit(X_train, y_train, **partial_fit_params)
-
         except EarlyStopException:
-            raise
-
+            early_stopped = True
         except Exception as e:
             if self.error_score == "raise":
                 raise e
-
             elif isinstance(self.error_score, Number):
                 fit_time = time() - start_time
                 test_score = self.error_score
@@ -383,20 +385,17 @@ class _Objective(object):
                 if self.return_train_score:
                     train_score = self.error_score
 
+                should_evaluate = False
             else:
                 raise ValueError("error_score must be 'raise' or numeric.") from e
 
-        else:
+        if should_evaluate:
             fit_time = time() - start_time
             test_score = self.scoring(estimator, X_test, y_test)
             score_time = time() - fit_time - start_time
 
             if self.return_train_score:
                 train_score = self.scoring(estimator, X_train, y_train)
-
-        # DEV
-        if test_score > 1:
-            import ipdb; ipdb.set_trace()
 
         # Required for type checking but is never expected to fail.
         assert isinstance(fit_time, Number)
@@ -407,7 +406,7 @@ class _Objective(object):
         if self.return_train_score:
             ret.insert(0, train_score)
 
-        return ret
+        return ret, early_stopped
 
     def _store_scores(self, trial: Trial, scores: Mapping[str, OneDimArrayLikeType]) -> None:
 
