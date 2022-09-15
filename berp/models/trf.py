@@ -48,7 +48,8 @@ class TemporalReceptiveField(BaseEstimator):
 
         # Prepare optimizer mixin
         self.optim = optim
-        self.optim.name = name
+        if self.optim is not None:
+            self.optim.name = name
 
         self.delays_ = _times_to_delays(self.tmin, self.tmax, self.sfreq)
 
@@ -97,7 +98,8 @@ class TemporalReceptiveField(BaseEstimator):
 
     def set_name(self, name: str):
         self.name = name
-        self.optim.name = name
+        if self.optim is not None:
+            self.optim.name = name
 
     @typechecked
     def fit(self, X: TRFDesignMatrix, Y: TRFResponse,

@@ -20,7 +20,8 @@ def test_trf_dummy():
 
     trf = TRFPipeline(standardize_X=False, standardize_Y=False,
                       tmin=tmin, tmax=tmax, sfreq=sfreq,
-                      n_outputs=2, fit_intercept=False)
+                      n_outputs=2, fit_intercept=False,
+                      name="Gerald")
     trf.fit(X, Y)
 
     expected_coef = torch.tensor([[0, 0], [1, -1], [0, 0]]).float()
