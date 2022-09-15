@@ -1,5 +1,6 @@
 n_outer_folds: 4
 n_inner_folds: 4
+n_trials: 100
 
 param_sampler:
   _target_: optuna.samplers.TPESampler
