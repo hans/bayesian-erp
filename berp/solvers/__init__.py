@@ -16,6 +16,11 @@ from berp.tensorboard import tb_add_scalar, tb_global_step
 L = logging.getLogger(__name__)
 
 
+# Helpers to support pickling defaultdict initializers
+def default_inf(): return np.inf
+def default_false(): return False
+
+
 class Solver(BaseEstimator):
     pass
 
@@ -70,10 +75,10 @@ class SGDSolver(Solver):
         """
         Reset early stopping trackers. If `reset_loss`, also forget about best val loss.
         """
-        self._has_early_stopped = defaultdict(lambda: False)
+        self._has_early_stopped = defaultdict(default_false)
         self._no_improvement_count = Counter()
         if reset_loss:
-            self._best_val_loss = defaultdict(lambda: np.inf)
+            self._best_val_loss = defaultdict(default_inf)
 
     def has_early_stopped(self, dataset_tag):
         return self._has_early_stopped[dataset_tag]
