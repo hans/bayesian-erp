@@ -469,11 +469,9 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
 
         return out
 
-    def _pre_transform_single(self, dataset: BerpDataset,
-                              params: PartiallyObservedModelParameters,
-                              out: TRFDesignMatrix,
-                              out_weight: float = 1.,
-                              ) -> TRFDesignMatrix:
+    def get_recognition_points(self, dataset: BerpDataset,
+                               params: PartiallyObservedModelParameters,
+                               ) -> TensorType[torch.long]:
         # TODO cache rec point computation?
         # profile and find out if it's worth it
         p_word_posterior = predictive_model(
@@ -483,10 +481,16 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
         recognition_points = recognition_point_model(
             p_word_posterior, dataset.word_lengths, params.threshold
         )
+        return recognition_points
 
+    def _pre_transform_single(self, dataset: BerpDataset,
+                              params: PartiallyObservedModelParameters,
+                              out: TRFDesignMatrix,
+                              out_weight: float = 1.,
+                              ) -> TRFDesignMatrix:
         design_matrix: TRFDesignMatrix = self._scatter_variable(
             dataset,
-            recognition_points,
+            self.get_recognition_points(dataset, params),
             out=out, out_weight=out_weight)
         return design_matrix
     
@@ -610,6 +614,29 @@ class BerpTRFEMEstimator(BaseEstimator):
     def prime(self, dataset):
         return self.pipeline.prime(dataset)
 
+    def _tb_update(self, X: NestedBerpDataset):
+        """
+        Update Tensorboard with current state.
+        """
+        tb = Tensorboard.instance()
+
+        # TODO this is all coupled with the current inference setup.
+        # It pulls out param properties from the pipeline, and constructs
+        # its own param representations. Not exactly sustainable.
+
+        # Compute expected threshold value.
+        threshold = (self.param_resp_ * torch.stack([p.threshold for p in self.pipeline.params])).sum()
+        tb.add_scalar("threshold", threshold.item())
+
+        # Compute recognition points.
+        # HACK Construct new parameter representation with the above threshold.
+        params = replace(self.pipeline.params[0], threshold=threshold)
+        recog_points = torch.stack([
+            self.pipeline.get_recognition_points(dataset, params)
+            for dataset in X.datasets
+        ])
+        tb.add_histogram("recognition_points", recog_points)
+
     def partial_fit(self, X: NestedBerpDataset, y=None,
                     X_val: Optional[NestedBerpDataset] = None,
                     use_tqdm=False,
@@ -637,9 +664,7 @@ class BerpTRFEMEstimator(BaseEstimator):
 
                 # HACK: print inferred threshold value
                 print(self.param_resp_.numpy().round(3))
-                # HACK: track inferred threshold value
-                threshold_i = (self.param_resp_ * torch.stack([p.threshold for p in self.pipeline.params])).sum()
-                tb.add_scalar("threshold", threshold_i.item())
+                self._tb_update(X)
 
                 # Re-estimate encoder parameters
                 try:
