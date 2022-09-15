@@ -22,6 +22,7 @@ from berp.models.reindexing_regression import \
     predictive_model, recognition_point_model, PartiallyObservedModelParameters
 from berp.models.trf import TemporalReceptiveField, TRFPredictors, \
     TRFDesignMatrix, TRFResponse, TRFDelayer
+from berp.tensorboard import Tensorboard
 from berp.typing import is_probability, DIMS
 from berp.util import time_to_sample
 
@@ -616,20 +617,29 @@ class BerpTRFEMEstimator(BaseEstimator):
         if X_val is None and self.early_stopping is not None:
             L.warning("Early stopping requested, but no validation set provided.")
 
+        tb = Tensorboard.instance()
+
         m_step_did_early_stop = False
         with trange(self.n_iter, desc="EM", disable=not use_tqdm) as pbar:
             postfix = {"train_score": self.score(X)}
+            tb.add_scalar("em/train_score", postfix["train_score"])
             if X_val is not None:
                 val_score = self._check_validation_score(X_val)
-                pbar.set_postfix(val_score=val_score, **postfix)
+                postfix["val_score"] = val_score
+                tb.add_scalar("em/val_score", val_score)
+            pbar.set_postfix(**postfix)
 
             for _ in pbar:
+                tb.global_step += 1
+
                 self.param_resp_ = self._e_step(X)
                 L.info("E-step finished")
 
                 # HACK: print inferred threshold value
                 print(self.param_resp_.numpy().round(3))
-                print((self.param_resp_ * torch.stack([p.threshold for p in self.pipeline.params])).sum())
+                # HACK: track inferred threshold value
+                threshold_i = (self.param_resp_ * torch.stack([p.threshold for p in self.pipeline.params])).sum()
+                tb.add_scalar("threshold", threshold_i.item())
 
                 # Re-estimate encoder parameters
                 try:
@@ -644,6 +654,7 @@ class BerpTRFEMEstimator(BaseEstimator):
 
                 # Calculate scores
                 postfix = {"train_score": self.score(X)}
+                tb.add_scalar("em/train_score", postfix["train_score"])
                 if X_val is not None:
                     try:
                         val_score = self._check_validation_score(X_val)
@@ -654,7 +665,9 @@ class BerpTRFEMEstimator(BaseEstimator):
                         else:
                             L.info("Val score halted, but M-step did not early stop. Will run at least one more M-step")
 
-                    pbar.set_postfix(val_score=val_score, **postfix)
+                    postfix["val_score"] = val_score
+                    tb.add_scalar("em/val_score", val_score)
+                pbar.set_postfix(**postfix)
 
         return self
 
