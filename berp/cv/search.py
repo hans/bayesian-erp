@@ -394,6 +394,10 @@ class _Objective(object):
             if self.return_train_score:
                 train_score = self.scoring(estimator, X_train, y_train)
 
+        # DEV
+        if test_score > 1:
+            import ipdb; ipdb.set_trace()
+
         # Required for type checking but is never expected to fail.
         assert isinstance(fit_time, Number)
         assert isinstance(score_time, Number)
