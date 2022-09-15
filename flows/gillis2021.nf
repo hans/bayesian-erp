@@ -268,10 +268,10 @@ workflow {
     
     nl_stimuli = aligned | runLanguageModeling
 
+    // EEG recordings, grouped by story
     eeg_data = channel.fromPath(eeg_dir / "*" / "*.mat") | map {[it.parent.name, it]}
-    // TODO only gets one per story?
     // Group by story and join with NL stimuli, then send to produceDataset.
-    full_datasets = eeg_data.join(nl_stimuli).join(aligned).combine(stimulus_features) \
+    full_datasets = eeg_data.combine(nl_stimuli, by: 0).combine(aligned, by: 0).combine(stimulus_features) \
         // Produce dataset.
         | produceDataset
 
