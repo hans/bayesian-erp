@@ -11,7 +11,7 @@ type: adam
 
 learning_rate: 0.01
 
-n_batches: 5
+n_batches: 256
 batch_size: 512
 
 beta_1: 0.9
