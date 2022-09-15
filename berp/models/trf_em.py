@@ -631,7 +631,7 @@ class BerpTRFEMEstimator(BaseEstimator):
         # Compute recognition points.
         # HACK Construct new parameter representation with the above threshold.
         params = replace(self.pipeline.params[0], threshold=threshold)
-        recog_points = torch.stack([
+        recog_points = torch.cat([
             self.pipeline.get_recognition_points(dataset, params)
             for dataset in X.datasets
         ])
@@ -820,7 +820,7 @@ def BerpTRFEM(trf: TemporalReceptiveField,
         confusion=confusion,
         threshold=torch.tensor(0.5),
     )
-    for _ in range(3):  # DEV
+    for _ in range(20):  # DEV
         rands = torch.rand(len(latent_params))
         param_updates = {}
         for param_name, param_dist in latent_params.items():
