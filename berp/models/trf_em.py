@@ -341,7 +341,8 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
 
     def _partial_fit(self, encoder: Encoder, dataset: BerpDataset):
         design_matrix, validation_mask = self.pre_transform(dataset)
-        encoder.partial_fit(design_matrix, dataset.Y, validation_mask=validation_mask)
+        encoder.partial_fit(design_matrix, dataset.Y, validation_mask=validation_mask,
+                            dataset_tag=dataset.name)
 
     def partial_fit(self, dataset: NestedBerpDataset, y=None) -> "GroupBerpTRFForwardPipeline":
         n_early_stops = 0

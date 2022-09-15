@@ -103,6 +103,7 @@ class SGDSolver(Solver):
                                          List[torch.Tensor]],
                  X, y,
                  validation_mask: Optional[np.ndarray] = None,
+                 dataset_tag: Optional[str] = None,
                  **fit_params):
         if self._has_early_stopped:
             L.info("Early stopped, skipping")
@@ -123,6 +124,10 @@ class SGDSolver(Solver):
         total_num_batches = int(np.ceil(len(X_train) / self.batch_size))
         batch_cursor = 0
 
+        # Prepare tensorboard tag strings
+        train_tag_str = f"{dataset_tag}/" if dataset_tag else ""
+        valid_tag_str = f"{dataset_tag}/val/" if dataset_tag else "val/"
+
         # Shuffle
         indices = np.arange(len(X_train))
         self.random_state.shuffle(indices)
@@ -138,7 +143,8 @@ class SGDSolver(Solver):
 
             self._optim.zero_grad()
             loss = loss_fn(batch_X, batch_y)
-            loss: torch.Tensor = self._process_loss(loss)
+            loss: torch.Tensor = self._process_loss(
+                loss, tag_prefix=train_tag_str)
             assert not torch.isnan(loss), "nan loss"
 
             loss.backward()
@@ -149,7 +155,8 @@ class SGDSolver(Solver):
             if self.early_stopping and batch_cursor % 10 == 0:
                 with torch.no_grad():
                     valid_loss = loss_fn(X_valid, y_valid, include_l2=False)
-                valid_loss = self._process_loss(valid_loss, "val/")
+                valid_loss = self._process_loss(
+                    valid_loss, tag_prefix=valid_tag_str)
 
                 if valid_loss >= self._best_val_loss:
                     self._no_improvement_count += 1
