@@ -525,6 +525,47 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
                    primed.validation_mask)
 
 
+class GroupBerpFixedTRFForwardPipeline(GroupBerpTRFForwardPipeline):
+
+    """
+    Group pipeline for variable-onset TRF with just one parameter option.
+    Provides easy scikit-learn-friendly parameter accessors.
+    """
+
+    _param_keys = ["threshold", "confusion", "lambda_"]
+
+    def __init__(self, encoder: Encoder,
+                 threshold: torch.Tensor,
+                 confusion: torch.Tensor,
+                 lambda_: torch.Tensor,
+                 **kwargs):
+        params = PartiallyObservedModelParameters(
+            threshold=threshold,
+            confusion=confusion,
+            lambda_=lambda_,
+        )
+        super().__init__(encoder, [params], **kwargs)
+
+        self.threshold = threshold
+        self.confusion = confusion
+        self.lambda_ = lambda_
+
+    def get_params(self, deep=True):
+        ret = super().get_params(deep)
+        for param_key in self._param_keys:
+            ret[param_key] = getattr(self.params[0], param_key)
+        return ret
+
+    def set_params(self, **params):
+        # Add passthrough for updating threshold if we are just using one parameter
+        # value.
+        for param_key in self._param_keys:
+            if param_key in params:
+                setattr(self.params[0], param_key, torch.as_tensor(params.pop(param_key)))
+
+        super().set_params(**params)
+
+
 class GroupVanillaTRFForwardPipeline(GroupTRFForwardPipeline):
 
     def _scatter(self, dataset: BerpDataset, design_matrix: TRFDesignMatrix):
@@ -755,6 +796,18 @@ def load_confusion_parameters(
     return torch.tensor(confusion_matrix)
 
 
+def prepare_or_create_confusion(confusion_path: Optional[str],
+                                phonemes: List[str]) -> torch.Tensor:
+    if confusion_path is not None:
+        confusion = load_confusion_parameters(
+            to_absolute_path(confusion_path), phonemes)
+    else:
+        confusion = torch.eye(len(phonemes)) + 0.01
+        confusion /= confusion.sum(dim=0, keepdim=True)
+
+    return confusion
+
+
 def update_with_pretrained(pipeline: GroupBerpTRFForwardPipeline,
                            pretrained: GroupTRFForwardPipeline):
     if not isinstance(pretrained, GroupTRFForwardPipeline):
@@ -795,6 +848,43 @@ def update_with_pretrained_paths(pipeline: GroupBerpTRFForwardPipeline,
     return pipeline
 
 
+def make_pipeline(
+    trf: TemporalReceptiveField,
+    params: List[PartiallyObservedModelParameters],
+    pretrained_pipeline_paths: Optional[List[str]] = None,
+    *args, **kwargs) -> GroupBerpTRFForwardPipeline:
+
+    pipeline = GroupBerpTRFForwardPipeline(trf, params=params, **kwargs)
+
+    if pretrained_pipeline_paths is not None:
+        pipeline = update_with_pretrained_paths(pipeline, pretrained_pipeline_paths)
+
+    return pipeline
+
+
+def BerpTRFFixed(trf: TemporalReceptiveField,
+                 threshold: torch.Tensor,
+                 n_outputs: int,
+                 phonemes: List[str],
+                 confusion_path: Optional[str] = None,
+                 pretrained_pipeline_paths: Optional[List[str]] = None,
+                 **kwargs) -> GroupBerpFixedTRFForwardPipeline:
+    trf.set_params(n_outputs=n_outputs)
+
+    pipeline = GroupBerpFixedTRFForwardPipeline(
+        trf,
+        threshold=threshold,
+        confusion=prepare_or_create_confusion(confusion_path, phonemes),
+        lambda_=torch.tensor(1.),
+        **kwargs,
+    )
+
+    if pretrained_pipeline_paths is not None:
+        pipeline = update_with_pretrained_paths(pipeline, pretrained_pipeline_paths)
+
+    return pipeline
+
+
 def BerpTRFEM(trf: TemporalReceptiveField,
               latent_params: Dict[str, Dict[str, BaseDistribution]],
               n_outputs: int, phonemes: List[str], 
@@ -803,22 +893,11 @@ def BerpTRFEM(trf: TemporalReceptiveField,
               **kwargs):
     trf.set_params(n_outputs=n_outputs)
 
-    # TODO param_grid
-    from pprint import pprint
-    pprint(kwargs)
-
-    if confusion_path is not None:
-        confusion = load_confusion_parameters(
-            to_absolute_path(confusion_path), phonemes)
-    else:
-        confusion = torch.eye(len(phonemes)) + 0.01
-        confusion /= confusion.sum(dim=0, keepdim=True)
-
     # TODO lol complicated
     params = []
     base_params = PartiallyObservedModelParameters(
         lambda_=torch.tensor(1.),
-        confusion=confusion,
+        confusion=prepare_or_create_confusion(confusion_path, phonemes),
         threshold=torch.tensor(0.5),
     )
     for _ in range(20):  # DEV
@@ -835,10 +914,7 @@ def BerpTRFEM(trf: TemporalReceptiveField,
 
         params.append(replace(base_params, **param_updates))
 
-    pipeline = GroupBerpTRFForwardPipeline(trf, params=params, **kwargs)
-
-    if pretrained_pipeline_paths is not None:
-        pipeline = update_with_pretrained_paths(pipeline, pretrained_pipeline_paths)
+    pipeline = make_pipeline(trf, params, pretrained_pipeline_paths, **kwargs)
 
     return BerpTRFEMEstimator(pipeline, **kwargs)
 

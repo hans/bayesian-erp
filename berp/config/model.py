@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import *
 
 from hydra.core.config_store import ConfigStore
@@ -39,21 +39,13 @@ class TRFPipelineConfig(ModelConfig):
 
 
 @dataclass
-class BerpTRFEMModelConfig(ModelConfig):
+class BerpTRFModelConfig(ModelConfig):
+    """
+    Abstract model config structure shared between subtypes. Subtypes
+    vary in specific estimation technique.
+    """
+
     trf: TRFModelConfig
-
-    latent_params: Dict[str, DistributionConfig]
-
-    n_iter: int = 1
-    """
-    Maximum number of EM iterations to run.
-    """
-
-    early_stopping: Optional[int] = 1
-    """
-    Number of EM iterations to tolerate no improvement in validation
-    loss before stopping. If `None`, do not early stop.
-    """
 
     confusion_path: Optional[str] = None
     """
@@ -70,9 +62,35 @@ class BerpTRFEMModelConfig(ModelConfig):
     respectively.
     """
 
+
+@dataclass
+class BerpTRFFixedModelConfig(BerpTRFModelConfig):
+
+    threshold: float = 0.5
+
+    type: str = "trf-berp-fixed"
+    _target_: str = "berp.models.trf_em.BerpTRFFixed"
+
+
+@dataclass
+class BerpTRFEMModelConfig(BerpTRFModelConfig):
+
+    latent_params: Dict[str, DistributionConfig] = field(default_factory=dict)
+
+    n_iter: int = 1
+    """
+    Maximum number of EM iterations to run.
+    """
+
+    early_stopping: Optional[int] = 1
+    """
+    Number of EM iterations to tolerate no improvement in validation
+    loss before stopping. If `None`, do not early stop.
+    """
+
     warm_start: bool = True
     fit_intercept: bool = True
-    type: str = "trf_em"
+    type: str = "trf-em"
 
     _target_: str = "berp.models.trf_em.BerpTRFEM"
 
@@ -81,3 +99,4 @@ cs = ConfigStore.instance()
 cs.store(group=GROUP, name="base_trf", node=TRFModelConfig)
 cs.store(group=GROUP, name="base_trf_pipeline", node=TRFPipelineConfig)
 cs.store(group=GROUP, name="base_trf_em", node=BerpTRFEMModelConfig)
+cs.store(group=GROUP, name="base_trf_berp_fixed", node=BerpTRFFixedModelConfig)
