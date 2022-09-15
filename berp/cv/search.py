@@ -31,7 +31,7 @@ from optuna import samplers
 from optuna import study as study_module
 from optuna import TrialPruned
 from optuna._imports import try_import
-from optuna.study import StudyDirection
+from optuna.study import StudyDirection, Study
 from optuna.trial import FrozenTrial
 from optuna.trial import Trial
 
@@ -754,6 +754,7 @@ class OptunaSearchCV(BaseEstimator):
         study: Optional[study_module.Study] = None,
         subsample: Union[float, int] = 1.0,
         timeout: Optional[float] = None,
+        callbacks: Optional[List[Callable[[Study, FrozenTrial], None]]] = None,
         verbose: int = 0,
     ) -> None:
 
@@ -774,6 +775,7 @@ class OptunaSearchCV(BaseEstimator):
         self.study = study
         self.subsample = subsample
         self.timeout = timeout
+        self.callbacks = callbacks
         self.verbose = verbose
 
     def _check_is_fitted(self) -> None:
@@ -936,7 +938,8 @@ class OptunaSearchCV(BaseEstimator):
         )
 
         self.study_.optimize(
-            objective, n_jobs=self.n_jobs, n_trials=self.n_trials, timeout=self.timeout
+            objective, n_jobs=self.n_jobs, n_trials=self.n_trials, timeout=self.timeout,
+            callbacks=self.callbacks,
         )
 
         _logger.info("Finished hyperparemeter search!")
