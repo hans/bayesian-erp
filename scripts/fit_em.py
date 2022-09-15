@@ -21,6 +21,11 @@ from berp.viz.trf import trf_to_dataframe, plot_trf_coefficients
 
 L = logging.getLogger(__name__)
 
+# Use root logger for Optuna output.
+optuna.logging.enable_propagation()
+optuna.logging.disable_default_handler()
+
+
 def tb_callback(study, trial):
     tb = Tensorboard.instance()
     if study.best_trial.number == trial.number:
