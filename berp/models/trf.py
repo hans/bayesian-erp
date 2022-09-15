@@ -31,6 +31,7 @@ class TemporalReceptiveField(BaseEstimator):
                  fit_intercept=False,
                  warm_start=True,
                  alpha=1,
+                 init_scale=1e-1,
                  name=None,
                  **kwargs):
         self.sfreq = sfreq
@@ -43,6 +44,7 @@ class TemporalReceptiveField(BaseEstimator):
         self.fit_intercept = fit_intercept
         self.warm_start = warm_start
         self.alpha = alpha
+        self.init_scale = init_scale
 
         self.name = name if name is not None else uuid4().hex
 
@@ -58,7 +60,7 @@ class TemporalReceptiveField(BaseEstimator):
 
     def _init_coef(self):
         self.coef_ = torch.randn(self.n_features_, len(self.delays_),
-                                 self.n_outputs) * 1e-1
+                                 self.n_outputs) * self.init_scale
 
     def _reset_coef(self):
         del self.coef_

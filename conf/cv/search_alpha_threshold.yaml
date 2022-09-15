@@ -14,6 +14,12 @@ params:
     log: true
     # shape: [129]
 
+  encoder__init_scale:
+    type: float
+    low: 1e-5
+    high: 1e-1
+    log: true
+
   encoder__optim__learning_rate:
     type: float
     low: 1e-4
