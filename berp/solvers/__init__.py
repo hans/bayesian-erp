@@ -10,7 +10,7 @@ import torch
 from tqdm.auto import tqdm, trange
 
 from berp.cv import EarlyStopException
-from berp.tensorboard import tb_add_scalar
+from berp.tensorboard import tb_add_scalar, tb_global_step
 
 L = logging.getLogger(__name__)
 
@@ -163,6 +163,7 @@ class SGDSolver(Solver):
                     raise EarlyStopException()
 
             batch_cursor = (batch_cursor + 1) % total_num_batches
+            tb_global_step()
 
         return self
 

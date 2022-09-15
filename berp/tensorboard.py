@@ -60,3 +60,15 @@ def tb_add_histogram(tag, values, global_step=None):
 
 def tb_add_figure(tag, figure, global_step=None):
     Tensorboard.instance().add_figure(tag, figure, global_step)
+
+
+def tb_global_step(global_step=None):
+    """
+    Increment or set global step.
+    """
+    tb = Tensorboard.instance()
+    if global_step is None:
+        global_step = tb.global_step + 1
+    tb.global_step = global_step
+
+    return global_step
