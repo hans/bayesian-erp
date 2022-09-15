@@ -21,6 +21,12 @@ from berp.viz.trf import trf_to_dataframe, plot_trf_coefficients
 
 L = logging.getLogger(__name__)
 
+def tb_callback(study, trial):
+    tb = Tensorboard.instance()
+    if study.best_trial.number == trial.number:
+        tb.add_scalar("optuna/threshold", trial.params["threshold"])
+        tb.add_scalar("optuna/test_score", trial.value)
+
 
 def make_cv(model, cfg: CVConfig):
     """
@@ -43,7 +49,8 @@ def make_cv(model, cfg: CVConfig):
         error_score="raise",
         cv=KFold(n_splits=cfg.n_inner_folds, shuffle=False),
         refit=True,
-        verbose=1,)
+        verbose=1,
+        callbacks=[tb_callback],)
 
 
 @hydra.main(version_base=None, config_path="../conf", config_name="config.yaml")
