@@ -186,8 +186,8 @@ class SGDSolver(Solver):
                     self._best_val_loss[dataset_tag] = valid_loss
 
                 if self._no_improvement_count[dataset_tag] >= self.early_stopping:
-                    L.info("Stopping early on %s after %d batches due to no improvement.",
-                           dataset_tag, i)
+                    L.debug("Stopping early on %s after %d batches due to no improvement.",
+                            dataset_tag, i)
                     self._has_early_stopped[dataset_tag] = True
                     raise EarlyStopException()
 

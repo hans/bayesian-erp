@@ -282,7 +282,7 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
             return self._get_encoder(dataset)
         except KeyError:
             key = self._get_encoder_key(dataset)
-            L.info(f"Creating encoder for key {key}...")
+            L.debug(f"Creating encoder for key {key}")
             enc = clone(self.encoder)
             enc.set_name(key)
             self._set_encoder(key, enc)
