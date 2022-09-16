@@ -1,3 +1,4 @@
+from collections import defaultdict
 from copy import deepcopy
 from dataclasses import dataclass, replace
 from functools import singledispatchmethod
@@ -330,13 +331,28 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
 
     #region scikit API
 
-    def _fit(self, encoder: Encoder, dataset: BerpDataset):
-        design_matrix, _ = self.pre_transform(dataset)
-        encoder.fit(design_matrix, dataset.Y)
+    def _fit(self, encoder: Encoder, datasets: List[BerpDataset]):
+        design_matrices, Ys = [], []
+        for d in datasets:
+            design_matrix, _ = self.pre_transform(d)
+            design_matrices.append(design_matrix)
+            Ys.append(d.Y)
+
+        design_matrix = torch.cat(design_matrices, dim=0)
+        Y = torch.cat(Ys, dim=0)
+        encoder.fit(design_matrix, Y)
 
     def fit(self, dataset: NestedBerpDataset, y=None) -> "GroupBerpTRFForwardPipeline":
-        for d, enc in self._get_or_create_encoders(dataset):
-            self._fit(enc, d)
+        # Group datasets by encoder and fit jointly.
+        grouped_datasets = defaultdict(list)
+        for dataset in dataset.datasets:
+            key = self._get_encoder_key(dataset)
+            grouped_datasets[key].append(dataset)
+
+        for key, datasets in tqdm(grouped_datasets.items(), desc="Exact fit"):
+            enc = self._get_or_create_encoder(datasets[0])
+            self._fit(enc, datasets)
+
         return self
 
     def _partial_fit(self, encoder: Encoder, dataset: BerpDataset):

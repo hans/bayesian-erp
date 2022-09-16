@@ -28,6 +28,7 @@ optuna.logging.disable_default_handler()
 
 def tb_callback(study, trial):
     tb = Tensorboard.instance()
+    tb.global_step += 1
     if study.best_trial.number == trial.number:
         for param, value in trial.params.items():
             tb.add_scalar(f"optuna/{param}", value)
@@ -49,7 +50,7 @@ def make_cv(model, cfg: CVConfig):
     return OptunaSearchCV(
         estimator=clone(model),
         study=study,
-        enable_pruning=True,
+        enable_pruning=False,
         max_iter=cfg.max_iter, n_trials=n_trials,
         param_distributions=param_distributions,
         error_score="raise",
