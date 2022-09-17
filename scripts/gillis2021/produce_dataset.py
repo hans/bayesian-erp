@@ -62,10 +62,17 @@ ts_features_dict = np.load(args.stim_path)
 ts_feature_names = ts_features_dict["feature_names"].tolist()
 time_series_features = ts_features_dict[story_name]
 
-# Variable onset features are simply word features and word surprisals.
-X_variable = torch.concat([story_stim.word_features,
-                           story_stim.word_surprisals.unsqueeze(1)],
-                           dim=1)
+# Variable onset features are simply a variable onset intercept,
+# word features and word surprisals.
+X_variable = torch.concat(
+    [torch.ones_like(story_stim.word_surprisals).unsqueeze(1),
+     story_stim.word_features,
+     story_stim.word_surprisals.unsqueeze(1)],
+    dim=1)
+# NB word_frequency comes from stimulus processor setup in previous script
+variable_feature_names = ["recognition_onset", "word_frequency", "word_surprisal"]
+assert X_variable.shape[1] == len(variable_feature_names)
+
 # Load other stimulus time-series features.
 X_ts = torch.tensor(time_series_features)
 
@@ -157,8 +164,7 @@ ret = BerpDataset(
     X_ts=X_ts,
     ts_feature_names=ts_feature_names,
     X_variable=X_variable,
-    # NB word_frequency comes from stimulus processor setup in previous script
-    variable_feature_names=["word_frequency", "word_surprisal"],
+    variable_feature_names=variable_feature_names,
     
     Y=eeg.get_data().T
 )
