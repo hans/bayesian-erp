@@ -11,8 +11,10 @@ import sys
 sys.path.append(str(Path(".").resolve().parent.parent))
 # -
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import seaborn as sns
 
 # %load_ext autoreload
 # %autoreload 2
@@ -39,6 +41,20 @@ if IS_INTERACTIVE:
                      output_path=Path("confusion.npz"))
 else:
     args = parser.parse_args()
+
+# ## Load and prepare from matrices
+#
+# Downloaded from https://www.mpi.nl/world/dcsp/diphones/
+
+conf5_theirs = pd.read_csv("../../data/gillis2021/confusion/phon2_conf_matrix_gate5.dat", sep="\s+")
+conf5_theirs
+
+conf5_theirs / conf5_theirs.sum(axis=0)
+
+plt.subplots(figsize=(10,10))
+sns.heatmap(conf5_theirs / conf5_theirs.sum(axis=0))
+
+conf5_theirs.columns
 
 # ## Load and prepare IPA-level confusions
 
@@ -89,12 +105,33 @@ MAGIC_PHONEMES = ["_", "#"]
 
 # TODO what is the right fill value here?
 for conf in [confusion_gate1, confusion_gate4]:
+    diag_mean = np.diag(conf).mean()
     for phon in MAGIC_PHONEMES:
-        conf.loc[phon, phon] = 2.
+        conf.loc[phon, phon] = diag_mean
     conf.fillna(0., inplace=True)
 # -
 
 confusion_gate1
+
+normed = confusion_gate4 + 1
+normed = normed / normed.sum(axis=0)
+normed
+
+import seaborn as sns
+import matplotlib.pyplot as plt
+plt.subplots(figsize=(10, 10))
+sns.heatmap(normed)
+
+# +
+from sklearn.decomposition import PCA
+normed_without_magic = normed.drop(columns=MAGIC_PHONEMES)
+vals = PCA(n_components=2).fit_transform(normed_without_magic.values.T)
+
+plt.subplots(figsize=(10, 10))
+plt.scatter(vals[:, 0], vals[:, 1])
+for phon, (x, y) in zip(normed_without_magic.columns, vals):
+    plt.text(x, y, phon)
+# -
 
 # ## Final checks and updates
 
