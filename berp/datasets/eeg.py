@@ -28,7 +28,15 @@ def load_eeg_dataset(paths: List[str], montage_name: str,
             if normalize_X_ts:
                 ds.X_ts = norm_ts(ds.X_ts)
             if normalize_X_variable:
-                ds.X_variable = norm_ts(ds.X_variable)
+                # Don't normalize intercept columns the same way.
+                mask = ~(ds.X_variable == 1).all(dim=0)
+                ds.X_variable[:, mask] = norm_ts(ds.X_variable[:, mask])
+                
+                # Scale intercept column
+                # HACK HACK, steal from word_onset. Should really do the add_zeros trick again
+                f_idx = ds.ts_feature_names.index("word onsets_0")
+                scale = ds.X_ts[:, f_idx].nonzero()[0, 0]
+                ds.X_variable[:, ~mask] *= scale
             if normalize_Y:
                 ds.Y = norm_ts(ds.Y)
     
