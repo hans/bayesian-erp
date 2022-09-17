@@ -6,3 +6,4 @@ feature_patterns:
   - word_frequency
   - word_surprisal
   - "word onsets_0"
+  - recognition_onset
