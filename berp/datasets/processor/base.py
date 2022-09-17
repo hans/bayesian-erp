@@ -89,11 +89,13 @@ class NaturalLanguageStimulus:
         """
         return -self.p_word[:, 0] / np.log(2)
 
-    def get_candidate_strs(self, word_idx) -> List[str]:
+    def get_candidate_strs(self, word_idx, top_k=None) -> List[str]:
         """
         Get string representations for the candidates of the given word.
         """
         phonemes = self.candidate_phonemes[word_idx]
+        if top_k is not None:
+            phonemes = phonemes[:top_k, :]
         rets = ["".join(self.phonemes[phon_idx] for phon_idx in word
                         if phon_idx != self.pad_phoneme_id)
                 for word in phonemes]
