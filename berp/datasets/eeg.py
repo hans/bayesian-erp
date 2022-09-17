@@ -20,8 +20,12 @@ def load_eeg_dataset(paths: List[str], montage_name: str,
 
     dataset = NestedBerpDataset(datasets)
 
-    def norm_ts(tensor):
-        return (tensor - tensor.mean(dim=0, keepdim=True)) / tensor.std(dim=0, keepdim=True)
+    def norm_ts(tensor, add_zeros=None):
+        if add_zeros is None:
+            ref_tensor = tensor
+        else:
+            ref_tensor = torch.cat([tensor, torch.zeros(add_zeros, *tensor.shape[1:], dtype=tensor.dtype)], dim=0)
+        return (tensor - ref_tensor.mean(dim=0, keepdim=True)) / ref_tensor.std(dim=0, keepdim=True)
 
     if normalize_X_ts or normalize_X_variable or normalize_Y:
         for ds in dataset.datasets:
@@ -32,11 +36,12 @@ def load_eeg_dataset(paths: List[str], montage_name: str,
                 mask = ~(ds.X_variable == 1).all(dim=0)
                 ds.X_variable[:, mask] = norm_ts(ds.X_variable[:, mask])
                 
-                # Scale intercept column
-                # HACK HACK, steal from word_onset. Should really do the add_zeros trick again
-                f_idx = ds.ts_feature_names.index("word onsets_0")
-                scale = ds.X_ts[:, f_idx].nonzero()[0, 0]
-                ds.X_variable[:, ~mask] *= scale
+                # Scale intercept columns
+                if (~mask).sum() > 0:
+                    intercept_col_idx = torch.where(~mask)[0][0]
+                    n_add_zeros = ds.X_ts.shape[0] - ds.X_variable[:, intercept_col_idx].sum().int().item()
+                    ds.X_variable[:, ~mask] = norm_ts(ds.X_variable[:, ~mask],
+                                                      add_zeros=n_add_zeros)
             if normalize_Y:
                 ds.Y = norm_ts(ds.Y)
     
