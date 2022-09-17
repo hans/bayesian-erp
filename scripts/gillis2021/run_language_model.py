@@ -41,9 +41,9 @@ p.add_argument("--vocab_path", type=Path, default="../../data/gillis2021/vocab.p
 p.add_argument("--celex_path", type=Path, default="../../data/gillis2021/celex_dpw_cx.txt")
 
 if IS_INTERACTIVE:
-    args = Namespace(tokenized_path=Path("tokenized/DKZ_1.txt"),
-                     aligned_words_path=Path("aligned_words.csv"),
-                     aligned_phonemes_path=Path("aligned_phonemes.csv"),
+    args = Namespace(tokenized_path=Path("DKZ_1.tokenized.txt"),
+                     aligned_words_path=Path("DKZ_1.words.csv"),
+                     aligned_phonemes_path=Path("DKZ_1.phonemes.csv"),
                      model="GroNLP/gpt2-small-dutch",
                      n_candidates=1000,
                      vocab_path=Path("../../data/gillis2021/vocab.pkl"),
@@ -91,10 +91,7 @@ words_df["frequency"] = words_df.frequency.fillna(oov_freq)
 celex_phonemizer = dutch.CelexPhonemizer(args.celex_path)
 
 # +
-# TODO handle #. should probably be removed from onsets list as well as phon vocabulary
-
-# +
-phonemes = sorted(dutch.smits_ipa_chars) + ["#", PAD_PHONEME]
+phonemes = sorted(dutch.smits_ipa_chars) + [PAD_PHONEME]
 
 proc = NaturalLanguageStimulusProcessor(phonemes=phonemes, hf_model=args.model,
                                         num_candidates=args.n_candidates,
@@ -115,7 +112,7 @@ ground_truth_phonemes = phonemes_df[~phonemes_df.original_idx.isna()] \
 # Convert CGN representation to IPA representation.
 ground_truth_phonemes = {
     idx: [dutch.convert_to_smits_ipa(dutch.cgn_ipa_mapping[phon])
-          if phon != "#" else "#" for phon in phons]
+          for phon in phons]
     for idx, phons in ground_truth_phonemes.items()
 }
 

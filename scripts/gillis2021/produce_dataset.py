@@ -44,8 +44,8 @@ p.add_argument("stim_path", type=Path)
 
 if IS_INTERACTIVE:
     args = Namespace(natural_language_stimulus_path=Path("DKZ_1.pkl"),
-                     aligned_words_path=Path("aligned_words.csv"),
-                     aligned_phonemes_path=Path("aligned_phonemes.csv"),
+                     aligned_words_path=Path("DKZ_1.words.csv"),
+                     aligned_phonemes_path=Path("DKZ_1.phonemes.csv"),
                      eeg_path=Path("../../data/gillis2021/eeg/DKZ_1/2019_C2DNN_1_1_256_8_average_4_128.mat"),
                      stim_path=Path("stimuli.npz"),)
 else:

@@ -46,15 +46,20 @@ else:
 #
 # Downloaded from https://www.mpi.nl/world/dcsp/diphones/
 
-conf5_theirs = pd.read_csv("../../data/gillis2021/confusion/phon2_conf_matrix_gate5.dat", sep="\s+")
-conf5_theirs
+# +
+# conf5_theirs = pd.read_csv("../../data/gillis2021/confusion/phon2_conf_matrix_gate5.dat", sep="\s+")
+# conf5_theirs
 
-conf5_theirs / conf5_theirs.sum(axis=0)
+# +
+# conf5_theirs / conf5_theirs.sum(axis=0)
 
-plt.subplots(figsize=(10,10))
-sns.heatmap(conf5_theirs / conf5_theirs.sum(axis=0))
+# +
+# plt.subplots(figsize=(10,10))
+# sns.heatmap(conf5_theirs / conf5_theirs.sum(axis=0))
 
-conf5_theirs.columns
+# +
+# conf5_theirs.columns
+# -
 
 # ## Load and prepare IPA-level confusions
 
@@ -101,9 +106,10 @@ confusion_gate4 = pd.concat([consonants_df_gate4, vowels_df_gate4]) \
 
 # +
 # These phonemes are special in the dataset and we'll manually add them to the confusion matrix.
-MAGIC_PHONEMES = ["_", "#"]
+MAGIC_PHONEMES = ["_"]
+for phon in MAGIC_PHONEMES:
+    assert phon in dataset.phonemes
 
-# TODO what is the right fill value here?
 for conf in [confusion_gate1, confusion_gate4]:
     diag_mean = np.diag(conf).mean()
     for phon in MAGIC_PHONEMES:

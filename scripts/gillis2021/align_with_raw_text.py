@@ -7,6 +7,7 @@ from typing import List, Tuple
 import unicodedata
 import warnings
 
+import numpy as np
 import pandas as pd
 import requests
 from tqdm.auto import tqdm
@@ -35,6 +36,10 @@ else:
 
 raw_text = args.raw_text_path.read_text()
 story_name = args.raw_text_path.stem
+
+# The given phonemes in the forced aligned annotations will be dropped from the output alignment
+# All other phonemes and timings will remain untouched.
+DROP_PHONEMES = {"#"}
 
 # #####
 
@@ -408,9 +413,19 @@ fa_words = pd.merge(
     alignment.rename(columns={"textgrid_idx": "original_idx"}).drop(columns=["flags"]),
     on="original_idx")
 
+# +
+fa_phonemes = fa_df[fa_df.tier == "phonemes"]
+# Drop 
+phonemes_to_drop = fa_phonemes.text.isin(DROP_PHONEMES)
+print(f"Dropping {phonemes_to_drop.sum()} phoneme instances ({np.round(phonemes_to_drop.sum() / len(fa_phonemes) * 100, 2)}%) because they are in DROP_PHONEMES: {DROP_PHONEMES}")
+print(fa_phonemes[phonemes_to_drop].text.value_counts())
+
+fa_phonemes = fa_phonemes[~phonemes_to_drop]
+print(f"{len(fa_phonemes)} phonemes remain.")
+# -
+
 # Asof merge to store FA word + token index data in phoneme data.
 # NB the merged token idx will be the last subword token of the corresponding word
-fa_phonemes = fa_df[fa_df.tier == "phonemes"]
 fa_phonemes = pd.merge_asof(fa_phonemes, fa_words[["start", "original_idx", "tok_idx"]],
                             on="start", direction="backward").dropna()
 
