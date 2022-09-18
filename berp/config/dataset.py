@@ -27,6 +27,8 @@ class EEGDatasetConfig(DatasetConfig):
     normalize_X_variable: bool = True
     normalize_Y: bool = True
 
+    drop_X_variable: Optional[List[str]] = None
+
     _target_: str = "berp.datasets.eeg.load_eeg_dataset"
 
     @property
