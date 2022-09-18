@@ -29,7 +29,7 @@ def trf_to_dataframe(model: TemporalReceptiveField,
 
 
 def plot_trf_coefficients(model_or_df: Union[TemporalReceptiveField, pd.DataFrame],
-                          ci=95,
+                          errorbar=("ci", 95),
                           feature_names=None,
                           feature_match_patterns=None,
                           **kwargs) -> plt.Figure:
@@ -51,20 +51,20 @@ def plot_trf_coefficients(model_or_df: Union[TemporalReceptiveField, pd.DataFram
     hue = "feature_name" if feature_names is not None else "feature"
     ax = sns.lineplot(data=to_plot.reset_index(),
                       x="epoch_time", y="coef", hue="feature_name",
-                      ci=ci, **kwargs)
+                      errorbar=errorbar, **kwargs)
 
     ax.set_xlabel("Epoch time")
     ax.set_ylabel("TRF coefficient")
-    
+
     ax.axhline(0, c="gray", alpha=0.3)
     ax.axvline(0, c="gray", alpha=0.3)
     ax.axvline(0.3, c="gray", alpha=0.3, linestyle="dashed")
     ax.axvline(0.5, c="gray", alpha=0.3, linestyle="dashed")
 
     plt.legend(loc=(1.05, 0.1))
-        
+
     # plt.subplots_adjust(top=0.9)
     # plt.suptitle(f"TRF weights, avg over {len(to_plot.subject.unique())} subjects $\\times$ {len(to_plot.split.unique())} CV folds")
     plt.tight_layout()
-        
+
     return plt.gcf()
