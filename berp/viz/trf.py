@@ -28,13 +28,19 @@ def trf_to_dataframe(model: TemporalReceptiveField,
     return df
 
 
-def plot_trf_coefficients(model: TemporalReceptiveField, ci=95,
+def plot_trf_coefficients(model_or_df: Union[TemporalReceptiveField, pd.DataFrame],
+                          ci=95,
                           feature_names=None,
                           feature_match_patterns=None,
                           **kwargs) -> plt.Figure:
-    df = trf_to_dataframe(model, feature_names=feature_names)
+    if isinstance(model_or_df, TemporalReceptiveField):
+        df = trf_to_dataframe(model_or_df, feature_names=feature_names)
+    elif isinstance(model_or_df, pd.DataFrame):
+        df = model_or_df
+    else:
+        raise ValueError("Model or dataframe expected")
 
-    if feature_match_patterns is not None and feature_names is None:
+    if feature_match_patterns is not None and "feature_name" not in df.columns:
         raise ValueError("feature patterns provided, but no feature names")
 
     if feature_match_patterns is not None:
