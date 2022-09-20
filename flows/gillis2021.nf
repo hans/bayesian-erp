@@ -214,8 +214,10 @@ process fitVanillaEncoders {
     export PYTHONPATH=${baseDir}
     python ${baseDir}/scripts/fit_em.py \
         model=trf \
+        cv=search_alpha \
         'dataset.paths=[${dataset_path_str}]' \
-        hydra.run.dir="${subject_name}"
+        hydra.run.dir="${subject_name}" \
+        "dataset.drop_X_variable=[recognition_onset]"
     """
 }
 
@@ -285,6 +287,37 @@ process fitBerpGrid {
     """
 }
 
+
+/**
+ * Fit unitary TRF encoder and individual TRFs per subject, for
+ * direct comparability with fitBerpGrid.
+ */
+process fitUnitaryVanillaEncoder {
+    container null
+    conda params.berp_env
+
+    publishDir "${outDir}/models_vanilla_unitary"
+
+    input:
+    path datasets
+
+    output:
+    path("berp-vanilla-unitary")
+
+    script:
+    dataset_path_str = datasets.join(",")
+    """
+    export PYTHONPATH=${baseDir}
+    python ${baseDir}/scripts/fit_em.py \
+        model=trf \
+        cv=search_alpha \
+        'dataset.paths=[${dataset_path_str}]' \
+        hydra.run.dir="berp-vanilla-unitary" \
+        "dataset.drop_X_variable=[recognition_onset]"
+    """
+}
+
+
 workflow {
     // Prepare stimulus features.
     stimulus_features = convertStimulusFeatures(stim_dir)
@@ -296,7 +329,7 @@ workflow {
     raw_textgrids = channel.fromPath(textgrid_dir / "DKZ_*.TextGrid")
     textgrids = raw_textgrids | convertTextgrid
     aligned = textgrids.join(raw_text) | alignWithRawText
-    
+
     nl_stimuli = aligned | runLanguageModeling
 
     // EEG recordings, grouped by story
@@ -306,9 +339,12 @@ workflow {
         // Produce dataset.
         | produceDataset
 
-    // // Group by subject and fit vanilla encoders.
-    // vanilla_results = full_datasets | map { tuple(it[0], tuple(it[1], it[2])) } | groupTuple() \
-    //     | fitVanillaEncoders
+    // Group by subject and fit vanilla encoders.
+    vanilla_results = full_datasets | map { tuple(it[0], tuple(it[1], it[2])) } | groupTuple() \
+         | fitVanillaEncoders
+
+    // Fit unitary vanilla encoder (single alpha).
+    vanilla_unitary = fitUnitaryVanillaEncoder(full_datasets.collect { it[2] })
 
     // Prepare confusion matrix data with a sample dataset (any is good)
     confusion = prepareConfusionMatrix(full_datasets.map { it[2] } | first)
