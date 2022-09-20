@@ -8,13 +8,13 @@ param_sampler:
 params:
   encoder__alpha:
     type: float
-    low: 1e3
-    high: 1e10
+    low: 1e5
+    high: 1e7
     log: true
     # shape: [129]
 
-  encoder__optim__learning_rate:
-    type: float
-    low: 1e-4
-    high: 5e-1
-    log: true
+  # encoder__optim__learning_rate:
+  #   type: float
+  #   low: 1e-4
+  #   high: 5e-1
+  #   log: true
