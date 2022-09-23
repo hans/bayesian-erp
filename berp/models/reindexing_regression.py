@@ -343,12 +343,3 @@ def scatter_model(params: ModelParameters,
     )
 
     return params, dataset, scatter
-
-
-# def model_wrapped(params: Callable[[], ModelParameters],
-#                   dataset: RRDataset) -> RRResult:
-#     """
-#     Execute full forward model, wrapped in a function that allows for
-#     parameterization.
-#     """
-#     return model(params(), dataset)

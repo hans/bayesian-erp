@@ -1,19 +1,14 @@
+from dataclasses import replace
 from functools import partial
-from pathlib import Path
-from pprint import pprint
 import re
 from typing import Dict, Callable
 
-from colorama import Fore, Back, Style
 from icecream import ic
 import numpy as np
 import pyro
-from pyro import poutine
-from pyro import distributions as dist
 import pytest
 import torch
 
-from berp.datasets import BerpDataset
 from berp.generators import stimulus
 from berp.generators import thresholded_recognition_simple as generator
 from berp.models import reindexing_regression as rr
@@ -52,11 +47,10 @@ def get_parameters2():
 @pytest.fixture(scope="session")
 def soundness_dataset1():
     stim = stimulus.RandomStimulusGenerator(phoneme_voc_size=len(generator.phoneme2idx))
-    dataset = generator.sample_dataset(
-        get_parameters(),
-        stim,
-        response_type="square")
-    return (dataset, get_parameters)
+    params = get_parameters()
+    dataset = generator.sample_dataset(params, stim, response_type="square")
+    print(dataset.Y.shape)
+    return (dataset, params)
 
 
 @pytest.fixture(scope="session")
@@ -90,170 +84,42 @@ def soundness_dataset2(sentences):
         phonemes=phonemes,
         hf_model="hf-internal-testing/tiny-xlm-roberta")  # TODO use gpt2 instead?
     stim = partial(stim, sentences)
-    return (generator.sample_dataset(get_parameters2(),
-                                     stim),
-            get_parameters2)
+    params = get_parameters2()
+    return (generator.sample_dataset(params, stim), params)
 
 
-def trace_conditional(conditioning: Dict, *args, **kwargs):
-    """
-    Evaluate model trace for given conditioning set.
-    """
-    conditioned_model = poutine.condition(rr.model_wrapped, conditioning)
-    return poutine.trace(conditioned_model).get_trace(*args, **kwargs)  # type: ignore
-
-
-def model_forward(dataset, parameters, conditioning=None):
-    if conditioning is None:
-        conditioning = {}
-
-    model_trace = trace_conditional(conditioning, dataset, parameters)
-    return model_trace
-
-
-def _run_soundness_check(conditions, background_condition,
-                         dataset: BerpDataset,
-                         parameters: Callable[[], rr.ModelParameters]):
-    """
-    Verify that the probability of the ground truth data is greatest under the
-    generating parameters (compared to perturbations thereof).
-    """
-
-    condition_logprobs = []
-    condition_traces = []
-    test_keys = set(key for condition_dict in conditions
-                    for key in condition_dict.keys())
-    for condition in conditions:
-        condition.update(background_condition)
-        print(f"{Style.BRIGHT}{Fore.YELLOW}Condition:{Style.RESET_ALL} {condition}")
-
-        trace = model_forward(parameters, dataset, condition)
-        log_joint = trace.log_prob_sum()
-
-        if log_joint.isinf():
-            raise RuntimeError(str(condition))
-        
-        condition_logprobs.append(log_joint)
-        condition_traces.append(trace)
-
-    condition_logprobs = torch.stack(condition_logprobs)
-
-    # Remove background condition keys from condition specs for printing
-    conditions_to_print = [{k: v for k, v in condition.items()
-                            if k not in background_condition}
-                           for condition in conditions]
-    pprint(sorted(zip(conditions_to_print, condition_logprobs.numpy()),
-                  key=lambda x: -x[1]))
-
-    # Exponentiate and renormalize
-    condition_logprobs = (condition_logprobs - condition_logprobs.max()).exp()
-    condition_logprobs /= condition_logprobs.sum()
-
-    result = sorted(zip(conditions_to_print, condition_logprobs.numpy()),
-                    key=lambda x: -x[1])
-    pprint(result)
-
-    map_result = result[0][0]
-    gt_result = conditions[0]
-    for test_key in test_keys:
-        assert torch.equal(map_result[test_key], gt_result[test_key]), \
-            f"Ground truth parameter is the MAP choice ({test_key})"
-
-    return result, condition_traces
-
-
-@pytest.mark.parametrize("dataset_fixture", ["soundness_dataset1", "soundness_dataset2"])
-def test_soundness_threshold(request, dataset_fixture):
-    dataset, parameters = request.getfixturevalue(dataset_fixture)
-
-    background_condition = {"coef": dataset.params.coef,
-                            "a": dataset.params.a,
-                            "b": dataset.params.b}
-
-    gt_condition = {"threshold": dataset.params.threshold}
-    alt_conditions = [{"threshold": x}
-                      for x in torch.rand(10)]
-    all_conditions = [gt_condition] + alt_conditions
-
-    _run_soundness_check(all_conditions, background_condition,
-                         dataset, parameters)
-
-
-@pytest.mark.parametrize("dataset_fixture", ["soundness_dataset1", "soundness_dataset2"])
-def test_soundness_coef(request, dataset_fixture):
-    dataset, parameters = request.getfixturevalue(dataset_fixture)
-
-    background_condition = {"threshold": dataset.params.threshold,
-                            "a": dataset.params.a,
-                            "b": dataset.params.b}
-
-    gt_condition = {"coef": dataset.params.coef}
-    alt_conditions = [{"coef": torch.tensor(x)}
-                      for x in [[1., 1.],
-                                [1., -5.],
-                                [-1., -1.]]]
-    all_conditions = [gt_condition] + alt_conditions
-
-    _run_soundness_check(all_conditions, background_condition,
-                         dataset, parameters)
-
-
-def test_soundness_a(soundness_dataset1):
-    dataset, parameters = soundness_dataset1
-    background_condition = {"threshold": dataset.params.threshold,
-                            "coef": dataset.params.coef,
-                            "b": dataset.params.b}
-
-    gt_condition = {"a": dataset.params.a}
-    a_min, a_max = 0.2, 0.6
-    alt_conditions = [{"a": a}
-                      for a in torch.linspace(a_min, a_max, 10)]
-    all_conditions = [gt_condition] + alt_conditions
-
-    _run_soundness_check(all_conditions, background_condition,
-                         dataset, parameters)
-
-
-def test_soundness_b(soundness_dataset1):
-    dataset, parameters = soundness_dataset1
-    background_condition = {"threshold": dataset.params.threshold,
-                            "coef": dataset.params.coef,
-                            "a": dataset.params.a}
-
-    gt_condition = {"b": dataset.params.b}
-    log_b_min, log_b_max = -2, 0
-    alt_conditions = [{"b": b}
-                      for b in torch.logspace(log_b_min, log_b_max, 5)]
-    all_conditions = [gt_condition] + alt_conditions
-
-    _run_soundness_check(all_conditions, background_condition,
-                         dataset, parameters)
+def model_forward(params, dataset):
+    p_word_posterior = rr.predictive_model(
+        dataset.p_word, dataset.candidate_phonemes,
+        params.confusion, params.lambda_)
+    rec_points = rr.recognition_point_model(
+        p_word_posterior, dataset.word_lengths, params.threshold
+    )
+    return p_word_posterior, rec_points
 
 
 def test_recognition_logic(soundness_dataset1):
     """
     For possible thresholds T2 > T1, inferred recognition points K2, K1 should
-    obey K2 >= K1. Corresponding onsets O2 >= O1 as well.
+    obey K2 >= K1.
     """
     dataset, params = soundness_dataset1
 
-    t1 = dataset.params.threshold
-    t2 = np.sqrt(dataset.params.threshold)
+    t1 = params.threshold
+    t2 = np.sqrt(params.threshold)
     assert t2 > t1
 
-    trace_1 = model_forward(params, dataset, {"threshold": t1})
-    trace_2 = model_forward(params, dataset, {"threshold": t2})
+    _, rec_1 = model_forward(replace(params, threshold=t1), dataset)
+    _, rec_2 = model_forward(replace(params, threshold=t2), dataset)
 
-    rec_1 = trace_1.nodes["recognition_point"]["value"]
-    rec_2 = trace_2.nodes["recognition_point"]["value"]
     ic(rec_2 - rec_1)
     ic(np.where(rec_2 < rec_1))
     assert bool((rec_2 >= rec_1).all()), "Recognition points should not decrease when threshold increases"
 
-    rec_onset_1 = trace_1.nodes["recognition_onset"]["value"]
-    rec_onset_2 = trace_2.nodes["recognition_onset"]["value"]
-    ic(rec_onset_2 - rec_onset_1)
-    ic(np.where(rec_onset_2 < rec_onset_1))
-    # NB if this assertion fails and the above passes, it's an error in the
-    # onset data representation / indexing logic.
-    assert bool((rec_onset_2 >= rec_onset_1).all()), "Recognition onsets should not decrease when threshold increases"
+    # rec_onset_1 = trace_1.nodes["recognition_onset"]["value"]
+    # rec_onset_2 = trace_2.nodes["recognition_onset"]["value"]
+    # ic(rec_onset_2 - rec_onset_1)
+    # ic(np.where(rec_onset_2 < rec_onset_1))
+    # # NB if this assertion fails and the above passes, it's an error in the
+    # # onset data representation / indexing logic.
+    # assert bool((rec_onset_2 >= rec_onset_1).all()), "Recognition onsets should not decrease when threshold increases"
