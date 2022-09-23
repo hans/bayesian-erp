@@ -424,10 +424,22 @@ fa_phonemes = fa_phonemes[~phonemes_to_drop]
 print(f"{len(fa_phonemes)} phonemes remain.")
 # -
 
-# Asof merge to store FA word + token index data in phoneme data.
+# Asof merge: join phonemes to the most recent corresponding word onset.
 # NB the merged token idx will be the last subword token of the corresponding word
-fa_phonemes = pd.merge_asof(fa_phonemes, fa_words[["start", "original_idx", "tok_idx"]],
-                            on="start", direction="backward").dropna()
+fa_phonemes = pd.merge_asof(fa_phonemes, fa_words[["start", "end", "original_idx", "tok_idx"]],
+                            on="start", direction="backward",
+                            suffixes=("", "_word")).dropna()
+
+# +
+# But this means phonemes of words unassociated with elements of words_df will
+# be matched with onsets of the most recent word that is indeed in words_df.
+# That's no good. Find these and drop.
+phonemes_to_drop = fa_phonemes.end > fa_phonemes.end_word
+print(f"Dropping {phonemes_to_drop.sum()} phoneme instances from words not matched with tokens")
+
+fa_phonemes = fa_phonemes[~phonemes_to_drop]
+print(f"{len(fa_phonemes)} phonemes remain.")
+# -
 
 # Remove words with missing phoneme data.
 fa_words = fa_words[fa_words.original_idx.isin(set(fa_phonemes.original_idx))]
