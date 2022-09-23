@@ -35,74 +35,75 @@ parser.add_argument("dataset_path", type=Path)
 parser.add_argument("output_path", type=Path)
 
 if IS_INTERACTIVE:
-    args = Namespace(confusion_consonants_path=Path("../../data/gillis2021/confusion/smits_2003_consonants.csv"),
-                     confusion_vowels_path=Path("../../data/gillis2021/confusion/smits_2003_vowels.csv"),
+    args = Namespace(confusion_path=Path("../../data/gillis2021/confusion/phon2_conf_matrix_gate5.dat"),
                      dataset_path=Path("DKZ_1.pkl"),
                      output_path=Path("confusion.npz"))
 else:
     args = parser.parse_args()
+
+# Prepare to map from CELEX-DISC coding used in Smits et al 2003 responses to IPA
+disc_to_ipa = {
+    'p': 'p',
+    't': 't',
+    'k': 'k',
+    'b': 'b',
+    'd': 'd',
+    'g': 'g',
+    '-': 'dʒ',
+    'f': 'f',
+    's': 's',
+    'S': 'ʃ',
+    'x': 'x',
+    'v': 'v',
+    'z': 'z',
+    'Z': 'ʒ',
+    'h': 'h',
+    'r': 'r',
+    'l': 'l',
+    'w': 'w',
+    'j': 'j',
+    'm': 'm',
+    'n': 'n',
+    'N': 'ŋ',
+    'A': 'ɑ',
+    'E': 'ɛ',
+    'I': 'ɪ',
+    'O': 'ɔ',
+    '}': 'ʏ',
+    '@': 'ə',
+    'i': 'i',
+    'u': 'u',
+    'y': 'y',
+    'e': 'e',
+    'o': 'o',
+    '|': 'œ',
+    'a': 'a',
+    'K': 'ɛi',
+    'L': 'œy',
+    'M': 'ɑu'
+}
 
 # ## Load and prepare from matrices
 #
 # Downloaded from https://www.mpi.nl/world/dcsp/diphones/
 
 # +
-# conf5_theirs = pd.read_csv("../../data/gillis2021/confusion/phon2_conf_matrix_gate5.dat", sep="\s+")
-# conf5_theirs
+conf_df = pd.read_csv("../../data/gillis2021/confusion/phon2_conf_matrix_gate5.dat", sep="\s+")
 
-# +
-# conf5_theirs / conf5_theirs.sum(axis=0)
+# They represent stimulus as row and response as column. Transpose to match dataset expectation.
+conf_df = conf_df.T
 
-# +
-# plt.subplots(figsize=(10,10))
-# sns.heatmap(conf5_theirs / conf5_theirs.sum(axis=0))
-
-# +
-# conf5_theirs.columns
+conf_df.columns = conf_df.columns.map(disc_to_ipa)
+conf_df.index = conf_df.index.map(disc_to_ipa)
+conf_df
 # -
 
-# ## Load and prepare IPA-level confusions
+if IS_INTERACTIVE:
+    plt.subplots(figsize=(10,10))
+    sns.heatmap(conf_df / conf_df.sum(axis=0))
 
-consonants_df = pd.read_csv(args.confusion_consonants_path)
-vowels_df = pd.read_csv(args.confusion_vowels_path)
 with open(args.dataset_path, "rb") as f:
     dataset = pickle.load(f)
-
-# +
-# Simplify along third dimension.
-consonants_df_gate1 = consonants_df.loc[::2].copy()
-consonants_df_gate4 = consonants_df.loc[1::2].copy()
-consonants_df_gate4["Stimulus"] = consonants_df_gate1.Stimulus.tolist()
-
-vowels_df_gate1 = vowels_df.loc[::2].copy()
-vowels_df_gate4 = vowels_df.loc[1::2].copy()
-vowels_df_gate4["Stimulus"] = vowels_df_gate1.Stimulus.tolist()
-# -
-
-all_consonants = consonants_df_gate1.Stimulus.tolist()
-all_consonants
-
-all_vowels = vowels_df_gate1.Stimulus.tolist()
-all_vowels
-
-# +
-# Allocate uniform mass to vowels in consonants_df and vice versa.
-for consonant_df in [consonants_df_gate1, consonants_df_gate4]:
-    consonant_df.loc[:, all_vowels] = \
-        np.tile(consonant_df.Vowel.to_numpy()[:, None] / len(all_vowels),
-                (1, len(all_vowels)))
-    consonant_df.drop(columns=["Vowel"], inplace=True)
-for vowel_df in [vowels_df_gate1, vowels_df_gate4]:
-    vowel_df.loc[:, all_consonants] = \
-        np.tile(vowel_df.Consonant.to_numpy()[:, None] / len(all_consonants),
-                (1, len(all_consonants)))
-    vowel_df.drop(columns=["Consonant"], inplace=True)
-
-# Concatenate into inventory-wide confusion matrices.
-confusion_gate1 = pd.concat([consonants_df_gate1, vowels_df_gate1]) \
-    .set_index("Stimulus")
-confusion_gate4 = pd.concat([consonants_df_gate4, vowels_df_gate4]) \
-    .set_index("Stimulus")
 
 # +
 # These phonemes are special in the dataset and we'll manually add them to the confusion matrix.
@@ -110,55 +111,45 @@ MAGIC_PHONEMES = ["_"]
 for phon in MAGIC_PHONEMES:
     assert phon in dataset.phonemes
 
-for conf in [confusion_gate1, confusion_gate4]:
-    diag_mean = np.diag(conf).mean()
-    for phon in MAGIC_PHONEMES:
-        conf.loc[phon, phon] = diag_mean
-    conf.fillna(0., inplace=True)
+diag_mean = np.diag(conf_df).mean()
+for phon in MAGIC_PHONEMES:
+    conf_df.loc[phon, phon] = diag_mean
+conf_df.fillna(0., inplace=True)
 # -
 
-confusion_gate1
+conf_df
 
-normed = confusion_gate4 + 1
-normed = normed / normed.sum(axis=0)
-normed
+if IS_INTERACTIVE:
+    normed = conf_df + 1
+    normed = normed / normed.sum(axis=0)
+    normed
+    
+    plt.subplots(figsize=(10, 10))
+    sns.heatmap(normed)
 
-import seaborn as sns
-import matplotlib.pyplot as plt
-plt.subplots(figsize=(10, 10))
-sns.heatmap(normed)
+if IS_INTERACTIVE:
+    from sklearn.decomposition import PCA
+    normed_without_magic = normed.drop(columns=MAGIC_PHONEMES)
+    vals = PCA(n_components=2).fit_transform(normed_without_magic.values.T)
 
-# +
-from sklearn.decomposition import PCA
-normed_without_magic = normed.drop(columns=MAGIC_PHONEMES)
-vals = PCA(n_components=2).fit_transform(normed_without_magic.values.T)
-
-plt.subplots(figsize=(10, 10))
-plt.scatter(vals[:, 0], vals[:, 1])
-for phon, (x, y) in zip(normed_without_magic.columns, vals):
-    plt.text(x, y, phon)
-# -
+    plt.subplots(figsize=(10, 10))
+    plt.scatter(vals[:, 0], vals[:, 1])
+    for phon, (x, y) in zip(normed_without_magic.columns, vals):
+        plt.text(x, y, phon)
 
 # ## Final checks and updates
 
-assert confusion_gate1.index.tolist() == confusion_gate4.index.tolist()
-assert confusion_gate1.index.tolist() == confusion_gate1.columns.tolist()
-assert confusion_gate4.index.tolist() == confusion_gate4.columns.tolist()
+assert conf_df.index.tolist() == conf_df.columns.tolist()
 
 ds_phonemes = set(dataset.phonemes)
-conf_phonemes = set(confusion_gate1.index.tolist())
+conf_phonemes = set(conf_df.index.tolist())
 print(ds_phonemes - conf_phonemes)
-assert set(dataset.phonemes).issubset(set(confusion_gate1.index.tolist()))
+assert set(dataset.phonemes).issubset(set(conf_df.index.tolist()))
 
 # Reindex confusion matrices according to dataset phonemes.
-confusion_gate1 = confusion_gate1.reindex(index=dataset.phonemes, columns=dataset.phonemes)
-confusion_gate4 = confusion_gate4.reindex(index=dataset.phonemes, columns=dataset.phonemes)
-confusion_gate1
+conf_df = conf_df.reindex(index=dataset.phonemes, columns=dataset.phonemes)
+conf_df
 
 np.savez(args.output_path,
-         confusion=confusion_gate4.to_numpy(),  # TODO which to choose?
-         confusion_gate1=confusion_gate1.to_numpy(),
-         confusion_gate4=confusion_gate4.to_numpy(),
-         phonemes=confusion_gate1.index.tolist())
-
-
+         confusion=conf_df.to_numpy(),
+         phonemes=conf_df.index.tolist())
