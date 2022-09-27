@@ -12,6 +12,7 @@ from tqdm.auto import tqdm, trange
 from typeguard import typechecked
 
 from berp.typing import DIMS, is_probability, is_log_probability, is_positive
+from berp.util import top_k_top_p_filtering
 
 L = logging.getLogger(__name__)
 
@@ -74,12 +75,19 @@ class NaturalLanguageStimulus:
     """
     Prior predictive distribution over words at each timestep. Each
     row is a proper log-e-probability distribution.
+
+    Dimensions: `num_words * num_candidates`
+    Where `num_candidates` is variable for each word.
     """
 
     candidate_phonemes: TensorType[N_W, N_C, N_P, torch.long]
     """
     For each candidate in each prior predictive, the corresponding
-    phoneme sequence. Sequences are padded with `pad_phoneme_id`.
+    phoneme sequence (of ID `long`s).
+    Sequences are padded with `pad_phoneme_id`.
+
+    Dimensions: `num_words * num_candidates * num_phonemes`
+    Where `num_candidates` is variable for each word.
     """
 
     @property
@@ -163,20 +171,28 @@ class NaturalLanguageStimulusProcessor(object):
         return [re.sub(r"[^a-z\s]", "", sentence.lower()).strip()
                 for sentence in sentences]
 
-    def get_predictive_topk(self, input_ids: TensorType[B, "n_times", torch.long],
-                            ) -> Tuple[TensorType[B, N_W, N_C, is_probability],
-                                       TensorType[B, N_W, N_C, int]]:
+    def get_predictive(self, input_ids: TensorType[B, "n_times", torch.long],
+                       p=0.1, p_relative_scale=0.5
+                       ) -> Tuple[TensorType[B, N_W, N_C, is_log_probability],
+                                  TensorType[B, N_W, N_C, torch.long]]:
         """
-        For each sentence and each token, retrieve a top-K predictive
-        distribution over the next word, along with a list of the top K
-        candidate token IDs.
+        For each sentence and each token, retrieve a top-P predictive
+        distribution over the next token, along with the corresponding IDs.
+
+        `P` is adjusted to be the minimum of `p_default` and the probability
+        of the ground truth next token, scaled (multiplied) by
+        `p_relative_scale`.
 
         Args:
             batch_tok: Preprocessed batch of sentences
 
         Returns:
-            p_token: log-probability of each candidate token
-            candidate_ids:
+            p_token: log-probability of each candidate token. NestedTensor batch
+                of dimensions `(batch, num_words, num_candidates)`, where the
+                final axis is variable length.
+            candidate_ids: NestedTensor batch of dimensions
+                `(batch, num_words, num_candidates)`, where the final axis is
+                variable length. Each value is a long token ID.
         """
 
         with torch.no_grad():
@@ -184,6 +200,13 @@ class NaturalLanguageStimulusProcessor(object):
 
         # Ignore disallowed tokens.
         model_outputs[:, :, ~self.vocab_mask] = -torch.inf
+
+        # Get probability of each ground truth words.
+        # NB we start at t=1 because that is where predictions start.
+        gt_token_ids = input_ids[:, 1:]
+        p_gt_tokens = torch.gather(model_outputs[:, :-1], dim=2, index=input_ids[:, 1:, None]).squeeze(2)
+
+        filtered = top_k_top_p_filtering(model_outputs, top_p=p_gt_tokens)
         # Sample top N candidates per item + predicted word.
         # NB t=0 here prior to reindexing corresponds to model output after consuming 1st token
         _, candidate_ids = torch.topk(model_outputs[:, :-1], k=self.num_candidates,
@@ -253,7 +276,7 @@ class NaturalLanguageStimulusProcessor(object):
         """
 
         # Compute predictive distribution over tokens.
-        p_token, candidate_token_ids = self.get_predictive_topk(input_ids)
+        p_token, candidate_token_ids = self.get_predictive(input_ids)
         # Drop first column of word_ids since these will be lost in the predictive outputs.
         word_ids = word_ids[:, 1:]
 

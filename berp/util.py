@@ -4,6 +4,7 @@ from typing import Union, List, Tuple
 import numpy as np
 import scipy.signal
 import torch
+import torch.nn.functional as F
 from torchtyping import TensorType
 from typeguard import typechecked
 
@@ -109,6 +110,42 @@ def gaussian_window(center: float, width: float,\
     window_data = scipy.signal.windows.gaussian(window_width, width_i)
     window_data = window_data[slice_start: slice_stop]
     return times, window_data
+
+
+# from https://gist.github.com/kastnerkyle/55bc9ecafbcf2458e2535347e1fd559e
+def top_k_top_p_filtering(
+    logits,
+    top_k=0,
+    top_p: Union[float, torch.Tensor] = 0.0,
+    filter_value=-float('Inf')):
+    """ Filter a distribution of logits using top-k and/or nucleus (top-p) filtering
+        Args:
+            logits: logits distribution shape (..., vocabulary size)
+            top_k >0: keep only top k tokens with highest probability (top-k filtering).
+            top_p >0.0: keep the top tokens with cumulative probability >= top_p (nucleus filtering).
+    """
+    top_k = min(top_k, logits.size(-1))  # Safety check
+    if top_k > 0:
+        # Remove all tokens with a probability less than the last token of the top-k
+        indices_to_remove = logits < torch.topk(logits, top_k)[0][..., -1, None]
+        logits[indices_to_remove] = filter_value
+
+    if isinstance(top_p, torch.Tensor) or top_p > 0.0:
+        sorted_logits, sorted_indices = torch.sort(logits, descending=True)
+        cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
+
+        import ipdb; ipdb.set_trace()
+
+        # Remove tokens with cumulative probability above the threshold
+        sorted_indices_to_remove = cumulative_probs > top_p
+        # Shift the indices to the right to keep also the first token above the threshold
+        sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
+        sorted_indices_to_remove[..., 0] = 0
+
+        indices_to_remove = sorted_indices[sorted_indices_to_remove]
+        logits[indices_to_remove] = filter_value
+
+    return logits
 
 
 # # TODO untested
