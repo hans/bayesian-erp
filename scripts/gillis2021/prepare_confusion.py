@@ -29,8 +29,7 @@ else: IS_INTERACTIVE = True
 IS_INTERACTIVE
 
 parser = ArgumentParser()
-parser.add_argument("confusion_consonants_path", type=Path)
-parser.add_argument("confusion_vowels_path", type=Path)
+parser.add_argument("confusion_path", type=Path)
 parser.add_argument("dataset_path", type=Path)
 parser.add_argument("output_path", type=Path)
 
@@ -88,7 +87,7 @@ disc_to_ipa = {
 # Downloaded from https://www.mpi.nl/world/dcsp/diphones/
 
 # +
-conf_df = pd.read_csv("../../data/gillis2021/confusion/phon2_conf_matrix_gate5.dat", sep="\s+")
+conf_df = pd.read_csv(args.confusion_path, sep="\s+")
 
 # They represent stimulus as row and response as column. Transpose to match dataset expectation.
 conf_df = conf_df.T
@@ -123,7 +122,7 @@ if IS_INTERACTIVE:
     normed = conf_df + 1
     normed = normed / normed.sum(axis=0)
     normed
-    
+
     plt.subplots(figsize=(10, 10))
     sns.heatmap(normed)
 

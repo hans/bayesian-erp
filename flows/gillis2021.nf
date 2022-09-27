@@ -9,8 +9,7 @@ raw_text_dir = file("${params.data_dir}/raw_text")
 vocab_path = file("${params.data_dir}/vocab.pkl")
 celex_path = file("${params.data_dir}/celex_dpw_cx.txt")
 
-confusion_args = """${params.data_dir}/confusion/smits_2003_consonants.csv \
-${params.data_dir}/confusion/smits_2003_vowels.csv"""
+confusion_args = "${params.data_dir}/confusion/phon2_conf_matrix_gate5.dat"
 
 // Strip this from all EEG data files when computing subject names
 EEG_SUFFIX = "_1_256_8_average_4_128"
