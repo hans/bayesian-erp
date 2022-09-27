@@ -1,6 +1,6 @@
 from __future__ import annotations
 import dataclasses
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import logging
 from typing import List, Optional, Callable, Dict, Tuple, Union
 
@@ -286,23 +286,8 @@ class NestedBerpDataset(object):
     """
 
     def __init__(self, datasets: List[BerpDataset], n_splits=2):
-        # Shape checks. Everything but batch axis should match across
-        # subjects. Batch axis should match within-subject between
-        # X and Y.
         for dataset in datasets:
-            ds0 = datasets[0]
-            assert dataset.dtype == ds0.dtype
-            assert dataset.sample_rate == ds0.sample_rate
-            assert dataset.phonemes == ds0.phonemes
-            assert dataset.X_ts.shape[1:] == ds0.X_ts.shape[1:]
-            assert dataset.X_variable.shape[1:] == ds0.X_variable.shape[1:]
-            assert dataset.Y.shape[1:] == ds0.Y.shape[1:]
-            assert dataset.X_ts.shape[0] == dataset.Y.shape[0]
-
-            if ds0.ts_feature_names is not None:
-                assert ds0.ts_feature_names == dataset.ts_feature_names
-            if ds0.variable_feature_names is not None:
-                assert ds0.variable_feature_names == dataset.variable_feature_names
+            assert_compatible(dataset, datasets[0])
 
         self.datasets = datasets
         self.n_datasets = len(datasets)
@@ -419,3 +404,44 @@ class NestedBerpDataset(object):
         return NestedBerpDataset(
             [dataset.subset_sensors(sensors) for dataset in self.datasets],
             n_splits=self.n_splits)
+
+
+def assert_compatible(ds1: BerpDataset, ds2: BerpDataset):
+    # Shape checks. Everything but batch axis should match across
+    # subjects. Batch axis should match within-subject between
+    # X and Y.
+    assert ds1.dtype == ds2.dtype
+    assert ds1.sample_rate == ds2.sample_rate
+    assert ds1.phonemes == ds2.phonemes
+    assert ds1.X_ts.shape[1:] == ds2.X_ts.shape[1:]
+    assert ds1.X_variable.shape[1:] == ds2.X_variable.shape[1:]
+    assert ds1.Y.shape[1:] == ds2.Y.shape[1:]
+    assert ds1.X_ts.shape[0] == ds1.Y.shape[0]
+
+    if ds2.ts_feature_names is not None:
+        assert ds2.ts_feature_names == ds1.ts_feature_names
+    if ds2.variable_feature_names is not None:
+        assert ds2.variable_feature_names == ds1.variable_feature_names
+
+
+def average_datasets(datasets: List[BerpDataset], name="average"):
+    """
+    Create a dataset whose response time series is the average of the given datasets'
+    response time series.
+    Asserts that all other features match between datasets.
+    """
+
+    for ds in datasets[1:]:
+        ds0 = datasets[0]
+        assert_compatible(ds, ds0)
+
+        assert torch.allclose(ds.p_word, ds0.p_word)
+        assert torch.allclose(ds.word_lengths, ds0.word_lengths)
+        assert torch.allclose(ds.candidate_phonemes, ds0.candidate_phonemes)
+        assert torch.allclose(ds.word_onsets, ds0.word_onsets)
+        assert torch.allclose(ds.phoneme_onsets, ds0.phoneme_onsets)
+        assert torch.allclose(ds.X_ts, ds0.X_ts)
+        assert torch.allclose(ds.X_variable, ds0.X_variable)
+
+    Y_avg = torch.stack([ds.Y for ds in datasets]).mean(0)
+    return replace(datasets[0], Y=Y_avg, name=name)

@@ -23,7 +23,7 @@ EEG_SUFFIX = "_1_256_8_average_4_128"
  *   https://lands.let.ru.nl/cgn/doc_Dutch/topics/version_1.0/annot/phonetics/fon_prot.pdf
  */
 
-outDir = "${baseDir}/results/gillis2021"
+outDir = "${baseDir}/results/gillis2021_avgpool"
 
 params.model = "GroNLP/gpt2-small-dutch"
 // Number of word candidates to consider in predictive model.
@@ -318,6 +318,29 @@ process fitUnitaryVanillaEncoder {
 }
 
 
+process produceAverageDataset {
+    container null
+    conda params.berp_env
+
+    publishDir "${outDir}"
+
+    input:
+    path datasets
+
+    output:
+    path("average_dataset.pkl")
+
+    script:
+    dataset_path_str = datasets.join(" ")
+    """
+    export PYTHONPATH=${baseDir}
+    python ${baseDir}/scripts/gillis2021/produce_average_dataset.py \
+        -o average_dataset.pkl \
+        ${dataset_path_str}
+    """
+}
+
+
 workflow {
     // Prepare stimulus features.
     stimulus_features = convertStimulusFeatures(stim_dir)
@@ -339,16 +362,30 @@ workflow {
         // Produce dataset.
         | produceDataset
 
-    // Group by subject and fit vanilla encoders.
-    vanilla_results = full_datasets | map { tuple(it[0], tuple(it[1], it[2])) } | groupTuple() \
-         | fitVanillaEncoders
-
-    // Fit unitary vanilla encoder (single alpha).
-    vanilla_unitary = fitUnitaryVanillaEncoder(full_datasets.collect { it[2] })
-
     // Prepare confusion matrix data with a sample dataset (any is good)
     confusion = prepareConfusionMatrix(full_datasets.map { it[2] } | first)
 
-    // fitBerp(full_datasets.collect { it[2] }, vanilla_results.collect(), confusion)
-    fitBerpGrid(full_datasets.collect { it[2] }, confusion)
+    ///////
+
+    // TODO create a separate workflow for multi-subject fit
+
+    // // Group by subject and fit vanilla encoders.
+    // vanilla_results = full_datasets | map { tuple(it[0], tuple(it[1], it[2])) } | groupTuple() \
+    //      | fitVanillaEncoders
+
+    // // Fit unitary vanilla encoder (single alpha).
+    // vanilla_unitary = fitUnitaryVanillaEncoder(full_datasets.collect { it[2] })
+
+    // // fitBerp(full_datasets.collect { it[2] }, vanilla_results.collect(), confusion)
+    // fitBerpGrid(full_datasets.collect { it[2] }, confusion)
+
+    ////////
+
+    // Produce average dataset.
+    average_dataset = produceAverageDataset(full_datasets.collect { it[2] })
+
+    vanilla = fitUnitaryVanillaEncoder(average_dataset)
+
+    // Fit Berp model on average dataset.
+    fitBerpGrid(average_dataset, confusion)
 }
