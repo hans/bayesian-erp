@@ -322,19 +322,21 @@ process produceAverageDataset {
     conda params.berp_env
 
     publishDir "${outDir}"
+    tag "${story_name}"
 
     input:
-    path datasets
+    tuple val(story_name), path(datasets)
 
     output:
-    path("average_dataset.pkl")
+    path("average_dataset.${story_name}.pkl")
 
     script:
     dataset_path_str = datasets.join(" ")
     """
     export PYTHONPATH=${baseDir}
     python ${baseDir}/scripts/gillis2021/produce_average_dataset.py \
-        -o average_dataset.pkl \
+        -o average_dataset.${story_name}.pkl \
+        -n ${story_name}/avg \
         ${dataset_path_str}
     """
 }
@@ -380,11 +382,12 @@ workflow {
 
     ////////
 
-    // Produce average dataset.
-    average_dataset = produceAverageDataset(full_datasets.collect { it[2] })
+    // Produce one average dataset per story.
+    full_datasets_by_story = full_datasets.map { [it[1], it[2]] }.groupTuple()
+    average_dataset = produceAverageDataset(full_datasets_by_story)
 
-    vanilla = fitUnitaryVanillaEncoder(average_dataset)
+    vanilla = fitUnitaryVanillaEncoder(average_dataset.collect())
 
     // Fit Berp model on average dataset.
-    fitBerpGrid(average_dataset, confusion)
+    fitBerpGrid(average_dataset.collect(), confusion)
 }
