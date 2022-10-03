@@ -402,7 +402,7 @@ class NaturalLanguageStimulusProcessor(object):
         # and then batch.
         # TODO overlap for better contextual predictions
         token_ids = self._tokenizer.convert_tokens_to_ids(tokens)
-        max_len = 32  # DEV self._model.config.n_positions
+        max_len = self._model.config.n_positions
         token_inputs = [token_ids[i:i+max_len]
                         for i in range(0, len(token_ids), max_len)]
 
