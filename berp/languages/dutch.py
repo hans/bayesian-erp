@@ -3,6 +3,7 @@ Defines data and utilities for Dutch processing.
 """
 
 from collections import Counter
+from functools import cache
 import logging
 import re
 from typing import List
@@ -203,7 +204,8 @@ class CelexPhonemizer:
         self._celex_chars = set([char for celex in phonemizer_df.celex.tolist() for char in celex])
         
         self.missing_counter = Counter()
-        
+    
+    @cache
     def __call__(self, string):
         if punct_only_re.match(string):
             return ""

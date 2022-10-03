@@ -158,14 +158,14 @@ class NaturalLanguageStimulusProcessor(object):
             self._tokenizer.pad_token = self._tokenizer.eos_token
 
         # Pre-compute mask of allowed tokens (== which have content after cleaning)
-        self.disallowed_re = disallowed_re
+        self.disallowed_re = re.compile(disallowed_re)
         self.vocab_mask = torch.ones(self._tokenizer.vocab_size, dtype=torch.bool)
         for token, idx in self._tokenizer.vocab.items():  # type: ignore
             if self._clean_word(token) == "":
                 self.vocab_mask[idx] = False
 
     def _clean_word(self, word: str) -> str:
-        return re.sub(self.disallowed_re, "", word.lower())
+        return self.disallowed_re.sub("", word.lower())
 
     def _clean_sentences(self, sentences: List[str]) -> List[str]:
         return [re.sub(r"[^a-z\s]", "", sentence.lower()).strip()
