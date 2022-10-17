@@ -32,6 +32,50 @@ _model_cache = {}
 _tokenizer_cache = {}
 
 
+
+class Vocabulary(object):
+
+    def __init__(self):
+        self.tok2idx = {}
+        self.idx2tok = []
+
+    def __len__(self):
+        return len(self.idx2tok)
+    
+    def __getitem__(self, key):
+        if isinstance(key, int):
+            return self.idx2tok[key]
+        elif isinstance(key, str):
+            return self.tok2idx[key]
+        else:
+            raise TypeError(f"Invalid key type: {type(key)}")
+
+    def __contains__(self, key):
+        if isinstance(key, int):
+            return key < len(self.idx2tok)
+        elif isinstance(key, str):
+            return key in self.tok2idx
+        else:
+            raise TypeError(f"Invalid key type: {type(key)}")
+
+    def add(self, token: str):
+        if token not in self.tok2idx:
+            self.tok2idx[token] = len(self.idx2tok)
+            self.idx2tok.append(token)
+
+        return self.tok2idx[token]
+
+    def add_all(self, tokens: Iterable[str]):
+        for token in tokens:
+            self.add(token)
+
+    def to_tensor(self, tokens: Iterable[str]) -> TensorType[N_W, torch.long]:
+        return torch.tensor([self.add(token) for token in tokens])
+
+    def to_tokens(self, tensor: TensorType[N_W, torch.long]) -> List[str]:
+        return [self[t] for t in tensor]
+
+
 @typechecked
 @dataclass
 class NaturalLanguageStimulus:
@@ -76,10 +120,15 @@ class NaturalLanguageStimulus:
     row is a proper log-e-probability distribution.
     """
 
-    candidate_phonemes: TensorType[N_W, N_C, N_P, torch.long]
+    candidate_ids: TensorType[N_W, N_C, torch.long]
     """
-    For each candidate in each prior predictive, the corresponding
-    phoneme sequence. Sequences are padded with `pad_phoneme_id`.
+    For each row in the dataset, the IDs of the top `N_C` candidates in the
+    candidate vocabulary.
+    """
+
+    candidate_vocabulary: Vocabulary
+    """
+    Vocabulary of candidate words referred to by `candidate_ids`.
     """
 
     @property
@@ -87,13 +136,32 @@ class NaturalLanguageStimulus:
         """
         Get surprisals of ground-truth words (in bits; log-2).
         """
-        return -self.p_word[:, 0] / np.log(2)
+        return -self.p_candidates[:, 0] / np.log(2)
+
+    @property
+    def candidate_phonemes(self) -> TensorType[N_W, N_C, N_P, torch.long]:
+        """
+        For each candidate in each prior predictive, the corresponding
+        phoneme sequence. Sequences are padded with `pad_phoneme_id`.
+        """
+        ret = torch.zeros((len(self), self.p_candidates.shape[1], max(self.word_lengths)), dtype=torch.long)
+        ret.fill_(self.pad_phoneme_id)
+
+        phon2idx = {p: i for i, p in enumerate(self.phonemes)}
+        for i, candidate_ids in enumerate(self.candidate_ids):
+            for j, candidate_id in enumerate(candidate_ids):
+                candidate = self.candidate_vocabulary[candidate_id]
+                for k, phoneme in enumerate(candidate):
+                    ret[i, j, k] = phon2idx[phoneme]
+
+        return ret
 
     def get_candidate_strs(self, word_idx, top_k=None) -> List[str]:
         """
         Get string representations for the candidates of the given word.
         """
-        phonemes = self.candidate_phonemes[word_idx]
+        candidate_phonemes = self.candidate_phonemes
+        phonemes = candidate_phonemes[word_idx]
         if top_k is not None:
             phonemes = phonemes[:top_k, :]
         rets = ["".join(self.phonemes[phon_idx] for phon_idx in word
@@ -283,24 +351,27 @@ class NaturalLanguageStimulusProcessor(object):
         return torch.tensor(ret_word_ids), torch.stack(p_candidates), word_strs
 
 
-    def get_candidate_phonemes(self, candidate_strs: List[List[str]],
-                               max_num_phonemes: int,
-                               ground_truth_phonemes: Optional[List[List[Phoneme]]] = None
-                               ) -> Tuple[TensorType[N_W, N_C, N_P, torch.long],
-                                          TensorType[N_W, int]]:
+    def get_candidate_ids(self, candidate_strs: List[List[str]],
+                          max_num_phonemes: int,
+                          candidate_vocabulary: Vocabulary,
+                          ground_truth_phonemes: Optional[List[List[Phoneme]]] = None,
+                          ) -> Tuple[TensorType[N_W, N_C, N_P, torch.long],
+                                     TensorType[N_W, int]]:
         """
-        For a given batch of candidate words, compute a full tensor of phonemes for
-        each candidate word, padded to length ``max_num_phonemes`` on the last
-        dimension.
+        Represent a given batch of candidate words as a list of candidate IDs,
+        updating candidate vocabulary in-place as necessary.
 
         Args:
             candidate_strs: Candidate word strings. Each sublist's first element
                 should correspond to the ground-truth word.
+            max_num_phonemes: 
+            candidate_vocabulary: Provisional vocabulary of candidate word
+                strings.
             ground_truth_phonemes: Phoneme sequences for the ground-truth
                 words. If not provided, standard phonemizer is used.
 
         Returns:
-            candidate_phonemes:
+            candidate_ids:
             word_lengths: lengths of ground truth word
         """
 
@@ -310,10 +381,10 @@ class NaturalLanguageStimulusProcessor(object):
             assert len(ground_truth_phonemes) == len(candidate_strs)
 
         # Convert tokens to padded phoneme sequences.
-        candidate_phoneme_seqs, word_lengths = [], []
-        for i, candidates_i in enumerate(candidate_strs):
-            phoneme_seqs_i = []
-            for j, candidate_str in enumerate(candidates_i):
+        candidate_ids, word_lengths = [], []
+        for i, candidate_strs_i in enumerate(candidate_strs):
+            candidates_i = []
+            for j, candidate_str in enumerate(candidate_strs_i):
                 # If this is the ground truth word and there is a reference
                 # phonemization, use that.
                 if j == 0 and ground_truth_phonemes is not None:
@@ -325,21 +396,18 @@ class NaturalLanguageStimulusProcessor(object):
                 if j == 0:
                     word_lengths.append(len(phonemes))
 
-                # Convert to IDs, pad, and append.
-                phoneme_ids = [self.phoneme2idx[p] for p in phonemes]
-                phoneme_ids += [self.pad_phoneme_id] * (max_num_phonemes - len(phoneme_ids))
-
-                phoneme_seqs_i.append(phoneme_ids)
+                candidate_id = candidate_vocabulary.add("".join(phonemes))
+                candidates_i.append(candidate_id)
 
             # NB we're currently letting duplicates pass in here, because
             # many candidates will be the same after _clean_word. That could
             # be a problem downstream.
 
-            candidate_phoneme_seqs.append(phoneme_seqs_i)
+            candidate_ids.append(candidates_i)
         
-        candidate_phonemes = torch.tensor(candidate_phoneme_seqs).long()
+        candidate_ids = torch.tensor(candidate_ids).long()
 
-        return candidate_phonemes, torch.tensor(word_lengths)
+        return candidate_ids, torch.tensor(word_lengths)
 
     def __call__(self, tokens: List[str],
                  word_to_token: Dict[int, List[int]],
@@ -405,7 +473,8 @@ class NaturalLanguageStimulusProcessor(object):
 
         word_lengths = torch.zeros(num_words, dtype=torch.long)
         p_candidates = torch.zeros((num_words, self.num_candidates), dtype=torch.float)
-        candidate_phonemes = torch.zeros((num_words, self.num_candidates, max_num_phonemes), dtype=torch.long)
+        candidate_vocabulary = Vocabulary()
+        candidate_ids = torch.zeros((num_words, self.num_candidates), dtype=torch.long)
         # Track the word ID that produced each sample.
         word_ids = torch.zeros(num_words, dtype=torch.long)
         for i in trange(0, len(token_inputs_tensor), self.batch_size, unit="batch"):
@@ -448,17 +517,18 @@ class NaturalLanguageStimulusProcessor(object):
             if ground_truth_phonemes is not None:
                 batch_ground_truth_phonemes = [ground_truth_phonemes.get(word_id.item(), None)
                                                for word_id in retained_word_ids.flatten()]
-            batch_candidate_phonemes, batch_word_lengths = self.get_candidate_phonemes(
-                batch_word_strs, max_num_phonemes, batch_ground_truth_phonemes)
+            batch_candidate_ids, batch_word_lengths = self.get_candidate_ids(
+                batch_word_strs, max_num_phonemes, candidate_vocabulary,
+                batch_ground_truth_phonemes)
 
             # Also ignore words with zero length.
             batch_mask = (batch_word_lengths > 0)
             retained_word_ids = retained_word_ids[batch_mask]
             batch_word_lengths = batch_word_lengths[batch_mask]
             batch_p_candidates = batch_p_candidates[batch_mask]
-            batch_candidate_phonemes = batch_candidate_phonemes[batch_mask]
+            batch_candidate_ids = batch_candidate_ids[batch_mask]
 
-            batch_num_samples = batch_candidate_phonemes.shape[0]
+            batch_num_samples = batch_candidate_ids.shape[0]
             assert batch_num_samples == len(retained_word_ids)
             assert batch_p_candidates.shape[0] == batch_num_samples
             assert batch_word_lengths.shape[0] == batch_num_samples
@@ -470,7 +540,7 @@ class NaturalLanguageStimulusProcessor(object):
 
             word_lengths[batch_word_idxs] = batch_word_lengths
             p_candidates[batch_word_idxs] = batch_p_candidates
-            candidate_phonemes[batch_word_idxs] = batch_candidate_phonemes
+            candidate_ids[batch_word_idxs] = batch_candidate_ids
             word_ids[batch_word_idxs] = retained_word_ids
             touched_words[batch_word_idxs] = True
 
@@ -481,7 +551,7 @@ class NaturalLanguageStimulusProcessor(object):
         word_ids = word_ids[touched_words]
         word_lengths = word_lengths[touched_words]
         p_candidates = p_candidates[touched_words]
-        candidate_phonemes = candidate_phonemes[touched_words]
+        candidate_ids = candidate_ids[touched_words]
 
         # Reindex word-level features.
         word_features_tensor = None
@@ -492,9 +562,12 @@ class NaturalLanguageStimulusProcessor(object):
         return NaturalLanguageStimulus(
             phonemes=list(self.phonemes),
             pad_phoneme_id=self.pad_phoneme_id,
+
             word_ids=word_ids,
             word_lengths=word_lengths,
             word_features=word_features_tensor,
+
+            candidate_vocabulary=candidate_vocabulary,
             p_candidates=p_candidates,
-            candidate_phonemes=candidate_phonemes,
+            candidate_ids=candidate_ids,
         )
