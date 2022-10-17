@@ -491,12 +491,12 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
                                ) -> TensorType[torch.long]:
         # TODO cache rec point computation?
         # profile and find out if it's worth it
-        p_word_posterior = predictive_model(
-            dataset.p_word, dataset.candidate_phonemes,
+        p_candidates_posterior = predictive_model(
+            dataset.p_candidates, dataset.candidate_phonemes,
             params.confusion, params.lambda_
         )
         recognition_points = recognition_point_model(
-            p_word_posterior, dataset.word_lengths, params.threshold
+            p_candidates_posterior, dataset.word_lengths, params.threshold
         )
         return recognition_points
 

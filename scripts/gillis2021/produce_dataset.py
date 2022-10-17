@@ -154,7 +154,7 @@ ret = BerpDataset(
     sample_rate=int(info["sfreq"]),
     
     phonemes=story_stim.phonemes,
-    p_word=story_stim.p_word,
+    p_candidates=story_stim.p_candidates,
     word_lengths=story_stim.word_lengths,
     candidate_phonemes=story_stim.candidate_phonemes,
     

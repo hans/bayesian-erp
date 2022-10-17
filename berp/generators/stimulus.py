@@ -32,7 +32,7 @@ class Stimulus(NamedTuple):
     phoneme_onsets_global: TensorType[N_W, N_P, torch.float]
     word_onsets: TensorType[N_W, torch.float]
     word_surprisals: TensorType[N_W, torch.float]
-    p_word: TensorType[N_W, N_C, torch.float, is_log_probability]
+    p_candidates: TensorType[N_W, N_C, torch.float, is_log_probability]
     candidate_phonemes: TensorType[N_W, N_C, N_P, torch.long]
 
 
@@ -116,16 +116,16 @@ class RandomStimulusGenerator(StimulusGenerator):
         word_surprisals: torch.Tensor = dist.LogNormal(*self.word_surprisal_params) \
             .sample((self.num_words,))  # type: ignore
 
-        # Calculate p_word using surprisal; allocate remainder randomly
+        # Calculate p_candidates using surprisal; allocate remainder randomly
         p_gt_word = (-word_surprisals).exp()
         remainder = 1 - p_gt_word
         p_candidates = (remainder / (self.num_candidates - 1)).view(-1, 1) \
             * torch.ones(self.num_words, self.num_candidates - 1)
-        p_word = torch.cat([p_gt_word.view(-1, 1), p_candidates], dim=1) \
+        p_candidates = torch.cat([p_gt_word.view(-1, 1), p_candidates], dim=1) \
             .log()
 
         return Stimulus(gt_word_lengths, phoneme_onsets, phoneme_onsets_global,
-                        word_onsets, word_surprisals, p_word, candidate_phonemes)
+                        word_onsets, word_surprisals, p_candidates, candidate_phonemes)
 
 
 class NaturalLanguageStimulusGenerator(StimulusGenerator):
@@ -152,5 +152,5 @@ class NaturalLanguageStimulusGenerator(StimulusGenerator):
 
         return Stimulus(
             nl_stim.word_lengths, phoneme_onsets, phoneme_onsets_global,
-            word_onsets, nl_stim.word_surprisals, nl_stim.p_word, nl_stim.candidate_phonemes
+            word_onsets, nl_stim.word_surprisals, nl_stim.p_candidates, nl_stim.candidate_phonemes
         )

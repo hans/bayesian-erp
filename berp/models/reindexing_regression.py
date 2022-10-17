@@ -55,7 +55,7 @@ class RRResult(NamedTuple):
 
 
 # @typechecked
-def predictive_model(p_word: TensorType[B, N_C, is_log_probability],
+def predictive_model(p_candidates: TensorType[B, N_C, is_log_probability],
                      phonemes: TensorType[B, N_C, N_P, int],
                      confusion: TensorType[V_P, V_P, is_probability],
                      lambda_: TensorType[float],
@@ -76,7 +76,7 @@ def predictive_model(p_word: TensorType[B, N_C, is_log_probability],
         $$P(I_{\le k} \mid w = w_j)$$
 
     Args:
-        p_word: Next-word predictive distribution from a language model for a
+        p_candidates: Next-word predictive distribution from a language model for a
             limited set of top-k candidates `n_candidate_words`. Column axis
             should be a proper distribution.
         phonemes: Phoneme sequence for all examples and all candidate words.
@@ -85,7 +85,7 @@ def predictive_model(p_word: TensorType[B, N_C, is_log_probability],
             Each column is a proper probability distribution, defining
             probability of observing phone j given ground truth phone i.
         lambda_: Temperature parameter for likelihood.
-        ground_truth_word_idx: Specifies an index into second axis of `p_word`
+        ground_truth_word_idx: Specifies an index into second axis of `p_candidates`
             and `phonemes` that corresponds to the ground truth word.
 
     Returns:
@@ -106,18 +106,18 @@ def predictive_model(p_word: TensorType[B, N_C, is_log_probability],
         phoneme_likelihoods.cumsum(dim=2)
 
     # Combine with prior and normalize.
-    bayes_p_word = (p_word.unsqueeze(-1) + incremental_word_likelihoods).exp()
-    bayes_p_word /= bayes_p_word.sum(dim=1, keepdim=True)
+    bayes_p_candidates = (p_candidates.unsqueeze(-1) + incremental_word_likelihoods).exp()
+    bayes_p_candidates /= bayes_p_candidates.sum(dim=1, keepdim=True)
 
     if return_gt_only:
-        p_ground_truth = bayes_p_word[:, ground_truth_word_idx, :]
+        p_ground_truth = bayes_p_candidates[:, ground_truth_word_idx, :]
         return p_ground_truth
     else:
-        return bayes_p_word
+        return bayes_p_candidates
 
 
 @typechecked
-def recognition_point_model(p_word_posterior: TensorType[B, N_P, is_probability],
+def recognition_point_model(p_candidates_posterior: TensorType[B, N_P, is_probability],
                             word_lengths: TensorType[B, torch.long, is_positive],
                             threshold: Probability
                             ) -> TensorType[B, int]:
@@ -125,7 +125,7 @@ def recognition_point_model(p_word_posterior: TensorType[B, N_P, is_probability]
     Computes the latent onset / recognition point for each example.
     """
 
-    passes_threshold = p_word_posterior >= threshold
+    passes_threshold = p_candidates_posterior >= threshold
 
     # Find first phoneme index for which predictive distribution passes
     # threshold.
@@ -327,11 +327,11 @@ def scatter_model(params: ModelParameters,
     Execute scatter model forward pass. Returns a design matrix to be fed
     to a receptive field estimator.
     """
-    p_word_posterior = predictive_model(
-        dataset.p_word, dataset.candidate_phonemes,
+    p_candidates_posterior = predictive_model(
+        dataset.p_candidates, dataset.candidate_phonemes,
         params.confusion, params.lambda_)
     rec = recognition_point_model(
-        p_word_posterior, dataset.word_lengths,
+        p_candidates_posterior, dataset.word_lengths,
         params.threshold)
     scatter = scatter_response_model(
         X_variable=dataset.X_variable,

@@ -29,7 +29,7 @@ def make_dataset():
         sample_rate=sfreq,
         phonemes=[chr(i) for i in range(stim_gen.num_phonemes)],
 
-        p_word=stim.p_word,
+        p_candidates=stim.p_candidates,
         word_lengths=stim.word_lengths,
         candidate_phonemes=stim.candidate_phonemes,
         word_onsets=stim.word_onsets,

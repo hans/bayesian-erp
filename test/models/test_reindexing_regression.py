@@ -89,13 +89,13 @@ def soundness_dataset2(sentences):
 
 
 def model_forward(params, dataset):
-    p_word_posterior = rr.predictive_model(
-        dataset.p_word, dataset.candidate_phonemes,
+    p_candidates_posterior = rr.predictive_model(
+        dataset.p_candidates, dataset.candidate_phonemes,
         params.confusion, params.lambda_)
     rec_points = rr.recognition_point_model(
-        p_word_posterior, dataset.word_lengths, params.threshold
+        p_candidates_posterior, dataset.word_lengths, params.threshold
     )
-    return p_word_posterior, rec_points
+    return p_candidates_posterior, rec_points
 
 
 def test_recognition_logic(soundness_dataset1):

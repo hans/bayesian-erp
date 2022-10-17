@@ -103,10 +103,10 @@ def sample_dataset(params: rr.ModelParameters,
 
     ############
 
-    p_word_posterior = rr.predictive_model(stim.p_word, stim.candidate_phonemes,
+    p_candidates_posterior = rr.predictive_model(stim.p_candidates, stim.candidate_phonemes,
                                            confusion=params.confusion,
                                            lambda_=params.lambda_)
-    recognition_points = rr.recognition_point_model(p_word_posterior,
+    recognition_points = rr.recognition_point_model(p_candidates_posterior,
                                                     stim.word_lengths,
                                                     threshold=params.threshold)
     
@@ -140,7 +140,7 @@ def sample_dataset(params: rr.ModelParameters,
         sample_rate=sample_rate,
         phonemes=PHONEMES.tolist(),
 
-        p_word=stim.p_word,
+        p_candidates=stim.p_candidates,
         word_lengths=stim.word_lengths,
         candidate_phonemes=stim.candidate_phonemes,
 

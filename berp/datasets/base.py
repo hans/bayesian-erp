@@ -47,7 +47,7 @@ class BerpDataset:
     Phoneme vocabulary.
     """
 
-    p_word: TensorType[B, N_C, is_log_probability]
+    p_candidates: TensorType[B, N_C, is_log_probability]
     """
     Predictive distribution over expected candidate words at each time step,
     derived from a language model.
@@ -160,7 +160,7 @@ class BerpDataset:
         """
         Number of represented candidate completions for each context.
         """
-        return self.p_word.shape[1]
+        return self.p_candidates.shape[1]
     
     @property
     def phoneme_onsets_global(self) -> TensorType[B, N_P, float, is_positive]:
@@ -216,7 +216,7 @@ class BerpDataset:
             ret = dataclasses.replace(self,
                 name=f"{self.name}/slice:{start_sample}:{end_sample}",
 
-                p_word=self.p_word[keep_word_indices],
+                p_candidates=self.p_candidates[keep_word_indices],
                 word_lengths=self.word_lengths[keep_word_indices],
                 candidate_phonemes=self.candidate_phonemes[keep_word_indices],
 
@@ -239,7 +239,7 @@ class BerpDataset:
         """
         Check that all data arrays have the expected shape.
         """
-        assert self.p_word.shape == (self.n_words, self.n_candidates)
+        assert self.p_candidates.shape == (self.n_words, self.n_candidates)
         assert self.word_lengths.shape == (self.n_words,)
         assert self.candidate_phonemes.shape == (self.n_words, self.n_candidates, self.max_n_phonemes)
         assert self.word_onsets.shape == (self.n_words,)
@@ -257,7 +257,7 @@ class BerpDataset:
         """
         Convert all tensors to torch tensors.
         """
-        self.p_word = torch.as_tensor(self.p_word, dtype=torch.float32)
+        self.p_candidates = torch.as_tensor(self.p_candidates, dtype=torch.float32)
         self.word_lengths = torch.as_tensor(self.word_lengths)
         self.candidate_phonemes = torch.as_tensor(self.candidate_phonemes)
         self.word_onsets = torch.as_tensor(self.word_onsets, dtype=torch.float32)
@@ -435,7 +435,7 @@ def average_datasets(datasets: List[BerpDataset], name="average"):
         ds0 = datasets[0]
         assert_compatible(ds, ds0)
 
-        assert torch.allclose(ds.p_word, ds0.p_word)
+        assert torch.allclose(ds.p_candidates, ds0.p_candidates)
         assert torch.allclose(ds.word_lengths, ds0.word_lengths)
         assert torch.allclose(ds.candidate_phonemes, ds0.candidate_phonemes)
         assert torch.allclose(ds.word_onsets, ds0.word_onsets)

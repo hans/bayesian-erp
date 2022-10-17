@@ -70,7 +70,7 @@ class NaturalLanguageStimulus:
     Arbitrary word-level features.
     """
 
-    p_word: TensorType[N_W, N_C, torch.float, is_log_probability]
+    p_candidates: TensorType[N_W, N_C, torch.float, is_log_probability]
     """
     Prior predictive distribution over words at each timestep. Each
     row is a proper log-e-probability distribution.
@@ -247,7 +247,7 @@ class NaturalLanguageStimulusProcessor(object):
 
         Returns:
             ret_word_ids: word ID for each row in the return value.
-            p_word: probability of each candidate word. columns are proper
+            p_candidates: probability of each candidate word. columns are proper
                 probability distributions.
             word_strs: string representation of each candidate word.
         """
@@ -262,7 +262,7 @@ class NaturalLanguageStimulusProcessor(object):
         candidate_token_ids = candidate_token_ids.view(-1, candidate_token_ids.shape[-1])
         word_ids = word_ids.reshape(-1)
 
-        ret_word_ids, p_word, word_strs = [], [], []
+        ret_word_ids, p_candidates, word_strs = [], [], []
         for word_id in set(word_ids.numpy()):
             # Get all elements that correspond to this word.
             word_mask = word_ids == word_id
@@ -270,17 +270,17 @@ class NaturalLanguageStimulusProcessor(object):
             word_candidate_token_ids = candidate_token_ids[word_mask]
 
             # Aggregate.
-            word_p_word = word_p_token.sum(dim=0)
+            word_p_candidates = word_p_token.sum(dim=0)
             # DUMB just take the first one.
             # Could get the GT string though.
             word_candidate_token_ids = word_candidate_token_ids[0]
             word_candidate_strs = self._tokenizer.convert_ids_to_tokens(word_candidate_token_ids)
 
             ret_word_ids.append(word_id)
-            p_word.append(word_p_word)
+            p_candidates.append(word_p_candidates)
             word_strs.append(word_candidate_strs)
 
-        return torch.tensor(ret_word_ids), torch.stack(p_word), word_strs
+        return torch.tensor(ret_word_ids), torch.stack(p_candidates), word_strs
 
 
     def get_candidate_phonemes(self, candidate_strs: List[List[str]],
@@ -404,7 +404,7 @@ class NaturalLanguageStimulusProcessor(object):
         touched_words = torch.zeros(num_words).bool()
 
         word_lengths = torch.zeros(num_words, dtype=torch.long)
-        p_word = torch.zeros((num_words, self.num_candidates), dtype=torch.float)
+        p_candidates = torch.zeros((num_words, self.num_candidates), dtype=torch.float)
         candidate_phonemes = torch.zeros((num_words, self.num_candidates, max_num_phonemes), dtype=torch.long)
         # Track the word ID that produced each sample.
         word_ids = torch.zeros(num_words, dtype=torch.long)
@@ -431,7 +431,7 @@ class NaturalLanguageStimulusProcessor(object):
                                             (0, max_len - batch_word_ids.shape[0] % max_len),
                                             value=nonword_id)
             batch_word_ids_square = batch_word_ids_square.reshape(-1, max_len)
-            retained_word_ids, batch_p_word, batch_word_strs = \
+            retained_word_ids, batch_p_candidates, batch_word_strs = \
                 self.get_predictive_topk_words(batch, batch_word_ids_square)
 
             ######### NB all operations beneath this point are on *words*, not tokens.
@@ -439,7 +439,7 @@ class NaturalLanguageStimulusProcessor(object):
             # Drop nonword/padding data
             word_mask = retained_word_ids != nonword_id
             retained_word_ids = retained_word_ids[word_mask]
-            batch_p_word = batch_p_word[word_mask]
+            batch_p_candidates = batch_p_candidates[word_mask]
             batch_word_strs = [strs for word_id, strs in zip(retained_word_ids, batch_word_strs)
                                if word_id != nonword_id]
 
@@ -455,12 +455,12 @@ class NaturalLanguageStimulusProcessor(object):
             batch_mask = (batch_word_lengths > 0)
             retained_word_ids = retained_word_ids[batch_mask]
             batch_word_lengths = batch_word_lengths[batch_mask]
-            batch_p_word = batch_p_word[batch_mask]
+            batch_p_candidates = batch_p_candidates[batch_mask]
             batch_candidate_phonemes = batch_candidate_phonemes[batch_mask]
 
             batch_num_samples = batch_candidate_phonemes.shape[0]
             assert batch_num_samples == len(retained_word_ids)
-            assert batch_p_word.shape[0] == batch_num_samples
+            assert batch_p_candidates.shape[0] == batch_num_samples
             assert batch_word_lengths.shape[0] == batch_num_samples
 
             # Get target indices in contiguous output arrays. (NB word IDs are not
@@ -469,18 +469,18 @@ class NaturalLanguageStimulusProcessor(object):
                                             for word_id in retained_word_ids])
 
             word_lengths[batch_word_idxs] = batch_word_lengths
-            p_word[batch_word_idxs] = batch_p_word
+            p_candidates[batch_word_idxs] = batch_p_candidates
             candidate_phonemes[batch_word_idxs] = batch_candidate_phonemes
             word_ids[batch_word_idxs] = retained_word_ids
             touched_words[batch_word_idxs] = True
 
         # Sanity check
-        assert (p_word[~touched_words] == 0).all()
+        assert (p_candidates[~touched_words] == 0).all()
 
         # Finally, filter out words which never had data computed.
         word_ids = word_ids[touched_words]
         word_lengths = word_lengths[touched_words]
-        p_word = p_word[touched_words]
+        p_candidates = p_candidates[touched_words]
         candidate_phonemes = candidate_phonemes[touched_words]
 
         # Reindex word-level features.
@@ -495,6 +495,6 @@ class NaturalLanguageStimulusProcessor(object):
             word_ids=word_ids,
             word_lengths=word_lengths,
             word_features=word_features_tensor,
-            p_word=p_word,
+            p_candidates=p_candidates,
             candidate_phonemes=candidate_phonemes,
         )
