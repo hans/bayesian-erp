@@ -3,6 +3,7 @@ from functools import cached_property
 import logging
 from typing import List
 
+import numpy as np
 import torch
 from torchtyping import TensorType  # mypy: ignore
 
@@ -138,7 +139,8 @@ class NaturalLanguageStimulus:
 
         reindexed = torch.index_select(candidate_phoneme_voc, 0,
                                        self.candidate_ids.flatten())
-        reindexed = reindexed.reshape(*self.candidate_ids.shape, 14)
+        reindexed = reindexed.reshape(
+            *self.candidate_ids.shape, self.max_n_phonemes)
         return reindexed
 
     def get_candidate_strs(self, word_idx, top_k=None) -> List[str]:

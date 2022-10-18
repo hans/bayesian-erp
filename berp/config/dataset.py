@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Dict, Optional
 
 import mne
 
@@ -11,6 +11,7 @@ GROUP = "dataset"
 @dataclass
 class DatasetConfig:
     paths: List[str]
+    stimulus_paths: Dict[str, str]
 
 
 @dataclass

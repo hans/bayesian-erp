@@ -130,7 +130,7 @@ class BerpDataset:
 
     @property
     def n_words(self):
-        return len(self.word_lengths)
+        return self.word_onsets.shape[0]
 
     @property
     def n_ts_features(self):
@@ -159,7 +159,7 @@ class BerpDataset:
         The maximum length of a word/candidate in the representation, in
         phonemes.
         """
-        return self.candidate_phonemes.shape[2]
+        return self.phoneme_onsets.shape[1]
 
     @property
     def n_candidates(self):
@@ -245,14 +245,16 @@ class BerpDataset:
         """
         Check that all data arrays have the expected shape.
         """
-        assert self.p_candidates.shape == (self.n_words, self.n_candidates)
-        assert self.word_lengths.shape == (self.n_words,)
-        assert self.candidate_phonemes.shape == (self.n_words, self.n_candidates, self.max_n_phonemes)
         assert self.word_onsets.shape == (self.n_words,)
         assert self.phoneme_onsets.shape == (self.n_words, self.max_n_phonemes)
         assert self.X_ts.shape == (self.n_samples, self.n_ts_features)
         assert self.X_variable.shape == (self.n_words, self.n_variable_features)
         assert self.Y.shape == (self.n_samples, self.n_sensors)
+
+        if self.p_candidates is not None:
+            assert self.p_candidates.shape == (self.n_words, self.n_candidates)
+            assert self.word_lengths.shape == (self.n_words,)
+            assert self.candidate_phonemes.shape == (self.n_words, self.n_candidates, self.max_n_phonemes)
 
         if self.ts_feature_names is not None:
             assert len(self.ts_feature_names) == self.n_ts_features
@@ -263,20 +265,22 @@ class BerpDataset:
         """
         Convert all tensors to torch tensors.
         """
-        self.p_candidates = torch.as_tensor(self.p_candidates, dtype=torch.float32)
-        self.word_lengths = torch.as_tensor(self.word_lengths)
-        self.candidate_phonemes = torch.as_tensor(self.candidate_phonemes)
         self.word_onsets = torch.as_tensor(self.word_onsets, dtype=torch.float32)
         self.phoneme_onsets = torch.as_tensor(self.phoneme_onsets, dtype=torch.float32)
         self.X_ts = torch.as_tensor(self.X_ts, dtype=torch.float32)
         self.X_variable = torch.as_tensor(self.X_variable, dtype=torch.float32)
         self.Y = torch.as_tensor(self.Y, dtype=torch.float32)
 
+        if self.p_candidates is not None:
+            self.p_candidates = torch.as_tensor(self.p_candidates, dtype=torch.float32)
+            self.word_lengths = torch.as_tensor(self.word_lengths)
+            self.candidate_phonemes = torch.as_tensor(self.candidate_phonemes)
+
         return self
 
-    def with_stimulus(self, stimulus: NaturalLanguageStimulus):
+    def with_stimulus(self, stimulus: NaturalLanguageStimulus) -> BerpDataset:
         """
-        Add stimulus information to the dataset.
+        Add stimulus information to the dataset in-place.
         """
         if self.p_candidates is not None:
             raise RuntimeError("Dataset already has stimulus information. Stop.")
@@ -287,6 +291,8 @@ class BerpDataset:
         self.p_candidates = stimulus.p_candidates
         self.word_lengths = stimulus.word_lengths
         self.candidate_phonemes = stimulus.candidate_phonemes
+
+        return self
 
     def subset_sensors(self, sensors: List[int]) -> BerpDataset:
         """
@@ -437,12 +443,17 @@ class NestedBerpDataset(object):
 
 
 def assert_compatible(ds1: BerpDataset, ds2: BerpDataset):
+    """
+    Assert that the two datasets are compatible for concatenation.
+    This is possible when they have the same feature set, same number of sensors.
+    They DO NOT need to be in response to the same stimulus.
+    """
+
     # Shape checks. Everything but batch axis should match across
     # subjects. Batch axis should match within-subject between
     # X and Y.
     assert ds1.dtype == ds2.dtype
     assert ds1.sample_rate == ds2.sample_rate
-    assert ds1.phonemes == ds2.phonemes
     assert ds1.X_ts.shape[1:] == ds2.X_ts.shape[1:]
     assert ds1.X_variable.shape[1:] == ds2.X_variable.shape[1:]
     assert ds1.Y.shape[1:] == ds2.Y.shape[1:]
@@ -465,9 +476,8 @@ def average_datasets(datasets: List[BerpDataset], name="average"):
         ds0 = datasets[0]
         assert_compatible(ds, ds0)
 
-        assert torch.allclose(ds.p_candidates, ds0.p_candidates)
-        assert torch.allclose(ds.word_lengths, ds0.word_lengths)
-        assert torch.allclose(ds.candidate_phonemes, ds0.candidate_phonemes)
+        # We need more than compatibility -- the presentations should 
+        # all be matched in order to allow for averaging.
         assert torch.allclose(ds.word_onsets, ds0.word_onsets)
         assert torch.allclose(ds.phoneme_onsets, ds0.phoneme_onsets)
         assert torch.allclose(ds.X_ts, ds0.X_ts)

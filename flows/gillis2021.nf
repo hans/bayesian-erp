@@ -133,7 +133,7 @@ process runLanguageModeling {
 
 
 /**
- * Produce an RRDataset from the aligned corpora for a single subject.
+ * Produce a BerpDataset from the aligned corpora for a single subject.
  */
 process produceDataset {
 
@@ -174,7 +174,7 @@ process prepareConfusionMatrix {
     publishDir "${outDir}/confusion"
 
     input:
-    path single_berp_dataset
+    path single_stim
 
     output:
     path "confusion.npz"
@@ -184,7 +184,7 @@ process prepareConfusionMatrix {
     export PYTHONPATH=${baseDir}
     python ${baseDir}/scripts/gillis2021/prepare_confusion.py \
         ${confusion_args} \
-        ${single_berp_dataset} \
+        ${single_stim} \
         confusion.npz
     """
 
@@ -267,6 +267,7 @@ process fitBerpGrid {
 
     input:
     path datasets
+    path stimuli
     path confusion
 
     output:
@@ -274,6 +275,10 @@ process fitBerpGrid {
 
     script:
     dataset_path_str = datasets.join(",")
+    
+    // Produce stimulus lookup dict
+    stimulus_path_str = stimuli.collect { "${it.baseName}:'${it}'" }.join(",")
+    stimulus_path_str = "\"{${stimulus_path_str}}\""
     """
     export PYTHONPATH=${baseDir}
     python ${baseDir}/scripts/fit_em.py \
@@ -299,18 +304,24 @@ process fitUnitaryVanillaEncoder {
 
     input:
     path datasets
+    path stimuli
 
     output:
     path("berp-vanilla-unitary")
 
     script:
     dataset_path_str = datasets.join(",")
+
+    // Produce stimulus lookup dict
+    stimulus_path_str = stimuli.collect { "${it.baseName}:'${it}'" }.join(",")
+    stimulus_path_str = "\"{${stimulus_path_str}}\""
     """
     export PYTHONPATH=${baseDir}
     python ${baseDir}/scripts/fit_em.py \
         model=trf \
         cv=search_alpha \
         'dataset.paths=[${dataset_path_str}]' \
+        +dataset.stimulus_paths=${stimulus_path_str} \
         hydra.run.dir="berp-vanilla-unitary" \
         "dataset.drop_X_variable=[recognition_onset]"
     """
@@ -328,15 +339,15 @@ process produceAverageDataset {
     tuple val(story_name), path(datasets)
 
     output:
-    path("average_dataset.${story_name}.pkl")
+    tuple val(story_name), path("${story_name}.average.pkl")
 
     script:
     dataset_path_str = datasets.join(" ")
     """
     export PYTHONPATH=${baseDir}
     python ${baseDir}/scripts/gillis2021/produce_average_dataset.py \
-        -o average_dataset.${story_name}.pkl \
-        -n ${story_name}/avg \
+        -o ${story_name}.average.pkl \
+        -n ${story_name}/average \
         ${dataset_path_str}
     """
 }
@@ -364,7 +375,7 @@ workflow {
         | produceDataset
 
     // Prepare confusion matrix data with a sample dataset (any is good)
-    confusion = prepareConfusionMatrix(full_datasets.map { it[2] } | first)
+    confusion = prepareConfusionMatrix(nl_stimuli.map { it[1] } | first)
 
     ///////
 
@@ -386,8 +397,10 @@ workflow {
     full_datasets_by_story = full_datasets.map { [it[1], it[2]] }.groupTuple()
     average_dataset = produceAverageDataset(full_datasets_by_story)
 
-    vanilla = fitUnitaryVanillaEncoder(average_dataset.collect())
+    vanilla = fitUnitaryVanillaEncoder(
+        average_dataset.collect { it[1] },
+        nl_stimuli.collect { it[1] })
 
-    // Fit Berp model on average dataset.
-    fitBerpGrid(average_dataset.collect(), confusion)
+    // // Fit Berp model on average dataset.
+    // fitBerpGrid(average_dataset.collect(), nl_stimuli.collect(), confusion)
 }
