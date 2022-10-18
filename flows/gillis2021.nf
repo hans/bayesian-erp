@@ -275,7 +275,7 @@ process fitBerpGrid {
 
     script:
     dataset_path_str = datasets.join(",")
-    
+
     // Produce stimulus lookup dict
     stimulus_path_str = stimuli.collect { "${it.baseName}:'${it}'" }.join(",")
     stimulus_path_str = "\"{${stimulus_path_str}}\""
@@ -284,6 +284,7 @@ process fitBerpGrid {
     python ${baseDir}/scripts/fit_em.py \
         model=trf-berp-fixed \
         'dataset.paths=[${dataset_path_str}]' \
+        +dataset.stimulus_paths=${stimulus_path_str} \
         model.confusion_path=${confusion} \
         cv=search_alpha_threshold \
         solver=adam \
@@ -401,6 +402,9 @@ workflow {
         average_dataset.collect { it[1] },
         nl_stimuli.collect { it[1] })
 
-    // // Fit Berp model on average dataset.
-    // fitBerpGrid(average_dataset.collect(), nl_stimuli.collect(), confusion)
+    // Fit Berp model on average dataset.
+    fitBerpGrid(
+        average_dataset.collect { it[1] },
+        nl_stimuli.collect { it[1] },
+        confusion)
 }
