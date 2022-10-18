@@ -444,16 +444,30 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
     def __init__(self, encoder: Encoder,
                  params: List[PartiallyObservedModelParameters],
                  param_weights: Optional[Responsibilities] = None,
+                 recognition_scatter_point: float = 0,
                  **kwargs):
+        """
+        Args:
+            encoder:
+            params:
+            param_weights:
+            recognition_scatter_point: If a word is recognized at phoneme p_i
+                which has onset time t_i and offset time t_{i+1}, then declare
+                that the word's recognition point is
+                $$t_i + (t_{i+1} - t_i) * recognition_scatter_point$$
+                or equivalently
+                $$recognition_scatter_point * t_{i+1} + (1 - recognition_scatter_point) * t_i$$
+        """
         super().__init__(encoder, **kwargs)
 
         self.params = params
         self.param_weights = param_weights if param_weights is not None else \
             torch.ones(len(self.params), dtype=torch.float) / len(self.params)
+        self.recognition_scatter_point = recognition_scatter_point
 
     def _scatter_variable(self,
                           dataset: BerpDataset,
-                          recognition_points: TensorType[B, torch.long],
+                          recognition_times: TensorType[B, float],
                           out: TRFDesignMatrix,
                           out_weight: float = 1.,
                           ) -> TRFDesignMatrix:
@@ -463,7 +477,7 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
 
         Args:
             dataset:
-            recognition_points:
+            recognition_times:
             out: If not `None`, scatter-add to this tensor rather than
                 returning a modified copy of the dummy design matrix.
             out_weight: apply this weight to the scatter-add.
@@ -471,18 +485,15 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
         
         # TODO unittest this !!
 
-        assert len(recognition_points) == dataset.X_variable.shape[0]
+        assert len(recognition_times) == dataset.X_variable.shape[0]
         feature_start_idx = dataset.n_ts_features
 
         # Compute recognition onset times and convert to sample representation.
-        recognition_onsets = torch.gather(
-            dataset.phoneme_onsets_global, 1,
-            recognition_points.unsqueeze(1)).squeeze(1)
-        recognition_onsets_samp = time_to_sample(recognition_onsets, self.encoder.sfreq)
+        recognition_times_samp = time_to_sample(recognition_times, self.encoder.sfreq)
 
         # Scatter-add, lagging over delay axis.
         to_add = out_weight * dataset.X_variable
-        scatter_add(out[:, feature_start_idx:, :], recognition_onsets_samp, to_add)
+        scatter_add(out[:, feature_start_idx:, :], recognition_times_samp, to_add)
 
         return out
 
@@ -500,6 +511,24 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
         )
         return recognition_points
 
+    def get_recognition_times(self, dataset: BerpDataset,
+                              params: PartiallyObservedModelParameters,
+                              ) -> TensorType[torch.float]:
+        recognition_points = self.get_recognition_points(dataset, params)
+
+        # Get onset and offset of phoneme picked out by recognition point.
+        target_onsets = torch.gather(
+            dataset.phoneme_onsets_global, 1,
+            recognition_points.unsqueeze(1)).squeeze(1)
+        target_offsets = torch.gather(
+            dataset.phoneme_offsets_global, 1,
+            recognition_points.unsqueeze(1)).squeeze(1)
+
+        recognition_times = self.recognition_scatter_point * target_onsets + \
+            (1 - self.recognition_scatter_point) * target_offsets
+
+        return recognition_times
+
     def _pre_transform_single(self, dataset: BerpDataset,
                               params: PartiallyObservedModelParameters,
                               out: TRFDesignMatrix,
@@ -507,7 +536,7 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
                               ) -> TRFDesignMatrix:
         design_matrix: TRFDesignMatrix = self._scatter_variable(
             dataset,
-            self.get_recognition_points(dataset, params),
+            self.get_recognition_times(dataset, params),
             out=out, out_weight=out_weight)
         return design_matrix
     

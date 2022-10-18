@@ -112,7 +112,8 @@ def model_param_grid(model_params):
     return grid
 
 
-@pytest.fixture
+# NB some tests modify the underlying dataset, so scope this fixture at the function level
+@pytest.fixture(scope="function")
 def group_em_estimator(synth_params: ModelParameters, trf: TemporalReceptiveField,
                        model_param_grid: List[PartiallyObservedModelParameters]):
     pipeline = GroupBerpTRFForwardPipeline(trf, params=model_param_grid)
@@ -189,7 +190,7 @@ def test_scatter_variable_edges(group_em_estimator):
 
     # Set up a long word at the very end of the time series with a recognition point
     # at its last phoneme
-    ds = deepcopy(dataset.datasets[0])
+    ds = dataset.datasets[0]
     max_word_length = ds.phoneme_onsets.shape[1]
     ds.word_lengths[-1] = max_word_length
     last_time = ds.phoneme_onsets_global[-1, -1]
@@ -202,9 +203,11 @@ def test_scatter_variable_edges(group_em_estimator):
     recognition_points = torch.zeros_like(ds.word_onsets).long()
     recognition_points[-1] = max_word_length - 1
 
+    recognition_times = torch.gather(ds.phoneme_onsets_global, 1, recognition_points.unsqueeze(1)).squeeze(1)
+
     # Should not raise IndexError.
     out = cache.design_matrix.clone()
-    est.pipeline._scatter_variable(ds, recognition_points, out)
+    est.pipeline._scatter_variable(ds, recognition_times, out)
 
     # TODO check scatter result
 
