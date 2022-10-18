@@ -9,6 +9,7 @@ import torch
 from torchtyping import TensorType
 from typeguard import typechecked
 
+from berp.datasets import NaturalLanguageStimulus
 from berp.typing import DIMS, is_log_probability, is_positive
 
 L = logging.getLogger(__name__)
@@ -39,30 +40,9 @@ class BerpDataset:
     """
 
     name: str
+    stimulus_name: str
 
     sample_rate: int
-
-    phonemes: List[str]
-    """
-    Phoneme vocabulary.
-    """
-
-    p_candidates: TensorType[B, N_C, is_log_probability]
-    """
-    Predictive distribution over expected candidate words at each time step,
-    derived from a language model.
-    """
-
-    word_lengths: TensorType[B, int]
-    """
-    Length of ground-truth words in phonemes. Can be used to unpack padded
-    ``N_P`` axes.
-    """
-
-    candidate_phonemes: TensorType[B, N_C, N_P, int]
-    """
-    Phoneme ID sequence for each word and alternate candidate set.
-    """
 
     word_onsets: TensorType[B, float, is_positive]
     """
@@ -86,6 +66,32 @@ class BerpDataset:
     """
     Response data.
     """
+
+    ### Stimulus data shared between subjects, may be saved separately
+
+    phonemes: Optional[List[str]] = None
+    """
+    Phoneme vocabulary.
+    """
+
+    p_candidates: Optional[TensorType[B, N_C, is_log_probability]] = None
+    """
+    Predictive distribution over expected candidate words at each time step,
+    derived from a language model.
+    """
+
+    word_lengths: Optional[TensorType[B, int]] = None
+    """
+    Length of ground-truth words in phonemes. Can be used to unpack padded
+    ``N_P`` axes.
+    """
+
+    candidate_phonemes: Optional[TensorType[B, N_C, N_P, int]] = None
+    """
+    Phoneme ID sequence for each word and alternate candidate set.
+    """
+
+    ### Dynamic data
 
     global_slice_indices: Optional[Tuple[int, int]] = None
     """
@@ -268,11 +274,35 @@ class BerpDataset:
 
         return self
 
+    def with_stimulus(self, stimulus: NaturalLanguageStimulus):
+        """
+        Add stimulus information to the dataset.
+        """
+        if self.p_candidates is not None:
+            raise RuntimeError("Dataset already has stimulus information. Stop.")
+        elif self.stimulus_name != stimulus.name:
+            raise ValueError(f"Stimulus name does not match. {self.stimulus_name} != {stimulus.name}.")
+
+        self.phonemes = stimulus.phonemes
+        self.p_candidates = stimulus.p_candidates
+        self.word_lengths = stimulus.word_lengths
+        self.candidate_phonemes = stimulus.candidate_phonemes
+
     def subset_sensors(self, sensors: List[int]) -> BerpDataset:
         """
         Subset sensors in response variable. Returns a copy.
         """
         return dataclasses.replace(self, Y=self.Y[:, sensors])
+
+    # Avoid saving stimulus data in pickle data
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        for k in ["phonemes", "p_candidates", "word_lengths", "candidate_phonemes"]:
+            state[k] = None
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
 
 
 class NestedBerpDataset(object):

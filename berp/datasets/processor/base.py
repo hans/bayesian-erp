@@ -11,6 +11,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from tqdm.auto import tqdm, trange
 from typeguard import typechecked
 
+from berp.datasets import NaturalLanguageStimulus, Phoneme, Vocabulary
 from berp.typing import DIMS, is_probability, is_log_probability, is_positive
 
 L = logging.getLogger(__name__)
@@ -21,8 +22,6 @@ B, N_W, N_C, N_F, N_F_T, N_P, V_W = \
     DIMS.B, DIMS.N_W, DIMS.N_C, DIMS.N_F, DIMS.N_F_T, DIMS.N_P, DIMS.V_W
 T, S = DIMS.T, DIMS.S
 
-# Type aliases
-Phoneme = str
 
 def default_phonemizer(string) -> List[Phoneme]:
     return list(string)
@@ -30,144 +29,6 @@ def default_phonemizer(string) -> List[Phoneme]:
 
 _model_cache = {}
 _tokenizer_cache = {}
-
-
-
-class Vocabulary(object):
-
-    def __init__(self):
-        self.tok2idx = {}
-        self.idx2tok = []
-
-    def __len__(self):
-        return len(self.idx2tok)
-    
-    def __getitem__(self, key):
-        if isinstance(key, int):
-            return self.idx2tok[key]
-        elif isinstance(key, str):
-            return self.tok2idx[key]
-        else:
-            raise TypeError(f"Invalid key type: {type(key)}")
-
-    def __contains__(self, key):
-        if isinstance(key, int):
-            return key < len(self.idx2tok)
-        elif isinstance(key, str):
-            return key in self.tok2idx
-        else:
-            raise TypeError(f"Invalid key type: {type(key)}")
-
-    def add(self, token: str):
-        if token not in self.tok2idx:
-            self.tok2idx[token] = len(self.idx2tok)
-            self.idx2tok.append(token)
-
-        return self.tok2idx[token]
-
-    def add_all(self, tokens: Iterable[str]):
-        for token in tokens:
-            self.add(token)
-
-    def to_tensor(self, tokens: Iterable[str]) -> TensorType[N_W, torch.long]:
-        return torch.tensor([self.add(token) for token in tokens])
-
-    def to_tokens(self, tensor: TensorType[N_W, torch.long]) -> List[str]:
-        return [self[t] for t in tensor]
-
-
-@typechecked
-@dataclass
-class NaturalLanguageStimulus:
-    """
-    Word-level stimulus representation. This is the output of an alignment
-    procedure in which token-level predictive prior distributions are aggregated
-    to word-level predictive prior distributions, and then also decomposed into
-    phoneme-level representations.
-
-    TODO improve description
-    """
-
-    phonemes: List[Phoneme]
-    """
-    Phoneme vocabulary.
-    """
-
-    pad_phoneme_id: int
-    """
-    Index of padding phoneme in phoneme vocabulary.
-    """
-
-    word_ids: TensorType[N_W, torch.long]
-    """
-    For each row in the dataset, the ID of the corresponding word in the
-    source corpus.
-    """
-
-    word_lengths: TensorType[N_W, int]
-    """
-    Length of each ground-truth word in the dataset (in number of phonemes).
-    """
-
-    word_features: TensorType[N_W, N_F, float]
-    """
-    Arbitrary word-level features.
-    """
-
-    p_candidates: TensorType[N_W, N_C, torch.float, is_log_probability]
-    """
-    Prior predictive distribution over words at each timestep. Each
-    row is a proper log-e-probability distribution.
-    """
-
-    candidate_ids: TensorType[N_W, N_C, torch.long]
-    """
-    For each row in the dataset, the IDs of the top `N_C` candidates in the
-    candidate vocabulary.
-    """
-
-    candidate_vocabulary: Vocabulary
-    """
-    Vocabulary of candidate words referred to by `candidate_ids`.
-    """
-
-    @property
-    def word_surprisals(self) -> TensorType[N_W, torch.float, is_positive]:
-        """
-        Get surprisals of ground-truth words (in bits; log-2).
-        """
-        return -self.p_candidates[:, 0] / np.log(2)
-
-    @property
-    def candidate_phonemes(self) -> TensorType[N_W, N_C, N_P, torch.long]:
-        """
-        For each candidate in each prior predictive, the corresponding
-        phoneme sequence. Sequences are padded with `pad_phoneme_id`.
-        """
-        ret = torch.zeros((len(self), self.p_candidates.shape[1], max(self.word_lengths)), dtype=torch.long)
-        ret.fill_(self.pad_phoneme_id)
-
-        phon2idx = {p: i for i, p in enumerate(self.phonemes)}
-        for i, candidate_ids in enumerate(self.candidate_ids):
-            for j, candidate_id in enumerate(candidate_ids):
-                candidate = self.candidate_vocabulary[candidate_id]
-                for k, phoneme in enumerate(candidate):
-                    ret[i, j, k] = phon2idx[phoneme]
-
-        return ret
-
-    def get_candidate_strs(self, word_idx, top_k=None) -> List[str]:
-        """
-        Get string representations for the candidates of the given word.
-        """
-        candidate_phonemes = self.candidate_phonemes
-        phonemes = candidate_phonemes[word_idx]
-        if top_k is not None:
-            phonemes = phonemes[:top_k, :]
-        rets = ["".join(self.phonemes[phon_idx] for phon_idx in word
-                        if phon_idx != self.pad_phoneme_id)
-                for word in phonemes]
-        return rets
 
 
 class NaturalLanguageStimulusProcessor(object):
@@ -409,13 +270,16 @@ class NaturalLanguageStimulusProcessor(object):
 
         return candidate_ids, torch.tensor(word_lengths)
 
-    def __call__(self, tokens: List[str],
+    def __call__(self, name: str,
+                 tokens: List[str],
                  word_to_token: Dict[int, List[int]],
                  word_features: Dict[int, torch.Tensor],
                  ground_truth_phonemes: Optional[Dict[int, List[Phoneme]]] = None,
                  ) -> NaturalLanguageStimulus:
         """
         Args:
+            name: Name of resulting stimulus object
+            tokens:
             word_to_token: Mapping from word ID to list of token indices. NB that
                 some tokens will have no corresponding words.
             word_features: Tensor associating each word ID with a set of features.
@@ -560,6 +424,8 @@ class NaturalLanguageStimulusProcessor(object):
                                                 for word_id in word_ids])
 
         return NaturalLanguageStimulus(
+            name=name,
+            
             phonemes=list(self.phonemes),
             pad_phoneme_id=self.pad_phoneme_id,
 

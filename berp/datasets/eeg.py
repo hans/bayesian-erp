@@ -6,6 +6,7 @@ from hydra.utils import to_absolute_path
 import mne
 import torch
 
+from berp.datasets import NaturalLanguageStimulus
 from berp.datasets.base import BerpDataset, NestedBerpDataset
 
 L = logging.getLogger(__name__)
@@ -17,11 +18,22 @@ def load_eeg_dataset(paths: List[str], montage_name: str,
                      normalize_X_variable: bool = True,
                      normalize_Y: bool = True,
                      drop_X_variable: Optional[List[str]] = None,
+                     stimulus_paths: Optional[Dict[str, str]] = None,
                      ) -> NestedBerpDataset:
+    # If stimulus data is stored separately, load this first.
+    stimulus_data: Dict[str, NaturalLanguageStimulus] = {}
+    if stimulus_paths is not None:
+        for name, path in stimulus_paths.items():
+            with open(to_absolute_path(path), "rb") as f:
+                stimulus_data[name] = pickle.load(f)
+
     datasets = []
     for dataset in paths:
         with open(to_absolute_path(dataset), "rb") as f:
-            datasets.append(pickle.load(f).ensure_torch())
+            ds = pickle.load(f).ensure_torch()
+            if stimulus_data is not None:
+                ds = ds.with_stimulus(stimulus_data[ds.stimulus_name])
+            datasets.append(ds)
 
     dataset = NestedBerpDataset(datasets)
 

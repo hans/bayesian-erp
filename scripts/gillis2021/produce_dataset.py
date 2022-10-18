@@ -58,6 +58,7 @@ story_name = args.natural_language_stimulus_path.stem
 
 with args.natural_language_stimulus_path.open("rb") as f:
     story_stim = pickle.load(f)
+assert story_stim.name == story_name
 ts_features_dict = np.load(args.stim_path)
 ts_feature_names = ts_features_dict["feature_names"].tolist()
 time_series_features = ts_features_dict[story_name]
@@ -151,12 +152,10 @@ phoneme_onsets = torch.stack([
 
 ret = BerpDataset(
     name=f"{story_name}/{subject}",
+    stimulus_name=story_stim.name,
     sample_rate=int(info["sfreq"]),
     
     phonemes=story_stim.phonemes,
-    p_candidates=story_stim.p_candidates,
-    word_lengths=story_stim.word_lengths,
-    candidate_phonemes=story_stim.candidate_phonemes,
     
     word_onsets=word_onsets,
     phoneme_onsets=phoneme_onsets,

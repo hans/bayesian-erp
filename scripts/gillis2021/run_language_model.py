@@ -45,7 +45,7 @@ if IS_INTERACTIVE:
                      aligned_words_path=Path("DKZ_1.words.csv"),
                      aligned_phonemes_path=Path("DKZ_1.phonemes.csv"),
                      model="GroNLP/gpt2-small-dutch",
-                     n_candidates=1000,
+                     n_candidates=40000,
                      vocab_path=Path("../../data/gillis2021/vocab.pkl"),
                      celex_path=Path("../../data/gillis2021/celex_dpw_cx.txt"))
 else:
@@ -119,11 +119,13 @@ ground_truth_phonemes = {
 # Prepare word-level features.
 word_features = dict(words_df.groupby(["original_idx"])
                      .apply(lambda xs: torch.tensor(xs.iloc[0].frequency).unsqueeze(0)))
-
-stim = proc(tokens, word_to_token, word_features, ground_truth_phonemes)
 # -
 
+stim = proc(story_name, tokens, word_to_token, word_features, ground_truth_phonemes)
+
 celex_phonemizer.missing_counter.most_common(50)
+
+len(stim.candidate_vocabulary)
 
 with open(f"{story_name}.pkl", "wb") as f:
     pickle.dump(stim, f)

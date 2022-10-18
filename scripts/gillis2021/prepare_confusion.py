@@ -19,6 +19,7 @@ import seaborn as sns
 # %load_ext autoreload
 # %autoreload 2
 
+from berp.datasets import NaturalLanguageStimulus
 from berp.languages.dutch import convert_to_smits_ipa, cgn_ipa_mapping
 
 IS_INTERACTIVE = False
@@ -102,7 +103,7 @@ if IS_INTERACTIVE:
     sns.heatmap(conf_df / conf_df.sum(axis=0))
 
 with open(args.dataset_path, "rb") as f:
-    dataset = pickle.load(f)
+    dataset: NaturalLanguageStimulus = pickle.load(f)
 
 # +
 # These phonemes are special in the dataset and we'll manually add them to the confusion matrix.
