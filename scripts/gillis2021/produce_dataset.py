@@ -124,10 +124,13 @@ info = mne.create_info(ch_names=montage.ch_names,
 # Load EEG and trim to match time series features.
 eeg = load_eeg(args.eeg_path, info, trim_n_samples=X_ts.shape[0])
 
-# Retrieve onset information.
+# Retrieve word boundary information.
 word_onsets = words_df.groupby("original_idx").start.min().to_dict()
 word_onsets = torch.tensor([word_onsets[word_id.item()]
                             for word_id in story_stim.word_ids])
+word_offsets = words_df.groupby("original_idx").end.max().to_dict()
+word_offsets = torch.tensor([word_offsets[word_id.item()]
+                             for word_id in story_stim.word_ids])
 
 # +
 # Phoneme onsets.
@@ -158,6 +161,7 @@ ret = BerpDataset(
     phonemes=story_stim.phonemes,
     
     word_onsets=word_onsets,
+    word_offsets=word_offsets,
     phoneme_onsets=phoneme_onsets,
     
     X_ts=X_ts,

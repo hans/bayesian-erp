@@ -137,6 +137,7 @@ def sample_dataset(params: rr.ModelParameters,
 
     return BerpDataset(
         name=uuid.uuid4().hex,
+        stimulus_name=uuid.uuid4().hex,
         sample_rate=sample_rate,
         phonemes=PHONEMES.tolist(),
 
@@ -145,6 +146,7 @@ def sample_dataset(params: rr.ModelParameters,
         candidate_phonemes=stim.candidate_phonemes,
 
         word_onsets=stim.word_onsets,
+        word_offsets=stim.word_offsets,
         phoneme_onsets=stim.phoneme_onsets,
 
         Y=Y,

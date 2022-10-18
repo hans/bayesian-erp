@@ -31,6 +31,7 @@ class Stimulus(NamedTuple):
     phoneme_onsets: TensorType[N_W, N_P, torch.float]
     phoneme_onsets_global: TensorType[N_W, N_P, torch.float]
     word_onsets: TensorType[N_W, torch.float]
+    word_offsets: TensorType[N_W, torch.float]
     word_surprisals: TensorType[N_W, torch.float]
     p_candidates: TensorType[N_W, N_C, torch.float, is_log_probability]
     candidate_phonemes: TensorType[N_W, N_C, N_P, torch.long]
@@ -64,11 +65,13 @@ class StimulusGenerator(object):
         word_onsets = (torch.cat([torch.tensor([self.first_onset]),
                                   phoneme_onsets[:-1, -1]])
                                 + word_delays).cumsum(0)
+        # HACK word offset immediately after last phoneme onset
+        word_offsets = word_onsets + phoneme_onsets[:, -1]
         
         # Make phoneme_onsets global (not relative to word onset).
         phoneme_onsets_global = phoneme_onsets + word_onsets.view(-1, 1)
 
-        return phoneme_onsets, phoneme_onsets_global, word_onsets
+        return phoneme_onsets, phoneme_onsets_global, word_onsets, word_offsets
 
 
 def rand_unif(low, high, *shape) -> torch.Tensor:
@@ -110,7 +113,7 @@ class RandomStimulusGenerator(StimulusGenerator):
         pad_mask = (torch.arange(self.num_phonemes) >= word_lengths[:, :, None])
         candidate_phonemes[pad_mask] = pad_idx
 
-        phoneme_onsets, phoneme_onsets_global, word_onsets = \
+        phoneme_onsets, phoneme_onsets_global, word_onsets, word_offsets = \
             self.sample_stream(gt_word_lengths, self.num_phonemes)
 
         word_surprisals: torch.Tensor = dist.LogNormal(*self.word_surprisal_params) \
@@ -125,7 +128,8 @@ class RandomStimulusGenerator(StimulusGenerator):
             .log()
 
         return Stimulus(gt_word_lengths, phoneme_onsets, phoneme_onsets_global,
-                        word_onsets, word_surprisals, p_candidates, candidate_phonemes)
+                        word_onsets, word_offsets,
+                        word_surprisals, p_candidates, candidate_phonemes)
 
 
 class NaturalLanguageStimulusGenerator(StimulusGenerator):
@@ -147,10 +151,11 @@ class NaturalLanguageStimulusGenerator(StimulusGenerator):
         nl_stim = self.processor(tokens, word_to_token, word_features, ground_truth_phonemes)
 
         max_num_phonemes = nl_stim.candidate_phonemes.shape[2]
-        phoneme_onsets, phoneme_onsets_global, word_onsets = \
+        phoneme_onsets, phoneme_onsets_global, word_onsets, word_offsets = \
             self.sample_stream(nl_stim.word_lengths, max_num_phonemes)
 
         return Stimulus(
             nl_stim.word_lengths, phoneme_onsets, phoneme_onsets_global,
-            word_onsets, nl_stim.word_surprisals, nl_stim.p_candidates, nl_stim.candidate_phonemes
+            word_onsets, word_offsets,
+            nl_stim.word_surprisals, nl_stim.p_candidates, nl_stim.candidate_phonemes
         )

@@ -26,6 +26,7 @@ def make_dataset():
 
     return BerpDataset(
         name=uuid.uuid4().hex,
+        stimulus_name=uuid.uuid4().hex,
         sample_rate=sfreq,
         phonemes=[chr(i) for i in range(stim_gen.num_phonemes)],
 
@@ -33,12 +34,21 @@ def make_dataset():
         word_lengths=stim.word_lengths,
         candidate_phonemes=stim.candidate_phonemes,
         word_onsets=stim.word_onsets,
+        word_offsets=stim.word_offsets,
         phoneme_onsets=stim.phoneme_onsets,
 
         X_ts=X_ts,
         X_variable=X_variable,
         Y=Y
     )
+
+
+def test_offsets():
+    ds = make_dataset()
+    assert ds.phoneme_offsets_global.shape == ds.phoneme_onsets_global.shape
+
+    assert torch.allclose(ds.phoneme_offsets_global[:, -1], ds.word_offsets)
+    assert (ds.word_offsets[:-1] <= ds.word_onsets[1:]).all(), "No overlapping words"
 
 
 def test_slice_name():

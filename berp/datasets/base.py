@@ -49,6 +49,11 @@ class BerpDataset:
     Onset of each word in seconds, relative to the start of the sequence.
     """
 
+    word_offsets: TensorType[B, float, is_positive]
+    """
+    Offset of each word in seconds, relative to the start of the sequence.
+    """
+
     phoneme_onsets: TensorType[B, N_P, float, is_positive]
     """
     Onset of each phoneme within each word in seconds, relative to the start of
@@ -176,6 +181,17 @@ class BerpDataset:
         """
         return self.word_onsets[:, None] + self.phoneme_onsets
 
+    @property
+    def phoneme_offsets_global(self) -> TensorType[B, N_P, float, is_positive]:
+        """
+        Offset of each phoneme within each word in seconds, relative to the start of
+        the time series.
+        """
+        return torch.cat([
+            self.phoneme_onsets_global[:, 1:],
+            self.word_offsets[:, None]
+        ], 1)
+
     @typechecked
     def __getitem__(self, key) -> "BerpDataset":
         """
@@ -201,12 +217,14 @@ class BerpDataset:
 
             # Subset word-level features.
             word_onsets = self.word_onsets[keep_word_indices]
+            word_offsets = self.word_offsets[keep_word_indices]
             phoneme_onsets = self.phoneme_onsets[keep_word_indices]
             X_variable = self.X_variable[keep_word_indices]
 
             # Subtract onset data so that t=0 -> sample 0.
             # NB phoneme_onsets is relative to word onset, so we don't subtract here.
             word_onsets = word_onsets - start_time
+            word_offsets = word_offsets - start_time
 
             # Retain global slicing data matching the result's samples to samples in the
             # original dataset.
@@ -227,6 +245,7 @@ class BerpDataset:
                 candidate_phonemes=self.candidate_phonemes[keep_word_indices],
 
                 word_onsets=word_onsets,
+                word_offsets=word_offsets,
                 phoneme_onsets=phoneme_onsets,
 
                 X_ts=self.X_ts[key],
@@ -246,6 +265,7 @@ class BerpDataset:
         Check that all data arrays have the expected shape.
         """
         assert self.word_onsets.shape == (self.n_words,)
+        assert self.word_offsets.shape == (self.n_words,)
         assert self.phoneme_onsets.shape == (self.n_words, self.max_n_phonemes)
         assert self.X_ts.shape == (self.n_samples, self.n_ts_features)
         assert self.X_variable.shape == (self.n_words, self.n_variable_features)
@@ -266,6 +286,7 @@ class BerpDataset:
         Convert all tensors to torch tensors.
         """
         self.word_onsets = torch.as_tensor(self.word_onsets, dtype=torch.float32)
+        self.word_offsets = torch.as_tensor(self.word_offsets, dtype=torch.float32)
         self.phoneme_onsets = torch.as_tensor(self.phoneme_onsets, dtype=torch.float32)
         self.X_ts = torch.as_tensor(self.X_ts, dtype=torch.float32)
         self.X_variable = torch.as_tensor(self.X_variable, dtype=torch.float32)
@@ -479,6 +500,7 @@ def average_datasets(datasets: List[BerpDataset], name="average"):
         # We need more than compatibility -- the presentations should 
         # all be matched in order to allow for averaging.
         assert torch.allclose(ds.word_onsets, ds0.word_onsets)
+        assert torch.allclose(ds.word_offsets, ds0.word_offsets)
         assert torch.allclose(ds.phoneme_onsets, ds0.phoneme_onsets)
         assert torch.allclose(ds.X_ts, ds0.X_ts)
         assert torch.allclose(ds.X_variable, ds0.X_variable)
