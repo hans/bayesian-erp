@@ -32,7 +32,7 @@ class Vocabulary(object):
         return len(self.idx2tok)
     
     def __getitem__(self, key):
-        if isinstance(key, int):
+        if isinstance(key, (int, np.integer)):
             return self.idx2tok[key]
         elif isinstance(key, str):
             return self.tok2idx[key]
@@ -147,14 +147,8 @@ class NaturalLanguageStimulus:
         """
         Get string representations for the candidates of the given word.
         """
-        candidate_phonemes = self.candidate_phonemes
-        phonemes = candidate_phonemes[word_idx]
-        if top_k is not None:
-            phonemes = phonemes[:top_k, :]
-        rets = ["".join(self.phonemes[phon_idx] for phon_idx in word
-                        if phon_idx != self.pad_phoneme_id)
-                for word in phonemes]
-        return rets
+        return [self.candidate_vocabulary[i.item()] for i in
+                self.candidate_ids[word_idx, :top_k]]
 
 from berp.datasets.processor import NaturalLanguageStimulusProcessor
 from berp.datasets.base import BerpDataset, NestedBerpDataset
