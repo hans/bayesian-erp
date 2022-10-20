@@ -286,7 +286,7 @@ process fitBerpGrid {
         'dataset.paths=[${dataset_path_str}]' \
         +dataset.stimulus_paths=${stimulus_path_str} \
         model.confusion_path=${confusion} \
-        cv=search_alpha_threshold \
+        cv=search_alpha_threshold_lambda_scatter \
         solver=adam \
         hydra.run.dir="berp-fixed"
     """
@@ -398,9 +398,9 @@ workflow {
     full_datasets_by_story = full_datasets.map { [it[1], it[2]] }.groupTuple()
     average_dataset = produceAverageDataset(full_datasets_by_story)
 
-    vanilla = fitUnitaryVanillaEncoder(
-        average_dataset.collect { it[1] },
-        nl_stimuli.collect { it[1] })
+    // vanilla = fitUnitaryVanillaEncoder(
+    //     average_dataset.collect { it[1] },
+    //     nl_stimuli.collect { it[1] })
 
     // Fit Berp model on average dataset.
     fitBerpGrid(

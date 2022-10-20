@@ -583,13 +583,16 @@ class GroupBerpFixedTRFForwardPipeline(GroupBerpTRFForwardPipeline):
                  threshold: torch.Tensor,
                  confusion: torch.Tensor,
                  lambda_: torch.Tensor,
+                 recognition_scatter_point: float = 0,
                  **kwargs):
         params = PartiallyObservedModelParameters(
             threshold=threshold,
             confusion=confusion,
             lambda_=lambda_,
         )
-        super().__init__(encoder, [params], **kwargs)
+        super().__init__(encoder, [params],
+            recognition_scatter_point=recognition_scatter_point,
+            **kwargs)
 
         self.threshold = threshold
         self.confusion = confusion

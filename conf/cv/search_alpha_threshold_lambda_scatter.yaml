@@ -1,0 +1,32 @@
+n_outer_folds: 4
+n_inner_folds: 4
+n_trials: 100
+
+param_sampler:
+  _target_: optuna.samplers.TPESampler
+  multivariate: true
+
+params:
+  encoder__alpha:
+    type: float
+    low: 1e1
+    high: 1e6
+    log: true
+    # shape: [129]
+
+  threshold:
+    type: float
+    low: 0.0
+    high: 1.0
+
+  lambda_:
+    type: float
+    low: 0.1
+    high: 3
+
+  recognition_scatter_point:
+    type: categorical
+    choices:
+      - 0
+      - 0.5
+      - 1
