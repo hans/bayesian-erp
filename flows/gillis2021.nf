@@ -26,7 +26,7 @@ outDir = "${baseDir}/results/gillis2021_avgpool"
 
 params.model = "GroNLP/gpt2-small-dutch"
 // Number of word candidates to consider in predictive model.
-params.n_candidates = 1000
+params.n_candidates = 20000
 
 params.eelbrain_env = "/home/jgauthie/.conda/envs/eeldev"
 params.berp_env = "/home/jgauthie/.conda/envs/berp"
