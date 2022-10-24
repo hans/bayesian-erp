@@ -526,8 +526,8 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
             dataset.phoneme_offsets_global, 1,
             recognition_points.unsqueeze(1)).squeeze(1)
 
-        recognition_times = self.recognition_scatter_point * target_onsets + \
-            (1 - self.recognition_scatter_point) * target_offsets
+        recognition_times = (1 - self.recognition_scatter_point) * target_onsets + \
+            self.recognition_scatter_point * target_offsets
 
         return recognition_times
 
