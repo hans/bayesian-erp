@@ -182,6 +182,17 @@ class BerpDataset:
         return self.word_onsets[:, None] + self.phoneme_onsets
 
     @property
+    def phoneme_offsets(self) -> TensorType[B, N_P, float, is_positive]:
+        """
+        Offset of each phoneme within each word in seconds, relative to the onset of
+        the word.
+        """
+        return torch.cat([
+            self.phoneme_onsets[:, 1:],
+            self.word_offsets[:, None] - self.word_onsets[:, None],
+        ], 1)
+
+    @property
     def phoneme_offsets_global(self) -> TensorType[B, N_P, float, is_positive]:
         """
         Offset of each phoneme within each word in seconds, relative to the start of

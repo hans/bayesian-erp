@@ -57,16 +57,25 @@ class StimulusGenerator(object):
                                  TensorType[N_W, float]]:
         num_words = len(word_lengths)
 
-        phoneme_onsets = rand_unif(*self.phon_delay_range, num_words, max_num_phonemes)
-        phoneme_onsets[:, 0] = 0.
-        phoneme_onsets[torch.arange(max_num_phonemes) >= word_lengths.unsqueeze(1)] = 0.
-        phoneme_onsets = phoneme_onsets.cumsum(1)
+        phoneme_durations = rand_unif(*self.phon_delay_range, num_words, max_num_phonemes)
+        phoneme_durations[torch.arange(max_num_phonemes) >= word_lengths.unsqueeze(1)] = 0.
+
+        phoneme_onsets = torch.cat([
+            torch.zeros(num_words, 1),
+            phoneme_durations.cumsum(dim=1)[:, :-1]
+        ], dim=1)
+        phoneme_offsets = phoneme_durations.cumsum(dim=1)
+
+        assert (phoneme_offsets[:, :-1] <= phoneme_onsets[:, 1:]).all().item()
+
+        word_durations = phoneme_offsets[:, -1] - phoneme_onsets[:, 0]
         word_delays = rand_unif(*self.word_delay_range, num_words)
         word_onsets = (torch.cat([torch.tensor([self.first_onset]),
-                                  phoneme_onsets[:-1, -1]])
+                                  word_durations[:-1]])
                                 + word_delays).cumsum(0)
-        # HACK word offset immediately after last phoneme onset
-        word_offsets = word_onsets + phoneme_onsets[:, -1]
+        word_offsets = word_onsets + word_durations
+
+        assert (word_offsets[:-1] < word_onsets[1:]).all().item()
         
         # Make phoneme_onsets global (not relative to word onset).
         phoneme_onsets_global = phoneme_onsets + word_onsets.view(-1, 1)
