@@ -511,11 +511,13 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
         )
         return recognition_points
 
-    def get_recognition_times(self, dataset: BerpDataset,
-                              params: PartiallyObservedModelParameters,
-                              ) -> TensorType[torch.float]:
-        recognition_points = self.get_recognition_points(dataset, params)
-
+    def _scatter_recognition_points(self, dataset: BerpDataset,
+                                    recognition_points: TensorType[torch.long]
+                                    ) -> TensorType[torch.float]:
+        """
+        Convert recognition points to recognition times based on
+        model scatter logic.
+        """
         # Get onset and offset of phoneme picked out by recognition point.
         target_onsets = torch.gather(
             dataset.phoneme_onsets_global, 1,
@@ -528,6 +530,12 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
             (1 - self.recognition_scatter_point) * target_offsets
 
         return recognition_times
+
+    def get_recognition_times(self, dataset: BerpDataset,
+                              params: PartiallyObservedModelParameters,
+                              ) -> TensorType[torch.float]:
+        recognition_points = self.get_recognition_points(dataset, params)
+        return self._scatter_recognition_points(dataset, recognition_points)
 
     def _pre_transform_single(self, dataset: BerpDataset,
                               params: PartiallyObservedModelParameters,
