@@ -98,6 +98,130 @@ def model_forward(params, dataset):
     return p_candidates_posterior, rec_points
 
 
+def test_predictive_prior(soundness_dataset1):
+    """
+    Verify that the prior predictive is correctly integrated into the
+    posterior predictive.
+    """
+    dataset, params = soundness_dataset1
+    p_candidates_posterior, rec_points = model_forward(params, dataset)
+
+    assert p_candidates_posterior.shape == (dataset.n_words, dataset.max_n_phonemes + 1,)
+
+    # Posterior at k=0 should be the same as the ground truth word prior.
+    torch.testing.assert_allclose(p_candidates_posterior[:, 0].log(), dataset.p_candidates[:, 0])
+
+
+def test_recognition_edge_cases(soundness_dataset1):
+    """
+    Test recognition point inferences for literal edge cases, where no incremental
+    posterior values pass threshold.
+    """
+
+    p_candidates_posterior = torch.tensor([
+        [0.1, 0.2, 0.3, 0.4],
+        [0.1, 0.2, 0.3, 0.4],
+        [0.1, 0.2, 0.3, 0.4],
+    ])
+
+    word_lengths = torch.tensor([3, 2, 1])
+
+    # Threshold is 0.5, so no recognition point.
+    threshold = torch.tensor(0.5)
+
+    rec_points = rr.recognition_point_model(p_candidates_posterior, word_lengths, threshold)
+    # Recognition points should never exceed word length.
+    torch.testing.assert_allclose(rec_points, torch.tensor([3, 2, 1]))
+
+
+@pytest.fixture
+def dummy_onsets():
+    phoneme_onsets_global = torch.tensor(
+       [[ 1.2879,  1.4607,  1.6087,  1.6087,  1.6087],                                                                                                                                                               
+        [ 1.7484,  1.8518,  1.9802,  1.9802,  1.9802],                                                                                                                                                               
+        [ 2.1424,  2.3097,  2.4258,  2.5167,  2.5167],                                                                                                                                                               
+        [ 2.7228,  2.7228,  2.7228,  2.7228,  2.7228],                                                                                                                                                               
+        [ 3.0338,  3.2246,  3.3319,  3.3319,  3.3319],                                                                                                                                                               
+        [ 3.4800,  3.6465,  3.8436,  3.8436,  3.8436],                                                                                                                                                               
+        [ 4.2200,  4.3135,  4.4947,  4.5873,  4.5873],                                                                                                                                                               
+        [ 4.9134,  5.1128,  5.2600,  5.2600,  5.2600],                                                                                                                                                               
+        [ 5.5410,  5.7359,  5.9243,  6.0812,  6.2804],                                                                                                                                                               
+        [ 6.5199,  6.6307,  6.7280,  6.7280,  6.7280]])
+    phoneme_offsets_global = torch.tensor(
+       [[ 1.4607,  1.6087,  1.6087,  1.6087,  1.6087],
+        [ 1.8518,  1.9802,  1.9802,  1.9802,  1.9802],
+        [ 2.3097,  2.4258,  2.5167,  2.5167,  2.5167],
+        [ 2.7228,  2.7228,  2.7228,  2.7228,  2.7228],
+        [ 3.2246,  3.3319,  3.3319,  3.3319,  3.3319],
+        [ 3.6465,  3.8436,  3.8436,  3.8436,  3.8436],
+        [ 4.3135,  4.4947,  4.5873,  4.5873,  4.5873],
+        [ 5.1128,  5.2600,  5.2600,  5.2600,  5.2600],
+        [ 5.7359,  5.9243,  6.0812,  6.2804,  6.2804],
+        [ 6.6307,  6.7280,  6.7280,  6.7280,  6.7280]])
+
+    # TODO verify this is what we get from synth/real data, too.
+    word_lengths = torch.tensor([2, 2, 3, 1, 2, 2, 2, 2, 4, 2])
+
+    return phoneme_onsets_global, phoneme_offsets_global, word_lengths
+
+
+def test_recognition_points_to_times(dummy_onsets):
+    phoneme_onsets_global, phoneme_offsets_global, word_lengths = dummy_onsets
+
+    recognition_points = torch.tensor([1, 0, 1, 0, 1, 1, 2])
+    N = len(recognition_points)
+    phoneme_onsets_global = phoneme_onsets_global[:N]
+    phoneme_offsets_global = phoneme_offsets_global[:N]
+    word_lengths = word_lengths[:N]
+
+    def go(scatter_point, prior_scatter_point):
+        return rr.recognition_points_to_times(
+            recognition_points, phoneme_onsets_global, phoneme_offsets_global,
+            word_lengths,
+            scatter_point=scatter_point,
+            prior_scatter_point=prior_scatter_point)
+
+    times1 = go(0.0, (0, 0.0))
+    torch.testing.assert_allclose(times1, torch.tensor([1.2879, 1.7484, 2.1424, 2.7228, 3.0338, 3.4800, 4.3135]))
+
+    # test scatter = 1.0
+    times2 = go(1.0, (0, 1.0))
+    torch.testing.assert_allclose(times2, torch.tensor([1.4607, 1.8518, 2.3097, 2.7228, 3.2246, 3.6465, 4.4947]))
+
+    times4 = go(0.5, (0, 0.0))
+    torch.testing.assert_allclose(times4, torch.tensor([
+        1.2879 + 0.5 * (1.4607 - 1.2879),
+        1.7484, ## rec=0 so different scatter
+        2.1424 + 0.5 * (2.3097 - 2.1424),
+        2.7228, ## rec=0 so different scatter
+        3.0338 + 0.5 * (3.2246 - 3.0338),
+        3.4800 + 0.5 * (3.6465 - 3.4800),
+        4.3135 + 0.5 * (4.4947 - 4.3135),
+    ]))
+
+    # test scatter prior at negative index
+    times3 = go(0.0, (-1, 0.0))
+    torch.testing.assert_allclose(times3, torch.tensor([
+        1.2879,
+        phoneme_onsets_global[0, word_lengths[0] - 1],
+        2.1424,
+        phoneme_onsets_global[2, word_lengths[2] - 1],
+        3.0338, 3.4800, 4.3135]))
+
+    # test scatter prior at negative index with partial scatter
+    times5 = go(0.5, (-1, 0.5))
+    torch.testing.assert_allclose(times5, torch.tensor([
+        1.2879 + 0.5 * (1.4607 - 1.2879),
+        phoneme_onsets_global[0, word_lengths[0] - 1] + 0.5 * (
+            phoneme_offsets_global[0, word_lengths[0] - 1] - phoneme_onsets_global[0, word_lengths[0] - 1]),
+        2.1424 + 0.5 * (2.3097 - 2.1424),
+        phoneme_onsets_global[2, word_lengths[2] - 1] + 0.5 * (
+            phoneme_offsets_global[2, word_lengths[2] - 1] - phoneme_onsets_global[2, word_lengths[2] - 1]),
+        3.0338 + 0.5 * (3.2246 - 3.0338),
+        3.4800 + 0.5 * (3.6465 - 3.4800),
+        4.3135 + 0.5 * (4.4947 - 4.3135)]))
+
+
 def test_recognition_logic(soundness_dataset1):
     """
     For possible thresholds T2 > T1, inferred recognition points K2, K1 should
