@@ -286,7 +286,7 @@ process fitBerpGrid {
         'dataset.paths=[${dataset_path_str}]' \
         +dataset.stimulus_paths=${stimulus_path_str} \
         model.confusion_path=${confusion} \
-        cv=search_alpha_threshold_lambda_scatter \
+        cv=search_alpha_threshold_lambda \
         solver=adam \
         hydra.run.dir="berp-fixed"
     """

@@ -47,6 +47,10 @@ class BerpTRFModelConfig(ModelConfig):
 
     trf: TRFModelConfig
 
+    scatter_point: float = 0.0
+    prior_scatter_index: int = 0
+    prior_scatter_point: float = 0.0
+
     confusion_path: Optional[str] = None
     """
     Path to a confusion matrix. Must be compatible with the phoneme
