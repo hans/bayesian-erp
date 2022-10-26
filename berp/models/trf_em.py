@@ -444,26 +444,29 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
     def __init__(self, encoder: Encoder,
                  params: List[PartiallyObservedModelParameters],
                  param_weights: Optional[Responsibilities] = None,
-                 recognition_scatter_point: float = 0,
+                 recognition_scatter_point: float = 0.0,
+                 prior_scatter_point: Tuple[int, float] = (0, 0.0),
                  **kwargs):
         """
         Args:
             encoder:
             params:
             param_weights:
-            recognition_scatter_point: If a word is recognized at phoneme p_i
-                which has onset time t_i and offset time t_{i+1}, then declare
-                that the word's recognition point is
-                $$t_i + (t_{i+1} - t_i) * recognition_scatter_point$$
-                or equivalently
-                $$recognition_scatter_point * t_{i+1} + (1 - recognition_scatter_point) * t_i$$
+            recognition_scatter_point: Describes expected recognition time logic when
+                words are recognized given some perceptual input.
+                See `reindexing_regression.recognition_points_to_times`.
+            prior_scatter_point: Describes expected recognition time logic when words are
+                recognized prior to perceptual input.
+                See `reindexing_regression.recognition_points_to_times`
         """
         super().__init__(encoder, **kwargs)
 
         self.params = params
         self.param_weights = param_weights if param_weights is not None else \
             torch.ones(len(self.params), dtype=torch.float) / len(self.params)
+        
         self.recognition_scatter_point = recognition_scatter_point
+        self.prior_scatter_point = prior_scatter_point
 
     def _scatter_variable(self,
                           dataset: BerpDataset,
@@ -472,14 +475,13 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
                           out_weight: float = 1.,
                           ) -> TRFDesignMatrix:
         """
-        Scatter variable predictors into design matrix, which is a
+        Scatter variable-onset predictors into design matrix, which is a
         lagged time series.
 
         Args:
             dataset:
             recognition_times:
-            out: If not `None`, scatter-add to this tensor rather than
-                returning a modified copy of the dummy design matrix.
+            out: scatter-add to this tensor
             out_weight: apply this weight to the scatter-add.
         """
         
@@ -511,26 +513,6 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
         )
         return recognition_points
 
-    def _scatter_recognition_points(self, dataset: BerpDataset,
-                                    recognition_points: TensorType[torch.long]
-                                    ) -> TensorType[torch.float]:
-        """
-        Convert recognition points to recognition times based on
-        model scatter logic.
-        """
-        # Get onset and offset of phoneme picked out by recognition point.
-        target_onsets = torch.gather(
-            dataset.phoneme_onsets_global, 1,
-            recognition_points.unsqueeze(1)).squeeze(1)
-        target_offsets = torch.gather(
-            dataset.phoneme_offsets_global, 1,
-            recognition_points.unsqueeze(1)).squeeze(1)
-
-        recognition_times = (1 - self.recognition_scatter_point) * target_onsets + \
-            self.recognition_scatter_point * target_offsets
-
-        return recognition_times
-
     def get_recognition_times(self, dataset: BerpDataset,
                               params: PartiallyObservedModelParameters,
                               ) -> TensorType[torch.float]:
@@ -542,9 +524,22 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
                               out: TRFDesignMatrix,
                               out_weight: float = 1.,
                               ) -> TRFDesignMatrix:
+        """
+        Run word recognition logic for the given dataset and parameters,
+        producing a regression design matrix.
+        """
+        recognition_points = self.get_recognition_points(dataset, params)
+        recognition_times = recognition_points_to_times(
+            recognition_points,
+            dataset.phoneme_onsets_global,
+            dataset.phoneme_offsets_global,
+            dataset.word_lengths,
+            scatter_point=self.scatter_point,
+            prior_scatter_point=self.prior_scatter_point,
+        )
+
         design_matrix: TRFDesignMatrix = self._scatter_variable(
-            dataset,
-            self.get_recognition_times(dataset, params),
+            dataset, recognition_times,
             out=out, out_weight=out_weight)
         return design_matrix
     
