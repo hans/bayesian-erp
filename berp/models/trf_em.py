@@ -20,7 +20,8 @@ from typeguard import typechecked
 from berp.cv import EarlyStopException
 from berp.datasets import BerpDataset, NestedBerpDataset
 from berp.models.reindexing_regression import \
-    predictive_model, recognition_point_model, PartiallyObservedModelParameters
+    predictive_model, recognition_point_model, recognition_points_to_times, \
+    PartiallyObservedModelParameters
 from berp.models.trf import TemporalReceptiveField, TRFPredictors, \
     TRFDesignMatrix, TRFResponse, TRFDelayer
 from berp.tensorboard import Tensorboard
@@ -444,7 +445,7 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
     def __init__(self, encoder: Encoder,
                  params: List[PartiallyObservedModelParameters],
                  param_weights: Optional[Responsibilities] = None,
-                 recognition_scatter_point: float = 0.0,
+                 scatter_point: float = 0.0,
                  prior_scatter_index: int = 0,
                  prior_scatter_point: float = 0.0,
                  **kwargs):
@@ -453,7 +454,7 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
             encoder:
             params:
             param_weights:
-            recognition_scatter_point: Describes expected recognition time logic when
+            scatter_point: Describes expected recognition time logic when
                 words are recognized given some perceptual input.
                 See `reindexing_regression.recognition_points_to_times`.
             prior_scatter_point: Describes expected recognition time logic when words are
@@ -466,7 +467,7 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
         self.param_weights = param_weights if param_weights is not None else \
             torch.ones(len(self.params), dtype=torch.float) / len(self.params)
         
-        self.recognition_scatter_point = recognition_scatter_point
+        self.scatter_point = scatter_point
         self.prior_scatter_index = 0
         self.prior_scatter_point = 0.0
 
@@ -501,6 +502,7 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
 
         return out
 
+    @typechecked
     def get_recognition_points(self, dataset: BerpDataset,
                                params: PartiallyObservedModelParameters,
                                ) -> TensorType[torch.long]:
@@ -515,21 +517,10 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
         )
         return recognition_points
 
+    @typechecked
     def get_recognition_times(self, dataset: BerpDataset,
                               params: PartiallyObservedModelParameters,
-                              ) -> TensorType[torch.float]:
-        recognition_points = self.get_recognition_points(dataset, params)
-        return self._scatter_recognition_points(dataset, recognition_points)
-
-    def _pre_transform_single(self, dataset: BerpDataset,
-                              params: PartiallyObservedModelParameters,
-                              out: TRFDesignMatrix,
-                              out_weight: float = 1.,
-                              ) -> TRFDesignMatrix:
-        """
-        Run word recognition logic for the given dataset and parameters,
-        producing a regression design matrix.
-        """
+                              ) -> Tuple[TensorType[torch.long], TensorType[torch.float]]:
         recognition_points = self.get_recognition_points(dataset, params)
         recognition_times = recognition_points_to_times(
             recognition_points,
@@ -540,6 +531,18 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
             prior_scatter_index=0,
             prior_scatter_point=0.0,
         )
+        return recognition_points, recognition_times
+
+    def _pre_transform_single(self, dataset: BerpDataset,
+                              params: PartiallyObservedModelParameters,
+                              out: TRFDesignMatrix,
+                              out_weight: float = 1.,
+                              ) -> TRFDesignMatrix:
+        """
+        Run word recognition logic for the given dataset and parameters,
+        producing a regression design matrix.
+        """
+        recognition_points, recognition_times = self.get_recognition_times(dataset, params)
 
         design_matrix: TRFDesignMatrix = self._scatter_variable(
             dataset, recognition_times,
@@ -589,7 +592,9 @@ class GroupBerpFixedTRFForwardPipeline(GroupBerpTRFForwardPipeline):
                  threshold: torch.Tensor,
                  confusion: torch.Tensor,
                  lambda_: torch.Tensor,
-                 recognition_scatter_point: float = 0,
+                 scatter_point: float = 0,
+                 prior_scatter_index: int = 0,
+                 prior_scatter_point: float = 0.0,
                  **kwargs):
         params = PartiallyObservedModelParameters(
             threshold=threshold,
@@ -597,7 +602,9 @@ class GroupBerpFixedTRFForwardPipeline(GroupBerpTRFForwardPipeline):
             lambda_=lambda_,
         )
         super().__init__(encoder, [params],
-            recognition_scatter_point=recognition_scatter_point,
+            scatter_point=scatter_point,
+            prior_scatter_index=prior_scatter_index,
+            prior_scatter_point=prior_scatter_point,
             **kwargs)
 
         self.threshold = threshold

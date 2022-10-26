@@ -130,7 +130,7 @@ def predictive_model(p_candidates: TensorType[B, N_C, is_log_probability],
 def recognition_point_model(p_candidates_posterior: TensorType[B, N_P, is_probability],
                             word_lengths: TensorType[B, torch.long, is_positive],
                             threshold: Probability
-                            ) -> TensorType[B, int]:
+                            ) -> TensorType[B, torch.long]:
     """
     Computes the latent onset / recognition point for each example.
     """
@@ -139,12 +139,12 @@ def recognition_point_model(p_candidates_posterior: TensorType[B, N_P, is_probab
 
     # Find first phoneme index for which predictive distribution passes
     # threshold.
-    rec_point = passes_threshold.int().argmax(dim=1)
+    rec_point = passes_threshold.int().argmax(dim=1).long()
 
     # Special case: no phoneme passes threshold. We then say recognition happens
     # at the final phoneme in the ground truth word.
     # This is not correct, but nothing else is feasible with the given setup.
-    valid_point = passes_threshold.any(dim=1).int()
+    valid_point = passes_threshold.any(dim=1).long()
     rec_point = valid_point * rec_point + (1 - valid_point) * word_lengths
 
     # Don't allow recognition point to go past final ground-truth phoneme.
@@ -155,7 +155,7 @@ def recognition_point_model(p_candidates_posterior: TensorType[B, N_P, is_probab
 
 
 @typechecked
-def recognition_points_to_times(recognition_points: TensorType[B, int],
+def recognition_points_to_times(recognition_points: TensorType[B, torch.long],
                                 phoneme_onsets_global: TensorType[B, N_P, float],
                                 phoneme_offsets_global: TensorType[B, N_P, float],
                                 word_lengths: TensorType[B, int],
