@@ -174,21 +174,22 @@ def test_recognition_points_to_times(dummy_onsets):
     phoneme_offsets_global = phoneme_offsets_global[:N]
     word_lengths = word_lengths[:N]
 
-    def go(scatter_point, prior_scatter_point):
+    def go(scatter_point, prior_scatter_index, prior_scatter_point):
         return rr.recognition_points_to_times(
             recognition_points, phoneme_onsets_global, phoneme_offsets_global,
             word_lengths,
             scatter_point=scatter_point,
+            prior_scatter_index=prior_scatter_index,
             prior_scatter_point=prior_scatter_point)
 
-    times1 = go(0.0, (0, 0.0))
+    times1 = go(0.0, 0, 0.0)
     torch.testing.assert_allclose(times1, torch.tensor([1.2879, 1.7484, 2.1424, 2.7228, 3.0338, 3.4800, 4.3135]))
 
     # test scatter = 1.0
-    times2 = go(1.0, (0, 1.0))
+    times2 = go(1.0, 0, 1.0)
     torch.testing.assert_allclose(times2, torch.tensor([1.4607, 1.8518, 2.3097, 2.7228, 3.2246, 3.6465, 4.4947]))
 
-    times4 = go(0.5, (0, 0.0))
+    times4 = go(0.5, 0, 0.0)
     torch.testing.assert_allclose(times4, torch.tensor([
         1.2879 + 0.5 * (1.4607 - 1.2879),
         1.7484, ## rec=0 so different scatter
@@ -200,7 +201,7 @@ def test_recognition_points_to_times(dummy_onsets):
     ]))
 
     # test scatter prior at negative index
-    times3 = go(0.0, (-1, 0.0))
+    times3 = go(0.0, -1, 0.0)
     torch.testing.assert_allclose(times3, torch.tensor([
         1.2879,
         phoneme_onsets_global[0, word_lengths[0] - 1],
@@ -209,7 +210,7 @@ def test_recognition_points_to_times(dummy_onsets):
         3.0338, 3.4800, 4.3135]))
 
     # test scatter prior at negative index with partial scatter
-    times5 = go(0.5, (-1, 0.5))
+    times5 = go(0.5, -1, 0.5)
     torch.testing.assert_allclose(times5, torch.tensor([
         1.2879 + 0.5 * (1.4607 - 1.2879),
         phoneme_onsets_global[0, word_lengths[0] - 1] + 0.5 * (

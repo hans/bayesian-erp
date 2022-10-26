@@ -160,7 +160,8 @@ def recognition_points_to_times(recognition_points: TensorType[B, int],
                                 phoneme_offsets_global: TensorType[B, N_P, float],
                                 word_lengths: TensorType[B, int],
                                 scatter_point: float = 0.0,
-                                prior_scatter_point: Tuple[int, float] = (0, 0.0)
+                                prior_scatter_index: int = 0,
+                                prior_scatter_point: float = 0.0,
                                 ) -> TensorType[B, float]:
     """
     Convert integer recognition point indices to continuous times using phoneme
@@ -184,18 +185,22 @@ def recognition_points_to_times(recognition_points: TensorType[B, int],
             $$t_i + (t_{i+1} - t_i) * recognition_scatter_point$$
             or equivalently
             $$recognition_scatter_point * t_{i+1} + (1 - recognition_scatter_point) * t_i$$
+        prior_scatter_index: If a word is recognized prior to any perceptual
+            input, index its recognition point onto the given phoneme.
+            The phoneme index can be negative! For example, a value
+            of `-1` indicates that recognition should be indexed into the
+            onset/offset window of the final phoneme of the PREVIOUS
+            word. `0` indicates that recognition should be indexed to onset/offset
+            window of the first phoneme of the target word.
         prior_scatter_point: If a word is recognized prior to any perceptual
-            input, index its recognition point onto the given phoneme with the given
-            scatter point. The phoneme index can be negative! For example, a value
-            of `(-1, 0.5)` indicates that recognition should be indexed to halfway
-            through the onset/offset window of the final phoneme of the PREVIOUS
-            word. `(0, 0.0)` indicates that recognition should be indexed to the
-            very onset of the first phoneme of the target word.
+            input, index its recognition point at this fraction progress
+            through the phoneme onset/offset window specified by by
+            `prior_scatter_index`.
             This spec overrides any setting of `scatter_point`.
     """
     if scatter_point < 0.0 or scatter_point > 1.0:
         raise ValueError("Scatter point must be in [0, 1]")
-    if prior_scatter_point[1] < 0.0 or prior_scatter_point[1] > 1.0:
+    if prior_scatter_point < 0.0 or prior_scatter_point > 1.0:
         raise ValueError("Prior scatter point must be in [0, 1]")
 
     # All indexing will happen on a flattened array, in order to easily support
@@ -222,11 +227,11 @@ def recognition_points_to_times(recognition_points: TensorType[B, int],
     # Handle edge case: recognition point is zero, indicating recognition pre input
     # onset.
     # Anchor phoneme: index of phoneme for whose window we'll do scattering.
-    anchor_phoneme_idx = rec_point_flat[switch] + prior_scatter_point[0]
+    anchor_phoneme_idx = rec_point_flat[switch] + prior_scatter_index
     # Avoid index errors at start and end of time series.
     anchor_phoneme_idx = torch.clamp(anchor_phoneme_idx, 0, len(phoneme_onsets_flat) - 1)
-    ret[switch] = prior_scatter_point[1] * phoneme_offsets_flat[anchor_phoneme_idx] + \
-        (1 - prior_scatter_point[1]) * phoneme_onsets_flat[anchor_phoneme_idx]
+    ret[switch] = prior_scatter_point * phoneme_offsets_flat[anchor_phoneme_idx] + \
+        (1 - prior_scatter_point) * phoneme_onsets_flat[anchor_phoneme_idx]
 
     # Handle normal case: recognition point is non-zero, indicating recognition
     # at a given phoneme.

@@ -445,7 +445,8 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
                  params: List[PartiallyObservedModelParameters],
                  param_weights: Optional[Responsibilities] = None,
                  recognition_scatter_point: float = 0.0,
-                 prior_scatter_point: Tuple[int, float] = (0, 0.0),
+                 prior_scatter_index: int = 0,
+                 prior_scatter_point: float = 0.0,
                  **kwargs):
         """
         Args:
@@ -466,7 +467,8 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
             torch.ones(len(self.params), dtype=torch.float) / len(self.params)
         
         self.recognition_scatter_point = recognition_scatter_point
-        self.prior_scatter_point = prior_scatter_point
+        self.prior_scatter_index = 0
+        self.prior_scatter_point = 0.0
 
     def _scatter_variable(self,
                           dataset: BerpDataset,
@@ -535,7 +537,8 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
             dataset.phoneme_offsets_global,
             dataset.word_lengths,
             scatter_point=self.scatter_point,
-            prior_scatter_point=self.prior_scatter_point,
+            prior_scatter_index=0,
+            prior_scatter_point=0.0,
         )
 
         design_matrix: TRFDesignMatrix = self._scatter_variable(
