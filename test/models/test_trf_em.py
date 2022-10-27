@@ -11,8 +11,9 @@ from berp.datasets import BerpDataset, NestedBerpDataset
 from berp.generators import thresholded_recognition_simple as generator
 from berp.generators.stimulus import RandomStimulusGenerator
 from berp.models.reindexing_regression import PartiallyObservedModelParameters, ModelParameters
-from berp.models.trf import TemporalReceptiveField
+from berp.models.trf import TemporalReceptiveField, TRFDelayer
 from berp.models.trf_em import BerpTRFEMEstimator, GroupBerpTRFForwardPipeline, GroupVanillaTRFForwardPipeline
+from berp.models import trf_em
 from berp.solvers import Solver, AdamSolver, SGDSolver
 from berp.util import time_to_sample
 
@@ -73,7 +74,8 @@ def vanilla_dataset(dataset):
     dataset.sample_rate = sfreq
     dataset.X_ts = X
     dataset.word_onsets = torch.tensor([0, 1, 2, 3]).float()
-    dataset.X_variable = torch.zeros(len(dataset.word_onsets), 0).float()  # torch.tensor([0, 0, 0, 0]).float().unsqueeze(1)
+    # dataset.X_variable = torch.randn(len(dataset.word_onsets), 2).float()  # torch.tensor([0, 0, 0, 0]).float().unsqueeze(1)
+    dataset.X_variable = torch.zeros(len(dataset.word_onsets), 0).float()
     dataset.Y = Y
 
     return dataset
@@ -207,7 +209,7 @@ def test_scatter_variable_edges(group_em_estimator):
 
     # Should not raise IndexError.
     out = cache.design_matrix.clone()
-    est.pipeline._scatter_variable(ds, recognition_times, out)
+    trf_em.scatter_variable(ds, recognition_times, out)
 
     # TODO check scatter result
 

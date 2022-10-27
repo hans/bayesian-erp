@@ -41,10 +41,11 @@ Responsibilities = TensorType[P, is_probability]
 subject_re = re.compile(r"^DKZ_\d/([^/]+)")
 
 
+@typechecked
 def scatter_add(design_matrix: TRFDesignMatrix,
                 target_samples: TensorType[B, torch.long],
                 target_values: TensorType[B, "n_target_features", float],
-                add=True):
+                add=True) -> None:
     """
     Scatter-add or update values to the given samples of the TRF design matrix,
     maintaining lag structure (i.e. duplicating target values at different lags).
@@ -73,6 +74,35 @@ def scatter_add(design_matrix: TRFDesignMatrix,
             out[target_samples[mask] + delay, :, delay] += target_values[mask]
         else:
             out[target_samples[mask] + delay, :, delay] = target_values[mask]
+
+
+@typechecked
+def scatter_variable(dataset: BerpDataset, times: TensorType[B, float],
+                     out: TRFDesignMatrix,
+                     out_weight: float = 1.,
+                     ) -> None:
+    """
+    Scatter variable-onset predictors into design matrix, which is a
+    lagged time series. Operates in place.
+
+    Args:
+        dataset:
+        times:
+        out: scatter-add to this tensor
+        out_weight: apply this weight to the scatter-add.
+    """
+    
+    # TODO unittest this !!
+
+    assert len(times) == dataset.X_variable.shape[0]
+    feature_start_idx = dataset.n_ts_features
+
+    # Compute recognition onset times and convert to sample representation.
+    samples = time_to_sample(times, dataset.sample_rate)
+
+    # Scatter-add, lagging over delay axis.
+    to_add = out_weight * dataset.X_variable
+    scatter_add(out[:, feature_start_idx:, :], samples, to_add)
 
 
 def _make_validation_mask(dataset: BerpDataset, validation_fraction: float,
@@ -147,10 +177,11 @@ class ForwardPipelineCache:
         )
 
 
+@typechecked
 def make_dummy_design_matrix(dataset: BerpDataset, delayer: TRFDelayer) -> TRFDesignMatrix:
     """
     Prepare a design matrix with time series values inserted, leaving variable-onset values
-    zero. Should then be combined with `_scatter_variable`.
+    zero. Should then be combined with `scatter_variable`.
     """
     dummy_variable_predictors: TRFPredictors = \
         torch.zeros(dataset.n_samples, dataset.X_variable.shape[1], dtype=dataset.X_ts.dtype)
@@ -471,37 +502,6 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
         self.prior_scatter_index = prior_scatter_index
         self.prior_scatter_point = prior_scatter_point
 
-    def _scatter_variable(self,
-                          dataset: BerpDataset,
-                          recognition_times: TensorType[B, float],
-                          out: TRFDesignMatrix,
-                          out_weight: float = 1.,
-                          ) -> TRFDesignMatrix:
-        """
-        Scatter variable-onset predictors into design matrix, which is a
-        lagged time series.
-
-        Args:
-            dataset:
-            recognition_times:
-            out: scatter-add to this tensor
-            out_weight: apply this weight to the scatter-add.
-        """
-        
-        # TODO unittest this !!
-
-        assert len(recognition_times) == dataset.X_variable.shape[0]
-        feature_start_idx = dataset.n_ts_features
-
-        # Compute recognition onset times and convert to sample representation.
-        recognition_times_samp = time_to_sample(recognition_times, self.encoder.sfreq)
-
-        # Scatter-add, lagging over delay axis.
-        to_add = out_weight * dataset.X_variable
-        scatter_add(out[:, feature_start_idx:, :], recognition_times_samp, to_add)
-
-        return out
-
     @typechecked
     def get_recognition_points(self, dataset: BerpDataset,
                                params: PartiallyObservedModelParameters,
@@ -537,17 +537,16 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
                               params: PartiallyObservedModelParameters,
                               out: TRFDesignMatrix,
                               out_weight: float = 1.,
-                              ) -> TRFDesignMatrix:
+                              ) -> None:
         """
         Run word recognition logic for the given dataset and parameters,
-        producing a regression design matrix.
+        producing a regression design matrix. Operates in-place.
         """
         recognition_points, recognition_times = self.get_recognition_times(dataset, params)
 
-        design_matrix: TRFDesignMatrix = self._scatter_variable(
+        scatter_variable(
             dataset, recognition_times,
             out=out, out_weight=out_weight)
-        return design_matrix
     
     def pre_transform(self, dataset: BerpDataset) -> Tuple[TRFDesignMatrix, np.ndarray]:
         primed = self._get_cache_for_dataset(dataset)
@@ -559,7 +558,7 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
         acc[:, feature_start_idx:, :] = 0.
 
         for params, weight in zip(self.params, self.param_weights):
-            acc = self._pre_transform_single(dataset, params, out=acc, out_weight=weight)
+            self._pre_transform_single(dataset, params, out=acc, out_weight=weight)
         return acc, primed.validation_mask
 
     def pre_transform_expanded(self, dataset: BerpDataset) -> Iterator[Tuple[TRFDesignMatrix, np.ndarray]]:
