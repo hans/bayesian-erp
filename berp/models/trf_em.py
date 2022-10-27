@@ -468,8 +468,8 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
             torch.ones(len(self.params), dtype=torch.float) / len(self.params)
         
         self.scatter_point = scatter_point
-        self.prior_scatter_index = 0
-        self.prior_scatter_point = 0.0
+        self.prior_scatter_index = prior_scatter_index
+        self.prior_scatter_point = prior_scatter_point
 
     def _scatter_variable(self,
                           dataset: BerpDataset,
