@@ -15,7 +15,7 @@ from tqdm.auto import tqdm, trange
 from berp.config import Config, CVConfig
 from berp.cv import OptunaSearchCV, EarlyStopException
 from berp.models.trf_em import GroupTRFForwardPipeline, BerpTRFEMEstimator
-from berp.viz.trf_em import trf_em_tb_callback
+from berp.viz.trf_em import trf_em_tb_callback, checkpoint_model
 
 
 L = logging.getLogger(__name__)

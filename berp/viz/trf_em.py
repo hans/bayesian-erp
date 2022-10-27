@@ -24,7 +24,7 @@ def get_recognition_times(est, dataset):
     rec_points, rec_times = [], []
 
     for ds in datasets:
-        rec_points_i, rec_times_i = est.get_recognition_times(dataset, est.params[0])
+        rec_points_i, rec_times_i = est.get_recognition_times(ds, est.params[0])
 
         # Reindex recognition times relative to word onset.
         rec_times_i -= ds.word_onsets
@@ -32,7 +32,7 @@ def get_recognition_times(est, dataset):
         rec_points.append(rec_points_i)
         rec_times.append(rec_times_i)
 
-    return torch.stack(rec_points), torch.stack(rec_times)
+    return torch.concat(rec_points), torch.concat(rec_times)
 
 
 def checkpoint_model(est, dataset, params_dir, viz_cfg: VizConfig):
@@ -64,8 +64,8 @@ def checkpoint_model(est, dataset, params_dir, viz_cfg: VizConfig):
     # If relevant, compute recognition points/times.
     if hasattr(est, "get_recognition_times"):
         rec_points, rec_times = get_recognition_times(est, dataset)
-        tb.add_histogram("recognition_points", rec_points.flatten())
-        tb.add_histogram("recognition_times", rec_times.flatten())
+        tb.add_histogram("recognition_points", rec_points)
+        tb.add_histogram("recognition_times", rec_times)
 
     # Table-ize and render TRF coefficients.
     ts_feature_names = dataset.ts_feature_names if dataset.ts_feature_names is not None else \
