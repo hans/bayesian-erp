@@ -125,7 +125,7 @@ class RandomStimulusGenerator(StimulusGenerator):
         self.phonemes = np.array(list("abcdefghijklmnopqrstuvwxyz"[:phoneme_voc_size - 1] + "_"))
         self.phoneme2idx = {p: idx for idx, p in enumerate(self.phonemes)}
 
-    def __call__(self) -> Stimulus:
+    def __call__(self, **stream_kwargs) -> Stimulus:
         word_lengths = 1 + dist.Binomial(self.num_phonemes - 1, 0.5) \
             .sample((self.num_words, self.num_candidates)).long()  # type: ignore
         gt_word_lengths = word_lengths[:, 0]
@@ -141,7 +141,7 @@ class RandomStimulusGenerator(StimulusGenerator):
         candidate_phonemes[pad_mask] = pad_idx
 
         phoneme_onsets, phoneme_onsets_global, word_onsets, word_offsets = \
-            self.sample_stream(gt_word_lengths, self.num_phonemes)
+            self.sample_stream(gt_word_lengths, self.num_phonemes, **stream_kwargs)
 
         word_surprisals: torch.Tensor = dist.LogNormal(*self.word_surprisal_params) \
             .sample((self.num_words,))  # type: ignore

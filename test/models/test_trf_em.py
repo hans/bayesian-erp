@@ -32,19 +32,23 @@ def synth_params() -> ModelParameters:
         sigma=torch.tensor(5.0),
     )
 
-def make_dataset(synth_params) -> BerpDataset:
+def make_dataset(synth_params, sample_rate=48) -> BerpDataset:
+    """
+    Sample a synthetic dataset with random word/phoneme time series,
+    where all events (phoneme onset/offset, word onset/offset) are
+    aligned to the sample rate.
+    """
     stim = RandomStimulusGenerator(num_words=1000, num_phonemes=10, phoneme_voc_size=synth_params.confusion.shape[0],
                                    word_surprisal_params=(2.0, 0.5))
     ds_args = dict(
         response_type="gaussian",
         epoch_window=(0, 0.55), # TODO unused
         include_intercept=False,
-        sample_rate=48)
+        sample_rate=sample_rate)
 
+    dataset = generator.sample_dataset(synth_params, stim, **ds_args,
+        stimulus_kwargs=dict(align_sample_rate=sample_rate))
 
-    dataset = generator.sample_dataset(synth_params, stim, **ds_args)
-
-    # TODO test dataset
     return dataset
 
 

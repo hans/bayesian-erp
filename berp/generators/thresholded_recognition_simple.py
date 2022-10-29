@@ -97,9 +97,10 @@ def sample_dataset(params: rr.ModelParameters,
                    response_type: str = "gaussian",
                    epoch_window: Tuple[float, float] = (-0.1, 1.0),
                    include_intercept=True,
+                   stimulus_kwargs=None,
                    ) -> BerpDataset:
     
-    stim = stimulus_generator()
+    stim = stimulus_generator(**(stimulus_kwargs or {}))
 
     ############
 
