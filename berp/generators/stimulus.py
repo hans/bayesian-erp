@@ -42,7 +42,7 @@ def align_to_sample_rate(times, sample_rate):
     Adjust the time series so that each event happens aligned to the left edge of
     a sample, assuming the given sample rate.
     """
-    return torch.round(times * sample_rate) / sample_rate
+    return torch.floor(times * sample_rate) / sample_rate
 
 
 class StimulusGenerator(object):
