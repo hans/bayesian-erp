@@ -51,6 +51,19 @@ class BerpTRFModelConfig(ModelConfig):
     prior_scatter_index: int = 0
     prior_scatter_point: float = 0.0
 
+    variable_trf_zero_left: int = 0
+    """
+    For variable-onset features, enforce that this many samples starting
+    from the left egde of the TRF are zeroed out. This effectively narrows 
+    width of the TRF window for these features.
+    """
+    variable_trf_zero_right: int = 0
+    """
+    For variable-onset features, enforce that this many samples starting
+    from the right egde of the TRF are zeroed out. This effectively narrows 
+    width of the TRF window for these features.
+    """
+
     confusion_path: Optional[str] = None
     """
     Path to a confusion matrix. Must be compatible with the phoneme

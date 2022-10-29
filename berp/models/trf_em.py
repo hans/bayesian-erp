@@ -482,9 +482,13 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
     def __init__(self, encoder: Encoder,
                  params: List[PartiallyObservedModelParameters],
                  param_weights: Optional[Responsibilities] = None,
+
                  scatter_point: float = 0.0,
                  prior_scatter_index: int = 0,
                  prior_scatter_point: float = 0.0,
+
+                 variable_trf_zero_left: int = 0,
+                 variable_trf_zero_right: int = 0,
                  **kwargs):
         """
         Args:
@@ -497,6 +501,8 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
             prior_scatter_point: Describes expected recognition time logic when words are
                 recognized prior to perceptual input.
                 See `reindexing_regression.recognition_points_to_times`
+            variable_trf_zero_left: TODO
+            variable_trf_zero_right: TODO
         """
         super().__init__(encoder, **kwargs)
 
@@ -507,6 +513,10 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
         self.scatter_point = scatter_point
         self.prior_scatter_index = prior_scatter_index
         self.prior_scatter_point = prior_scatter_point
+
+        # TODO check that these are compatible with encoder window?
+        self.variable_trf_zero_left = variable_trf_zero_left
+        self.variable_trf_zero_right = variable_trf_zero_right
 
     @typechecked
     def get_recognition_points(self, dataset: BerpDataset,
@@ -550,9 +560,15 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
         """
         recognition_points, recognition_times = self.get_recognition_times(dataset, params)
 
+        # Generate lag mask given zero-ing rules.
+        lag_mask = torch.ones(out.shape[2], dtype=torch.bool)
+        lag_mask[:self.variable_trf_zero_left] = False
+        lag_mask[-self.variable_trf_zero_right:] = False
+
         scatter_variable(
             dataset, recognition_times,
-            out=out, out_weight=out_weight)
+            out=out, out_weight=float(out_weight),
+            lag_mask=lag_mask)
     
     def pre_transform(self, dataset: BerpDataset) -> Tuple[TRFDesignMatrix, np.ndarray]:
         primed = self._get_cache_for_dataset(dataset)
@@ -597,9 +613,13 @@ class GroupBerpFixedTRFForwardPipeline(GroupBerpTRFForwardPipeline):
                  threshold: torch.Tensor,
                  confusion: torch.Tensor,
                  lambda_: torch.Tensor,
+
                  scatter_point: float = 0,
                  prior_scatter_index: int = 0,
                  prior_scatter_point: float = 0.0,
+
+                 variable_trf_zero_left: int = 0,
+                 variable_trf_zero_right: int = 0,
                  **kwargs):
         self.threshold = threshold
         self.confusion = confusion
@@ -609,6 +629,8 @@ class GroupBerpFixedTRFForwardPipeline(GroupBerpTRFForwardPipeline):
             scatter_point=scatter_point,
             prior_scatter_index=prior_scatter_index,
             prior_scatter_point=prior_scatter_point,
+            variable_trf_zero_left=variable_trf_zero_left,
+            variable_trf_zero_right=variable_trf_zero_right,
             **kwargs)
 
     def _model_params_getter(self) -> List[PartiallyObservedModelParameters]:

@@ -2,12 +2,17 @@ from dataclasses import dataclass
 from typing import List
 
 from hydra.core.config_store import ConfigStore
+from omegaconf import OmegaConf
 
 from berp.config.cv import TrainTestConfig, CVConfig
 from berp.config.dataset import DatasetConfig
 from berp.config.model import ModelConfig
 from berp.config.solver import SolverConfig
 from berp.config.viz import VizConfig
+
+
+# Add interpolators for configs
+OmegaConf.register_new_resolver("eval", eval)
 
 
 @dataclass
