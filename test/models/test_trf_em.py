@@ -15,7 +15,13 @@ from berp.models.trf import TemporalReceptiveField, TRFDelayer
 from berp.models.trf_em import BerpTRFEMEstimator, GroupBerpTRFForwardPipeline, GroupVanillaTRFForwardPipeline
 from berp.models import trf_em
 from berp.solvers import Solver, AdamSolver, SGDSolver
+from berp.tensorboard import Tensorboard
 from berp.util import time_to_sample
+
+
+
+# Avoid saving lots of spurious tensorboard events files
+Tensorboard.disable()
 
 
 @pytest.fixture(scope="session")
