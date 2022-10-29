@@ -27,8 +27,6 @@ def time_to_sample(time: TensorType[float],
     """
     Convert time representation (in seconds) to sample index representation.
     """
-    # TODO meaningful difference between floor/ceil here?
-    # Probably just consistency that matters.
     return torch.round((time - t_zero) * sample_rate).long()
 
 
