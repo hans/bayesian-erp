@@ -291,8 +291,8 @@ def test_scatter_variable(dataset: BerpDataset, epoch_window: Tuple[float, float
     # which is true for our synthetic data.
     from pprint import pprint
     torch.testing.assert_allclose(
-        torch.ones(len(times), dtype=torch.long),
         time_to_sample(times, dataset.sample_rate) - time_to_sample(dataset.word_onsets, dataset.sample_rate),
+        shift * torch.ones(len(times), dtype=torch.long),
         msg="Word onsets not aligned to sample rate. Test precondition failed.")
     assert shift / dataset.sample_rate < tmax, "Test precondition failed."
 

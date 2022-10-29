@@ -29,7 +29,7 @@ def time_to_sample(time: TensorType[float],
     """
     # TODO meaningful difference between floor/ceil here?
     # Probably just consistency that matters.
-    return torch.floor((time - t_zero) * sample_rate).long()
+    return torch.round((time - t_zero) * sample_rate).long()
 
 
 @typechecked
