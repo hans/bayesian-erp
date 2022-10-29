@@ -45,18 +45,22 @@ subject_re = re.compile(r"^DKZ_\d/([^/]+)")
 def scatter_add(design_matrix: TRFDesignMatrix,
                 target_samples: TensorType[B, torch.long],
                 target_values: TensorType[B, "n_target_features", float],
+                lag_mask: Optional[TensorType["n_delays", torch.bool]] = None,
                 add=True) -> None:
     """
     Scatter-add or update values to the given samples of the TRF design matrix,
     maintaining lag structure (i.e. duplicating target values at different lags).
+
+    By default, the number of lags added is just the same as the size of the
+    design matrix's final axis. If `lag_mask` is provided, just those lags for
+    which `lag_mask[i]` is `True` will be updated. This allows imposing e.g.
+    a custom lag structure for different modifications.
 
     If `add` is `True`, scatter-add to existing values; otherwise replace with
     given values.
 
     Operates in-place.
     """
-
-    # TODO unittest
 
     assert target_samples.shape[0] == target_values.shape[0]
     assert target_values.shape[1] == design_matrix.shape[1]
@@ -65,7 +69,8 @@ def scatter_add(design_matrix: TRFDesignMatrix,
     # NB no copy.
     out = design_matrix
 
-    for delay in range(out.shape[2]):
+    delay_idxs = torch.where(lag_mask)[0] if lag_mask is not None else range(out.shape[2])
+    for delay in delay_idxs:
         # Mask out items which, with this delay, would exceed the right edge
         # of the time series.
         mask = target_samples + delay < out.shape[0]
@@ -80,6 +85,7 @@ def scatter_add(design_matrix: TRFDesignMatrix,
 def scatter_variable(dataset: BerpDataset, times: TensorType[B, float],
                      out: TRFDesignMatrix,
                      out_weight: float = 1.,
+                     lag_mask: Optional[TensorType["n_delays", torch.bool]] = None,
                      ) -> None:
     """
     Scatter variable-onset predictors into design matrix, which is a
@@ -90,9 +96,9 @@ def scatter_variable(dataset: BerpDataset, times: TensorType[B, float],
         times:
         out: scatter-add to this tensor
         out_weight: apply this weight to the scatter-add.
+        lag_mask: if provided, only scatter-add to lags for which this mask is
+            `True`.
     """
-    
-    # TODO unittest this !!
 
     assert len(times) == dataset.X_variable.shape[0]
     feature_start_idx = dataset.n_ts_features
@@ -102,7 +108,7 @@ def scatter_variable(dataset: BerpDataset, times: TensorType[B, float],
 
     # Scatter-add, lagging over delay axis.
     to_add = out_weight * dataset.X_variable
-    scatter_add(out[:, feature_start_idx:, :], samples, to_add)
+    scatter_add(out[:, feature_start_idx:, :], samples, to_add, lag_mask)
 
 
 def _make_validation_mask(dataset: BerpDataset, validation_fraction: float,

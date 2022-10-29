@@ -339,3 +339,40 @@ def test_scatter_add_edges(dataset: BerpDataset):
     expected[torch.arange(design_matrix.shape[0] - 5, design_matrix.shape[0]),
              1, torch.arange(5)] = 1.3
     torch.testing.assert_allclose(design_matrix, design_matrix_old + expected)
+
+
+@pytest.mark.parametrize("epoch_window", [(0, 0.5)])
+def test_scatter_variable_with_mask(dataset: BerpDataset, epoch_window: Tuple[float, float]):
+    tmin, tmax = epoch_window
+    delayer = TRFDelayer(tmin, tmax, dataset.sample_rate)
+    # Prepare dummy design matrix.
+    design_matrix = trf_em.make_dummy_design_matrix(dataset, delayer)
+
+    # Events should be one sample after each word onset.
+    shift = 1
+    times = dataset.word_onsets + shift / dataset.sample_rate
+
+    # NB assumes word onsets are nicely aligned to sample rate,
+    # which is true for our synthetic data.
+    from pprint import pprint
+    torch.testing.assert_allclose(
+        time_to_sample(times, dataset.sample_rate) - time_to_sample(dataset.word_onsets, dataset.sample_rate),
+        shift * torch.ones(len(times), dtype=torch.long),
+        msg="Word onsets not aligned to sample rate. Test precondition failed.")
+    assert shift / dataset.sample_rate < tmax, "Test precondition failed."
+
+    lag_mask = torch.randint(0, 2, (design_matrix.shape[2],), dtype=torch.bool)
+    trf_em.scatter_variable(dataset, times, design_matrix, 1.0, lag_mask=lag_mask)
+    variable_feature_start_idx = dataset.n_ts_features
+    for delay in range(design_matrix.shape[2]):
+        expected = dataset.X_variable if lag_mask[delay] else torch.zeros_like(dataset.X_variable)
+
+        torch.testing.assert_allclose(
+            torch.gather(
+                design_matrix[:, variable_feature_start_idx:, delay],
+                0,
+                time_to_sample(dataset.word_onsets, dataset.sample_rate).unsqueeze(1) + \
+                    shift + delay
+            ),
+            expected
+        )
