@@ -185,39 +185,6 @@ def test_alpha_scatter(group_em_estimator):
     np.testing.assert_approx_equal(ret, alpha)
 
 
-def test_scatter_variable_edges(group_em_estimator):
-    """
-    For recognition points on the edge of time series, make sure that no indexing
-    errors are triggered.
-    """
-    est: BerpTRFEMEstimator
-    dataset: NestedBerpDataset
-    est, dataset = group_em_estimator
-
-    # Set up a long word at the very end of the time series with a recognition point
-    # at its last phoneme
-    ds = dataset.datasets[0]
-    max_word_length = ds.phoneme_onsets.shape[1]
-    ds.word_lengths[-1] = max_word_length
-    last_time = ds.phoneme_onsets_global[-1, -1]
-    # last_sample = time_to_sample(last_time, dataset.sample_rate)
-    ds.phoneme_onsets[-1, max_word_length - 1] = last_time - ds.word_onsets[-1] - 0.001
-    print(ds.phoneme_onsets[-1])
-
-    cache = est.pipeline._get_cache_for_dataset(ds)
-
-    recognition_points = torch.zeros_like(ds.word_onsets).long()
-    recognition_points[-1] = max_word_length - 1
-
-    recognition_times = torch.gather(ds.phoneme_onsets_global, 1, recognition_points.unsqueeze(1)).squeeze(1)
-
-    # Should not raise IndexError.
-    out = cache.design_matrix.clone()
-    trf_em.scatter_variable(ds, recognition_times, out)
-
-    # TODO check scatter result
-
-
 def test_vanilla_pipeline(vanilla_dataset: BerpDataset):
     nested = NestedBerpDataset([vanilla_dataset])
     tmin, tmax = 0, 2
@@ -307,3 +274,68 @@ def test_vanilla_pipeline_partial_twosubjs(vanilla_dataset: BerpDataset):
     tols = dict(atol=1e-3, rtol=1e-3)
     torch.testing.assert_close(encs["subj1"].coef_[0], expected_coef, **tols)
     torch.testing.assert_close(encs["subj2"].coef_[0], -1 * expected_coef, **tols)
+
+
+@pytest.mark.parametrize("epoch_window", [(0, 0.5)])
+def test_scatter_variable(dataset: BerpDataset, epoch_window: Tuple[float, float]):
+    tmin, tmax = epoch_window
+    delayer = TRFDelayer(tmin, tmax, dataset.sample_rate)
+    # Prepare dummy design matrix.
+    design_matrix = trf_em.make_dummy_design_matrix(dataset, delayer)
+
+    # Events should be one sample after each word onset.
+    shift = 1
+    times = dataset.word_onsets + shift / dataset.sample_rate
+
+    # NB assumes word onsets are nicely aligned to sample rate,
+    # which is true for our synthetic data.
+    from pprint import pprint
+    torch.testing.assert_allclose(
+        torch.ones(len(times), dtype=torch.long),
+        time_to_sample(times, dataset.sample_rate) - time_to_sample(dataset.word_onsets, dataset.sample_rate),
+        msg="Word onsets not aligned to sample rate. Test precondition failed.")
+    assert shift / dataset.sample_rate < tmax, "Test precondition failed."
+
+    trf_em.scatter_variable(dataset, times, design_matrix, 1.0)
+    variable_feature_start_idx = dataset.n_ts_features
+    for delay in range(design_matrix.shape[2]):
+        torch.testing.assert_allclose(
+            torch.gather(
+                design_matrix[:, variable_feature_start_idx:, delay],
+                0,
+                time_to_sample(dataset.word_onsets, dataset.sample_rate).unsqueeze(1) + \
+                    shift + delay
+            ),
+            dataset.X_variable
+        )
+
+    # TODO guard for literal edge cases at edge of time series
+    
+    # import ipdb; ipdb.set_trace()
+
+
+def test_scatter_add_edges(dataset: BerpDataset):
+    # epoch window
+    tmin, tmax = 0, 0.5
+    delayer = TRFDelayer(tmin, tmax, dataset.sample_rate)
+    # Prepare dummy design matrix.
+    design_matrix = trf_em.make_dummy_design_matrix(dataset, delayer)
+    design_matrix_old = design_matrix.clone()
+
+    # Scatter-add at an edge
+    target_samples = torch.tensor([design_matrix.shape[0] - 5])
+
+    # Expect scatter to work (scatter-add) for 5 samples, and then work
+    # not trigger indexing error for the rest.
+    trf_em.scatter_add(design_matrix[:, 1:, :], target_samples, torch.tensor([[1.3]]))
+
+    from pprint import pprint
+    torch.testing.assert_allclose(
+        design_matrix[torch.arange(design_matrix.shape[0] - 5, design_matrix.shape[0]),
+                      1, torch.arange(5)],
+        torch.tensor([1.3] * 5))
+
+    expected = torch.zeros_like(design_matrix)
+    expected[torch.arange(design_matrix.shape[0] - 5, design_matrix.shape[0]),
+             1, torch.arange(5)] = 1.3
+    torch.testing.assert_allclose(design_matrix, design_matrix_old + expected)
