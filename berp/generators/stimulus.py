@@ -37,6 +37,14 @@ class Stimulus(NamedTuple):
     candidate_phonemes: TensorType[N_W, N_C, N_P, torch.long]
 
 
+def align_to_sample_rate(times, sample_rate):
+    """
+    Adjust the time series so that each event happens aligned to the left edge of
+    a sample, assuming the given sample rate.
+    """
+    return torch.round(times * sample_rate) / sample_rate
+
+
 class StimulusGenerator(object):
 
     def __init__(self,
@@ -52,13 +60,24 @@ class StimulusGenerator(object):
 
     def sample_stream(self, word_lengths: TensorType[N_W, int],
                       max_num_phonemes: int,
+                      align_sample_rate: Optional[int] = None,
                       ) -> Tuple[TensorType[N_W, N_P, float],
                                  TensorType[N_W, N_P, float],
+                                 TensorType[N_W, float],
                                  TensorType[N_W, float]]:
         num_words = len(word_lengths)
 
         phoneme_durations = rand_unif(*self.phon_delay_range, num_words, max_num_phonemes)
         phoneme_durations[torch.arange(max_num_phonemes) >= word_lengths.unsqueeze(1)] = 0.
+
+        word_delays = rand_unif(*self.word_delay_range, num_words)
+        word_delays[0] = 0.
+
+        if align_sample_rate is not None:
+            phoneme_durations = align_to_sample_rate(phoneme_durations, align_sample_rate)
+            word_delays = align_to_sample_rate(word_delays, align_sample_rate)
+
+        # Remaining variables are deterministic derivatives on the above.
 
         phoneme_onsets = torch.cat([
             torch.zeros(num_words, 1),
@@ -69,7 +88,6 @@ class StimulusGenerator(object):
         assert (phoneme_offsets[:, :-1] <= phoneme_onsets[:, 1:]).all().item()
 
         word_durations = phoneme_offsets[:, -1] - phoneme_onsets[:, 0]
-        word_delays = rand_unif(*self.word_delay_range, num_words)
         word_onsets = (torch.cat([torch.tensor([self.first_onset]),
                                   word_durations[:-1]])
                                 + word_delays).cumsum(0)
