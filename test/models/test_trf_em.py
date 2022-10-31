@@ -213,6 +213,7 @@ class TestGroupBerpFixed:
     check_params = [
         "threshold", "lambda_", "confusion",
         "scatter_point", "prior_scatter_point", "prior_scatter_index",
+        "variable_trf_zero_left", "variable_trf_zero_right",
     ]
 
     def _eq(self, a, b):
@@ -221,29 +222,28 @@ class TestGroupBerpFixed:
         else:
             assert a == b
 
-    def test_parameters_distribute(self, group_fixed_estimator: GroupBerpFixedTRFForwardPipeline):
+    @pytest.mark.parametrize("param", check_params)
+    def test_parameters_distribute(self, group_fixed_estimator: GroupBerpFixedTRFForwardPipeline, param: str):
         """
         Parameter reads/writes should be synchronized
         """
 
         params = group_fixed_estimator.get_params()
-        for param in self.check_params:
-            print(param)
-            self._eq(getattr(group_fixed_estimator, param), params[param])
-            if hasattr(group_fixed_estimator.params[0], param):
-                self._eq(getattr(group_fixed_estimator.params[0], param), params[param])
+        self._eq(getattr(group_fixed_estimator, param), params[param])
+        if hasattr(group_fixed_estimator.params[0], param):
+            self._eq(getattr(group_fixed_estimator.params[0], param), params[param])
 
-            new_val = torch.tensor(np.random.random())
-            setattr(group_fixed_estimator, param, new_val)
-            self._eq(getattr(group_fixed_estimator, param), new_val)
-            if hasattr(group_fixed_estimator.params[0], param):
-                self._eq(getattr(group_fixed_estimator.params[0], param), new_val)
+        new_val = torch.tensor(np.random.random())
+        setattr(group_fixed_estimator, param, new_val)
+        self._eq(getattr(group_fixed_estimator, param), new_val)
+        if hasattr(group_fixed_estimator.params[0], param):
+            self._eq(getattr(group_fixed_estimator.params[0], param), new_val)
 
-            new_val = torch.tensor(np.random.random())
-            group_fixed_estimator.set_params(**{param: new_val})
-            self._eq(getattr(group_fixed_estimator, param), new_val)
-            if hasattr(group_fixed_estimator.params[0], param):
-                self._eq(getattr(group_fixed_estimator.params[0], param), new_val)
+        new_val = torch.tensor(np.random.random())
+        group_fixed_estimator.set_params(**{param: new_val})
+        self._eq(getattr(group_fixed_estimator, param), new_val)
+        if hasattr(group_fixed_estimator.params[0], param):
+            self._eq(getattr(group_fixed_estimator.params[0], param), new_val)
 
     def test_pickle(self, group_fixed_estimator: GroupBerpFixedTRFForwardPipeline):
         pickled = pickle.dumps(group_fixed_estimator)
