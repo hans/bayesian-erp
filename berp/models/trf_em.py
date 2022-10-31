@@ -501,8 +501,12 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
             prior_scatter_point: Describes expected recognition time logic when words are
                 recognized prior to perceptual input.
                 See `reindexing_regression.recognition_points_to_times`
-            variable_trf_zero_left: TODO
-            variable_trf_zero_right: TODO
+            variable_trf_zero_left: Constrain this many samples starting from the left edge
+                of the learned encoder time series to have zero values, for those encoder
+                features which are variable-onset.
+            variable_trf_zero_right: Constrain this many samples starting from the right edge
+                of the learned encoder time series to have zero values, for those encoder
+                features which are variable-onset.
         """
         super().__init__(encoder, **kwargs)
 
@@ -514,7 +518,14 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
         self.prior_scatter_index = prior_scatter_index
         self.prior_scatter_point = prior_scatter_point
 
-        # TODO check that these are compatible with encoder window?
+        # If possible, validate that these are compatible with the encoder's
+        # temporal window.
+        if hasattr(encoder, "tmin") and hasattr(encoder, "tmax") and hasattr(encoder, "sfreq"):
+            encoder_num_samples = int((encoder.tmax - encoder.tmin) * encoder.sfreq)
+            if encoder_num_samples < variable_trf_zero_left + variable_trf_zero_right:
+                raise ValueError("Encoder's temporal window is too small for the "
+                                 "requested zero padding.")
+
         self.variable_trf_zero_left = variable_trf_zero_left
         self.variable_trf_zero_right = variable_trf_zero_right
 

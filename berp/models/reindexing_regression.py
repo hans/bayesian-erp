@@ -37,6 +37,10 @@ class ModelParameters:
 
 
 def PartiallyObservedModelParameters(*args, **kwargs):
+    kwargs.setdefault("lambda_", torch.tensor(1.0))
+    kwargs.setdefault("confusion", torch.tensor(1.0))
+    kwargs.setdefault("threshold", torch.tensor(0.75))
+
     return ModelParameters(*args,
         a = torch.tensor(0.0),
         b = torch.tensor(0.0),

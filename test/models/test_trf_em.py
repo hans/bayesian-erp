@@ -158,6 +158,22 @@ def group_fixed_estimator(synth_params: ModelParameters, trf: TemporalReceptiveF
     return pipe
 
 
+def test_variable_trf_zero_overflow(trf: TemporalReceptiveField):
+    # Should error when variable-onset TRF zero-constraint is too wide
+    # given the width of the TRF encoder window.
+    too_many_samples = int((trf.tmax - trf.tmin) * trf.sfreq) + 128
+    left_zero = too_many_samples // 2
+    right_zero = too_many_samples // 2
+
+    with pytest.raises(ValueError):
+        GroupBerpTRFForwardPipeline(
+            trf,
+            params=[PartiallyObservedModelParameters()],
+            variable_trf_zero_left=left_zero,
+            variable_trf_zero_right=right_zero
+        )
+
+
 def test_param_weights_distribute(group_em_estimator):
     """
     When EM estimator responsibilities are updated, the pipeline
