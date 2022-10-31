@@ -88,6 +88,8 @@ def tb_global_step(global_step=None):
     Increment or set global step.
     """
     tb = Tensorboard.instance()
+    if tb._disabled:
+        return
     if global_step is None:
         global_step = tb.global_step + 1
     tb.global_step = global_step
