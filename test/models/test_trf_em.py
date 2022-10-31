@@ -253,6 +253,27 @@ class TestGroupBerpFixed:
             self._eq(getattr(group_fixed_estimator, param), getattr(unpickled, param))
             self._eq(getattr(group_fixed_estimator, param), unpickled.get_params()[param])
 
+    @pytest.mark.usefixtures("dataset")
+    def test_prior_recognition(self, group_fixed_estimator: GroupBerpFixedTRFForwardPipeline,
+                               dataset: BerpDataset):
+        group_fixed_estimator.prior_scatter_index = -1
+        group_fixed_estimator.prior_scatter_point = 0.0
+
+        # Hope we get some recognitions at prior :)
+        group_fixed_estimator.threshold = torch.tensor(0.05)
+
+        recognition_points, recognition_times = \
+            group_fixed_estimator.get_recognition_times(dataset, group_fixed_estimator.params[0])
+        
+        recognized_at_prior = recognition_points == 0
+        if not recognized_at_prior.any():
+            pytest.skip("No recognitions at prior")
+
+        recognition_times_relative = recognition_times - dataset.word_onsets
+        recognition_times_relative = recognition_times_relative[recognized_at_prior]
+        assert (recognition_times_relative < 0).all(), \
+            "Words recognized at prior should have recognition times before word onset"
+
 
 def test_vanilla_pipeline(vanilla_dataset: BerpDataset):
     nested = NestedBerpDataset([vanilla_dataset])

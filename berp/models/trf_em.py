@@ -534,8 +534,8 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
             dataset.phoneme_offsets_global,
             dataset.word_lengths,
             scatter_point=self.scatter_point,
-            prior_scatter_index=0,
-            prior_scatter_point=0.0,
+            prior_scatter_index=self.prior_scatter_index,
+            prior_scatter_point=self.prior_scatter_point,
         )
         return recognition_points, recognition_times
 
@@ -613,9 +613,9 @@ class GroupBerpFixedTRFForwardPipeline(GroupBerpTRFForwardPipeline):
 
     def _model_params_getter(self) -> List[PartiallyObservedModelParameters]:
         return [PartiallyObservedModelParameters(
-            threshold=self.threshold,
-            confusion=self.confusion,
-            lambda_=self.lambda_,
+            threshold=torch.as_tensor(self.threshold),
+            confusion=torch.as_tensor(self.confusion),
+            lambda_=torch.as_tensor(self.lambda_),
         )]
     def _model_params_setter(self, params: List[PartiallyObservedModelParameters]):
         if len(params) != 1:
