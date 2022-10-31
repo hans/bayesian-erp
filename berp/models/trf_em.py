@@ -606,6 +606,8 @@ class GroupBerpFixedTRFForwardPipeline(GroupBerpTRFForwardPipeline):
     Group pipeline for variable-onset TRF with just one parameter option.
     Provides easy scikit-learn-friendly parameter accessors.
     """
+    # TODO figure out better structure, this is weird. maybe just have an independent model, rather
+    # than one that simulates a list of params. it makes for awkward accessor/parameter update logic
 
     _param_keys = ["threshold", "confusion", "lambda_"]
 
@@ -640,12 +642,9 @@ class GroupBerpFixedTRFForwardPipeline(GroupBerpTRFForwardPipeline):
             lambda_=torch.as_tensor(self.lambda_),
         )]
     def _model_params_setter(self, params: List[PartiallyObservedModelParameters]):
-        if len(params) != 1:
-            raise ValueError("Expected one parameter option")
-
-        params = params[0]
-        for key in self._param_keys:
-            setattr(self, key, getattr(params, key))
+        # HACK: No thx
+        L.warning("Ignoring setter for BerpFixed.params")
+        return
     params = property(_model_params_getter, _model_params_setter)
 
 
@@ -956,7 +955,7 @@ def BerpTRFFixed(trf: TemporalReceptiveField,
 
     pipeline = GroupBerpFixedTRFForwardPipeline(
         trf,
-        threshold=threshold,
+        threshold=torch.as_tensor(threshold),
         confusion=prepare_or_create_confusion(confusion_path, phonemes),
         lambda_=torch.tensor(1.),
         **kwargs,
