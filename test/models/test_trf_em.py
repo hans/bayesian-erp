@@ -1,5 +1,6 @@
 from copy import deepcopy
 from dataclasses import replace
+import pickle
 from typing import List, Tuple
 
 import numpy as np
@@ -12,7 +13,7 @@ from berp.generators import thresholded_recognition_simple as generator
 from berp.generators.stimulus import RandomStimulusGenerator
 from berp.models.reindexing_regression import PartiallyObservedModelParameters, ModelParameters
 from berp.models.trf import TemporalReceptiveField, TRFDelayer
-from berp.models.trf_em import BerpTRFEMEstimator, GroupBerpTRFForwardPipeline, GroupVanillaTRFForwardPipeline
+from berp.models.trf_em import BerpTRFEMEstimator, GroupBerpFixedTRFForwardPipeline, GroupBerpTRFForwardPipeline, GroupVanillaTRFForwardPipeline
 from berp.models import trf_em
 from berp.solvers import Solver, AdamSolver, SGDSolver
 from berp.tensorboard import Tensorboard
@@ -142,6 +143,18 @@ def group_em_estimator(synth_params: ModelParameters, trf: TemporalReceptiveFiel
     return ret, nested
 
 
+@pytest.fixture
+def group_fixed_estimator(synth_params: ModelParameters, trf: TemporalReceptiveField):
+    pipe = GroupBerpFixedTRFForwardPipeline(
+        trf,
+        threshold=synth_params.threshold,
+        confusion=synth_params.confusion,
+        lambda_=synth_params.lambda_,
+    )
+
+    return pipe
+
+
 def test_param_weights_distribute(group_em_estimator):
     """
     When EM estimator responsibilities are updated, the pipeline
@@ -189,6 +202,33 @@ def test_alpha_scatter(group_em_estimator):
     est.set_params(pipeline__encoder__alpha=alpha)
     ret = assert_alphas_consistent(est)
     np.testing.assert_approx_equal(ret, alpha)
+
+
+@pytest.mark.usefixtures("group_fixed_estimator")
+class TestGroupBerpFixed:
+
+    check_params = [
+        "threshold", "lambda_", "confusion",
+        "scatter_point", "prior_scatter_point", "prior_scatter_index",
+    ]
+
+    def _eq(self, a, b):
+        if isinstance(a, torch.Tensor) or isinstance(b, torch.Tensor):
+            torch.testing.assert_close(a, b)
+        else:
+            assert a == b
+
+    def test_parameters_distribute(self, group_fixed_estimator: GroupBerpFixedTRFForwardPipeline):
+        params = group_fixed_estimator.get_params()
+        for param in self.check_params:
+            self._eq(getattr(group_fixed_estimator, param), params[param])
+
+    def test_pickle(self, group_fixed_estimator: GroupBerpFixedTRFForwardPipeline):
+        pickled = pickle.dumps(group_fixed_estimator)
+        unpickled = pickle.loads(pickled)
+
+        for param in self.check_params:
+            self._eq(getattr(group_fixed_estimator, param), getattr(unpickled, param))
 
 
 def test_vanilla_pipeline(vanilla_dataset: BerpDataset):
