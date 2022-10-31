@@ -601,35 +601,30 @@ class GroupBerpFixedTRFForwardPipeline(GroupBerpTRFForwardPipeline):
                  prior_scatter_index: int = 0,
                  prior_scatter_point: float = 0.0,
                  **kwargs):
-        params = PartiallyObservedModelParameters(
-            threshold=threshold,
-            confusion=confusion,
-            lambda_=lambda_,
-        )
-        super().__init__(encoder, [params],
+        self.threshold = threshold
+        self.confusion = confusion
+        self.lambda_ = lambda_
+
+        super().__init__(encoder, self.params,
             scatter_point=scatter_point,
             prior_scatter_index=prior_scatter_index,
             prior_scatter_point=prior_scatter_point,
             **kwargs)
 
-        self.threshold = threshold
-        self.confusion = confusion
-        self.lambda_ = lambda_
+    def _model_params_getter(self) -> List[PartiallyObservedModelParameters]:
+        return [PartiallyObservedModelParameters(
+            threshold=self.threshold,
+            confusion=self.confusion,
+            lambda_=self.lambda_,
+        )]
+    def _model_params_setter(self, params: List[PartiallyObservedModelParameters]):
+        if len(params) != 1:
+            raise ValueError("Expected one parameter option")
 
-    def get_params(self, deep=True):
-        ret = super().get_params(deep)
-        for param_key in self._param_keys:
-            ret[param_key] = getattr(self.params[0], param_key)
-        return ret
-
-    def set_params(self, **params):
-        # Add passthrough for updating threshold if we are just using one parameter
-        # value.
-        for param_key in self._param_keys:
-            if param_key in params:
-                setattr(self.params[0], param_key, torch.as_tensor(params.pop(param_key)))
-
-        super().set_params(**params)
+        params = params[0]
+        for key in self._param_keys:
+            setattr(self, key, getattr(params, key))
+    params = property(_model_params_getter, _model_params_setter)
 
 
 class GroupVanillaTRFForwardPipeline(GroupTRFForwardPipeline):

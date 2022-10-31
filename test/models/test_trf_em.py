@@ -143,13 +143,16 @@ def group_em_estimator(synth_params: ModelParameters, trf: TemporalReceptiveFiel
     return ret, nested
 
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 def group_fixed_estimator(synth_params: ModelParameters, trf: TemporalReceptiveField):
     pipe = GroupBerpFixedTRFForwardPipeline(
         trf,
         threshold=synth_params.threshold,
         confusion=synth_params.confusion,
         lambda_=synth_params.lambda_,
+        scatter_point=np.random.random(),
+        prior_scatter_index=np.random.choice([-3, -2, -1, 0]),
+        prior_scatter_point=np.random.random(),
     )
 
     return pipe
@@ -219,9 +222,28 @@ class TestGroupBerpFixed:
             assert a == b
 
     def test_parameters_distribute(self, group_fixed_estimator: GroupBerpFixedTRFForwardPipeline):
+        """
+        Parameter reads/writes should be synchronized
+        """
+
         params = group_fixed_estimator.get_params()
         for param in self.check_params:
+            print(param)
             self._eq(getattr(group_fixed_estimator, param), params[param])
+            if hasattr(group_fixed_estimator.params[0], param):
+                self._eq(getattr(group_fixed_estimator.params[0], param), params[param])
+
+            new_val = torch.tensor(np.random.random())
+            setattr(group_fixed_estimator, param, new_val)
+            self._eq(getattr(group_fixed_estimator, param), new_val)
+            if hasattr(group_fixed_estimator.params[0], param):
+                self._eq(getattr(group_fixed_estimator.params[0], param), new_val)
+
+            new_val = torch.tensor(np.random.random())
+            group_fixed_estimator.set_params(**{param: new_val})
+            self._eq(getattr(group_fixed_estimator, param), new_val)
+            if hasattr(group_fixed_estimator.params[0], param):
+                self._eq(getattr(group_fixed_estimator.params[0], param), new_val)
 
     def test_pickle(self, group_fixed_estimator: GroupBerpFixedTRFForwardPipeline):
         pickled = pickle.dumps(group_fixed_estimator)
@@ -229,6 +251,7 @@ class TestGroupBerpFixed:
 
         for param in self.check_params:
             self._eq(getattr(group_fixed_estimator, param), getattr(unpickled, param))
+            self._eq(getattr(group_fixed_estimator, param), unpickled.get_params()[param])
 
 
 def test_vanilla_pipeline(vanilla_dataset: BerpDataset):
