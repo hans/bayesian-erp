@@ -5,7 +5,7 @@ import re
 from typing import Callable, List, NamedTuple, Tuple, Optional, Dict
 
 import numpy as np
-import pyro.distributions as dist
+import torch.distributions as dist
 import torch
 from torch.nn.functional import pad
 from torchtyping import TensorType
