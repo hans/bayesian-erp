@@ -1,0 +1,25 @@
+name: Run pytest
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+    container:
+      image: docker://jrgauthier/berp:latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Test with pytest
+      run: |
+        PYTHONPATH=. pytest --cov=berp
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
