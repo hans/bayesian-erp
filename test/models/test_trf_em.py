@@ -408,7 +408,7 @@ def test_scatter_variable(dataset: BerpDataset, epoch_window: Tuple[float, float
         samples = time_to_sample(dataset.word_onsets, dataset.sample_rate) + shift + delay
 
         # Don't index past time series edge.
-        overflow_mask = samples > design_matrix.shape[0]
+        overflow_mask = samples >= design_matrix.shape[0]
 
         torch.testing.assert_allclose(
             torch.gather(
@@ -475,12 +475,15 @@ def test_scatter_variable_with_mask(dataset: BerpDataset, epoch_window: Tuple[fl
     for delay in range(design_matrix.shape[2]):
         expected = dataset.X_variable if lag_mask[delay] else torch.zeros_like(dataset.X_variable)
 
+        samples = time_to_sample(dataset.word_onsets, dataset.sample_rate) + shift + delay
+        # Don't index past time series edge.
+        overflow_mask = samples >= design_matrix.shape[0]
+
         torch.testing.assert_allclose(
             torch.gather(
                 design_matrix[:, variable_feature_start_idx:, delay],
                 0,
-                time_to_sample(dataset.word_onsets, dataset.sample_rate).unsqueeze(1) + \
-                    shift + delay
+                samples[~overflow_mask].unsqueeze(1),
             ),
-            expected
+            expected[~overflow_mask]
         )
