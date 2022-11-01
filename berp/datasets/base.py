@@ -10,7 +10,7 @@ from torchtyping import TensorType
 from typeguard import typechecked
 
 from berp.datasets import NaturalLanguageStimulus
-from berp.typing import DIMS, is_log_probability, is_positive
+from berp.typing import DIMS, is_log_probability, is_positive, is_nonnegative
 
 L = logging.getLogger(__name__)
 
@@ -44,17 +44,17 @@ class BerpDataset:
 
     sample_rate: int
 
-    word_onsets: TensorType[B, float, is_positive]
+    word_onsets: TensorType[B, float, is_nonnegative]
     """
     Onset of each word in seconds, relative to the start of the sequence.
     """
 
-    word_offsets: TensorType[B, float, is_positive]
+    word_offsets: TensorType[B, float, is_nonnegative]
     """
     Offset of each word in seconds, relative to the start of the sequence.
     """
 
-    phoneme_onsets: TensorType[B, N_P, float, is_positive]
+    phoneme_onsets: TensorType[B, N_P, float, is_nonnegative]
     """
     Onset of each phoneme within each word in seconds, relative to the start of
     the corresponding word. Column axis should be padded with 0s.
@@ -215,8 +215,8 @@ class BerpDataset:
             if key.start < 0 or key.stop < 0:
                 raise ValueError("Negative indices not supported.")
 
-            start_sample = key.start or 0
-            end_sample = key.stop or self.n_samples
+            start_sample = int(key.start) or 0
+            end_sample = int(key.stop) or self.n_samples
 
             start_time = start_sample / self.sample_rate
             end_time = end_sample / self.sample_rate

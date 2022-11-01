@@ -139,9 +139,30 @@ class PositiveDetail(TensorDetail):
     def tensor_repr(cls, t: torch.Tensor) -> str:
         return repr(t)
 
+
+class ConstraintDetail(TensorDetail):
+    """
+    Abstract type detail which defers to torch distribution constraints
+    """
+
+    def __init__(self, constraint):
+        self.constraint = constraint
+
+    def check(self, t: torch.Tensor) -> bool:
+        return bool(self.constraint.check(t).all())
+
+    def __repr__(self) -> str:
+        return f"ConstraintDetail({self.constraint})"
+
+    @classmethod
+    def tensor_repr(cls, t: torch.Tensor) -> str:
+        return repr(t)
+
+
 is_probability = ProbabilityDetail()
 is_log_probability = LogProbabilityDetail()
-is_positive = PositiveDetail()
+is_positive = ConstraintDetail(constraints.positive)
+is_nonnegative = ConstraintDetail(constraints.nonnegative)
 
 Probability = TensorType[float, is_probability]
 LogProbability = TensorType[float, is_log_probability]
