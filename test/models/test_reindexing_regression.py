@@ -5,7 +5,6 @@ from typing import Dict, Callable
 
 from icecream import ic
 import numpy as np
-import pyro
 import pytest
 import torch
 
@@ -21,10 +20,10 @@ def get_parameters():
     return rr.ModelParameters(
         lambda_=torch.tensor(1.0),
         confusion=generator.phoneme_confusion,
-        threshold=pyro.deterministic("threshold", torch.tensor(0.7)),
-        a=pyro.deterministic("a", torch.tensor(0.4)),
-        b=pyro.deterministic("b", torch.tensor(0.1)),
-        coef=pyro.deterministic("coef", coef_mean),
+        threshold=torch.tensor(0.7),
+        a=torch.tensor(0.4),
+        b=torch.tensor(0.1),
+        coef=coef_mean,
         sigma=torch.tensor(1.0),
     )
 
@@ -36,10 +35,10 @@ def get_parameters2():
     return rr.ModelParameters(
         lambda_=torch.tensor(1.0),
         confusion=generator.phoneme_confusion,
-        threshold=pyro.deterministic("threshold", torch.tensor(0.7)),
+        threshold=torch.tensor(0.7),
         a=torch.tensor(0.4),
         b=torch.tensor(0.2),
-        coef=pyro.deterministic("coef", coef_mean),
+        coef=coef_mean,
         sigma=torch.tensor(0.1),
     )
 
