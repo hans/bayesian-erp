@@ -1,0 +1,23 @@
+name: Run pytest
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+    container:
+      image: docker://jrgauthier/berp:latest
+
+    steps:
+    - uses: actions/checkout@v3
+    - name: Test with pytest
+      run: |
+        PYTHONPATH=. pytest --cov=berp --cov-report=xml --cov-report=term-missing --cov-report=html
