@@ -405,17 +405,19 @@ def test_scatter_variable(dataset: BerpDataset, epoch_window: Tuple[float, float
     trf_em.scatter_variable(dataset, times, design_matrix, 1.0)
     variable_feature_start_idx = dataset.n_ts_features
     for delay in range(design_matrix.shape[2]):
+        samples = time_to_sample(dataset.word_onsets, dataset.sample_rate) + shift + delay
+
+        # Don't index past time series edge.
+        overflow_mask = samples > design_matrix.shape[0]
+
         torch.testing.assert_allclose(
             torch.gather(
                 design_matrix[:, variable_feature_start_idx:, delay],
                 0,
-                time_to_sample(dataset.word_onsets, dataset.sample_rate).unsqueeze(1) + \
-                    shift + delay
+                samples[~overflow_mask].unsqueeze(1),
             ),
-            dataset.X_variable
+            dataset.X_variable[~overflow_mask]
         )
-
-    # TODO guard for literal edge cases at edge of time series
     
     # import ipdb; ipdb.set_trace()
 
