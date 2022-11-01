@@ -14,7 +14,7 @@ from typeguard import typechecked
 
 from berp.datasets import BerpDataset
 from berp.typing import Probability, is_probability, is_log_probability, is_positive, DIMS
-from berp.util import sample_to_time, time_to_sample, variable_position_slice
+from berp.util import sample_to_time, time_to_sample
 
 
 # Define TensorType axis labels
