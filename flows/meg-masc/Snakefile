@@ -1,0 +1,90 @@
+from pathlib import Path
+import itertools
+
+configfile: "config.yaml"
+base_dir = Path(__file__).parent
+
+model = config["language_modeling"]["model"]
+
+
+# Load datasets
+all_datasets = glob_wildcards("raw-data/{data_key}/meg")
+dataset_keys = [re.findall(r"sub-(\w+)/ses-(\w+)", x)[0] for x in all_datasets.data_key]
+dataset_keys = {k: list(vs) for k, vs in itertools.groupby(sorted(dataset_keys), lambda x: x[0])}
+print(dataset_keys)
+first_subject, first_session = next(iter(dataset_keys.items()))[0]
+print(first_subject, first_session)
+
+
+rule extract_presentation_data:
+    input:
+        "raw-data/sub-{subject}/ses-{session}/meg/sub-{subject}_ses-{session}_task-0_meg.con"
+    output:
+        words = "data/presentation/{stimulus}.{subject}.{session}.words.csv",
+        phonemes = "data/presentation/{stimulus}.{subject}.{session}.phonemes.csv"
+    script: "{base_dir}/scripts/meg-masc/extract_presentation_data.py"
+
+
+rule tokenized:
+    input: "raw-data/stimuli/text/{stimulus}.txt"
+    output: "data/tokenized/{model}/{stimulus}.txt"
+    script: "{base_dir}/scripts/meg-masc/tokenize.py"
+
+
+# Match up force-aligned corpus with raw text corpus on a token-to-token level.
+# This will allow us to use token-level features computed on the latter corpus
+# together with the timing data from the former.
+rule align_with_raw_text:
+    input:
+        presentation_words = "data/presentation/{stimulus}.{subject}.{session}.words.csv",
+        presentation_phonemes = "data/presentation/{stimulus}.{subject}.{session}.phonemes.csv",
+        tokenized = "data/tokenized/{model}/{stimulus}.txt"
+    output:
+        aligned_words = "data/aligned/{model}/{stimulus}.{subject}.{session}.words.csv",
+        aligned_phonemes = "data/aligned/{model}/{stimulus}.{subject}.{session}.phonemes.csv"
+    shell:
+        """
+        python {base_dir}/scripts/meg-masc/align_with_raw_text.py \
+            -m {model} \
+            -o data/aligned/{model} \
+            {input.tokenized} {input.presentation_words} {input.presentation_phonemes}
+        """
+
+
+# Run a language model on the resulting aligned text inputs and generate a
+# NaturalLanguageStimulus, representing word- and phoneme-level prior predictive
+# distributions.
+rule run_language_modeling:
+    input:
+        tokenized = "data/tokenized/{model}/{stimulus}.txt",
+
+        # Just take first alignment data from a subject/session, doesn't matter
+        aligned_words = lambda wildcards:
+            expand("data/aligned/{{model}}/{{stimulus}}.{subject}.{session}.words.csv",
+                   subject=first_subject, session=first_session),
+        aligned_phonemes = lambda wildcards:
+            expand("data/aligned/{{model}}/{{stimulus}}.{subject}.{session}.phonemes.csv",
+                   subject=first_subject, session=first_session)
+    output:
+        stimulus = "data/stimulus/{model}/{stimulus}.pkl"
+    shell:
+        """
+        python {base_dir}/scripts/meg-masc/run_language_modeling.py \
+            -m {model} \
+            -n {{config['language_modeling']['n_candidates']}} \
+            --vocab_path {{config['language_modeling']['vocab_path']}} \
+            -o {output.stimulus} \
+            {input.tokenized} {input.aligned_words} {input.aligned_phonemes}
+        """
+
+
+# Produce a BerpDataset from the aligned corpora for a single subject/session.
+rule produce_dataset:
+    input:
+        aligned_words = "data/aligned/{model}/{stimulus}.{subject}.{session}.words.csv",
+        aligned_phonemes = "data/aligned/{model}/{stimulus}.{subject}.{session}.phonemes.csv",
+        stimulus = "data/stimulus/{model}/{stimulus}.pkl",
+        bids = "raw-data/sub-{subject}/ses-{session}/meg/sub-{subject}_ses-{session}_task-0_meg.con"
+
+    output:
+        dataset = "data/dataset/{model}/{stimulus}.{subject}.{session}.pkl"
