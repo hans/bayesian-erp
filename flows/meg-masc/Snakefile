@@ -7,18 +7,21 @@ base_dir = Path(__file__).parent
 model = config["language_modeling"]["model"]
 
 
-# Load datasets
-all_datasets = glob_wildcards("raw-data/{data_key}/meg")
-dataset_keys = [re.findall(r"sub-(\w+)/ses-(\w+)", x)[0] for x in all_datasets.data_key]
-dataset_keys = {k: list(vs) for k, vs in itertools.groupby(sorted(dataset_keys), lambda x: x[0])}
-print(dataset_keys)
-first_subject, first_session = next(iter(dataset_keys.items()))[0]
-print(first_subject, first_session)
+# # Load datasets
+# all_datasets = glob_wildcards("raw-data/{data_key}/meg")
+# dataset_keys = [re.findall(r"sub-(\w+)/ses-(\w+)", x)[0] for x in all_datasets.data_key]
+# dataset_keys = {k: list(vs) for k, vs in itertools.groupby(sorted(dataset_keys), lambda x: x[0])}
+# print(dataset_keys)
+# first_subject, first_session = next(iter(dataset_keys.items()))[0]
+# print(first_subject, first_session)
+
+SUBJECTS, SESSIONS = config['subjects'], config['sessions']
 
 
 rule extract_presentation_data:
     input:
-        "raw-data/sub-{subject}/ses-{session}/meg/sub-{subject}_ses-{session}_task-0_meg.con"
+        expand("raw-data/sub-{subject}/ses-{session}/meg/sub-{subject}_ses-{session}_task-0_meg.con",
+                subject=SUBJECTS, session=SESSIONS, allow_missing=True)
     output:
         words = "data/presentation/{stimulus}.{subject}.{session}.words.csv",
         phonemes = "data/presentation/{stimulus}.{subject}.{session}.phonemes.csv"
@@ -61,10 +64,10 @@ rule run_language_modeling:
         # Just take first alignment data from a subject/session, doesn't matter
         aligned_words = lambda wildcards:
             expand("data/aligned/{{model}}/{{stimulus}}.{subject}.{session}.words.csv",
-                   subject=first_subject, session=first_session),
+                   subject=SUBJECTS[0], session=SESSIONS[0]),
         aligned_phonemes = lambda wildcards:
             expand("data/aligned/{{model}}/{{stimulus}}.{subject}.{session}.phonemes.csv",
-                   subject=first_subject, session=first_session)
+                   subject=SUBJECTS[0], session=SESSIONS[0])
     output:
         stimulus = "data/stimulus/{model}/{stimulus}.pkl"
     shell:
@@ -88,3 +91,12 @@ rule produce_dataset:
 
     output:
         dataset = "data/dataset/{model}/{stimulus}.{subject}.{session}.pkl"
+
+
+rule produce_average_dataset:
+    input:
+        datasets = expand("data/dataset/{model}/{stimulus}.{subject}.{session}.pkl",
+                          subject=SUBJECTS, session=SESSIONS, allow_missing=True)
+    output:
+        dataset = "data/dataset/{model}/{stimulus}.average.pkl"
+    script: "{base_dir}/scripts/meg-masc/average_datasets.py"

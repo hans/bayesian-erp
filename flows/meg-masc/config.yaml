@@ -4,3 +4,11 @@ language_modeling:
     model: distilgpt2
     n_candidates: 1000
     vocab_path: null
+
+subjects:
+    - "01"
+    - "02"
+
+sessions:
+    - 0
+    - 1
