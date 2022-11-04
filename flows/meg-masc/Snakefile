@@ -7,30 +7,73 @@ base_dir = Path(__file__).parent
 model = config["language_modeling"]["model"]
 
 
-# # Load datasets
-# all_datasets = glob_wildcards("raw-data/{data_key}/meg")
-# dataset_keys = [re.findall(r"sub-(\w+)/ses-(\w+)", x)[0] for x in all_datasets.data_key]
-# dataset_keys = {k: list(vs) for k, vs in itertools.groupby(sorted(dataset_keys), lambda x: x[0])}
-# print(dataset_keys)
-# first_subject, first_session = next(iter(dataset_keys.items()))[0]
-# print(first_subject, first_session)
+# # Glossary
+#
+# Task = stimulus = story. Tasks are indexed by integers and are ordered the same
+# across subjects/sessions.
+# TODO double-check this for all subjects+sessions
+#
+# # Other notes
+#
+# - NB that the general variable order for naming files here is
+#   `task`, `subject`, `session`. This matches the Berp standard, where subject-session-level
+#   data are categorized within stimulus.
 
-SUBJECTS, SESSIONS = config['subjects'], config['sessions']
+# Read specified subjects/sessions/tasks for loading
+SUBJECTS, SESSIONS, TASKS = config['subjects'], config['sessions'], config['tasks']
 
 
+wildcard_constraints:
+    subject = "\d+",
+    session = "\d+",
+    task = "\d+",
+    story_name = "\w+"
+
+
+def take_first(expr, **wildcards):
+    """
+    Produce inputs drawing the first element of each of the given `wildcards`.
+    This is useful when using denormalized data and we don't care which of the inputs we
+    use -- we just need some reference.
+    """
+    return expand(expr, **{wildcard: values[0] for wildcard, values in wildcards.items()})
+
+
+task_to_story_name = {
+    0: "lw1",
+    1: "cable_spool_fort",
+    2: "easy_money",
+    3: "The_Black_Willow",
+}
+story_name_to_task = {v: k for k, v in task_to_story_name.items()}
+
+
+# Extract data about the presentation of a task to a subject in a given session.
+# Each "task" corresponds to a stimulus (story). NB the resulting extracted presentation
+# data is highly denormalized, containing redundant information about phonemes and words
+# that are repeated across stories.
+#
+# The unique data in each run of this rule is simply the timing of the stimulus presentation
+# relative to the subject-session's EEG time series.
 rule extract_presentation_data:
     input:
-        expand("raw-data/sub-{subject}/ses-{session}/meg/sub-{subject}_ses-{session}_task-0_meg.con",
-                subject=SUBJECTS, session=SESSIONS, allow_missing=True)
+        expand("raw-data/sub-{subject}/ses-{session}/meg/sub-{subject}_ses-{session}_task-{task}_meg.con",
+               subject=SUBJECTS, session=SESSIONS, task=TASKS, allow_missing=True)
+    params:
+        story_name = lambda wildcards: task_to_story_name[wildcards.task]
     output:
-        words = "data/presentation/{stimulus}.{subject}.{session}.words.csv",
-        phonemes = "data/presentation/{stimulus}.{subject}.{session}.phonemes.csv"
+        words = "data/presentation/{story_name}.{subject}.{session}.words.csv",
+        phonemes = "data/presentation/{story_name}.{subject}.{session}.phonemes.csv"
+
+    # TODO after this step, there should be a check/assertion that the time series
+    # are uniform between subjects after baselining
+    # At the same time, save the offsets relevant for aligning things later on.
     script: "{base_dir}/scripts/meg-masc/extract_presentation_data.py"
 
 
 rule tokenized:
-    input: "raw-data/stimuli/text/{stimulus}.txt"
-    output: "data/tokenized/{model}/{stimulus}.txt"
+    input: "raw-data/stimuli/text/{story_name}.txt"
+    output: "data/tokenized/{model}/{story_name}.txt"
     script: "{base_dir}/scripts/meg-masc/tokenize.py"
 
 
@@ -39,12 +82,16 @@ rule tokenized:
 # together with the timing data from the former.
 rule align_with_raw_text:
     input:
-        presentation_words = "data/presentation/{stimulus}.{subject}.{session}.words.csv",
-        presentation_phonemes = "data/presentation/{stimulus}.{subject}.{session}.phonemes.csv",
-        tokenized = "data/tokenized/{model}/{stimulus}.txt"
+        presentation_words = lambda _:
+            take_first("data/presentation/{{story_name}}.{subject}.{session}.words.csv",
+                          subject=SUBJECTS, session=SESSIONS),
+        presentation_phonemes = lambda _:
+            take_first("data/presentation/{{story_name}}.{subject}.{session}.phonemes.csv",
+                          subject=SUBJECTS, session=SESSIONS),
+        tokenized = "data/tokenized/{model}/{story_name}.txt"
     output:
-        aligned_words = "data/aligned/{model}/{stimulus}.{subject}.{session}.words.csv",
-        aligned_phonemes = "data/aligned/{model}/{stimulus}.{subject}.{session}.phonemes.csv"
+        aligned_words = "data/aligned/{model}/{story_name}.words.csv",
+        aligned_phonemes = "data/aligned/{model}/{story_name}.phonemes.csv"
     shell:
         """
         python {base_dir}/scripts/meg-masc/align_with_raw_text.py \
@@ -59,17 +106,11 @@ rule align_with_raw_text:
 # distributions.
 rule run_language_modeling:
     input:
-        tokenized = "data/tokenized/{model}/{stimulus}.txt",
-
-        # Just take first alignment data from a subject/session, doesn't matter
-        aligned_words = lambda wildcards:
-            expand("data/aligned/{{model}}/{{stimulus}}.{subject}.{session}.words.csv",
-                   subject=SUBJECTS[0], session=SESSIONS[0]),
-        aligned_phonemes = lambda wildcards:
-            expand("data/aligned/{{model}}/{{stimulus}}.{subject}.{session}.phonemes.csv",
-                   subject=SUBJECTS[0], session=SESSIONS[0])
+        tokenized = "data/tokenized/{model}/{story_name}.txt",
+        aligned_words = "data/aligned/{model}/{story_name}.words.csv",
+        aligned_phonemes = "data/aligned/{model}/{story_name}.phonemes.csv"
     output:
-        stimulus = "data/stimulus/{model}/{stimulus}.pkl"
+        stimulus = "data/stimulus/{model}/{story_name}.pkl"
     shell:
         """
         python {base_dir}/scripts/meg-masc/run_language_modeling.py \
@@ -81,22 +122,31 @@ rule run_language_modeling:
         """
 
 
+# TODO use computed offsets before to align stimulus+EEG data between subject-sessions
+
+
 # Produce a BerpDataset from the aligned corpora for a single subject/session.
 rule produce_dataset:
+    params:
+        task = lambda wildcards: story_name_to_task[wildcards.story_name]
     input:
-        aligned_words = "data/aligned/{model}/{stimulus}.{subject}.{session}.words.csv",
-        aligned_phonemes = "data/aligned/{model}/{stimulus}.{subject}.{session}.phonemes.csv",
-        stimulus = "data/stimulus/{model}/{stimulus}.pkl",
-        bids = "raw-data/sub-{subject}/ses-{session}/meg/sub-{subject}_ses-{session}_task-0_meg.con"
+        aligned_words = "data/presentation/{model}/{story_name}.{subject}.{session}.words.csv",
+        aligned_phonemes = "data/presentation/{model}/{story_name}.{subject}.{session}.phonemes.csv",
+        stimulus = "data/stimulus/{model}/{story_name}.pkl",
 
+        # bids = "raw-data/sub-{subject}/ses-{session}/meg/sub-{subject}_ses-{session}_task-{task}_meg.con"
+        bids = lambda wildcards:
+            expand("raw-data/sub-{subject}/ses-{session}/meg/sub-{subject}_ses-{session}_task-{task}_meg.con",
+                   subject=wildcards.subject, session=wildcards.session, task=story_name_to_task[wildcards.story_name])
+            # f"raw-data/sub-{wildcards.subject}/ses-{wildcards.session}/meg/sub-{wildcards.subject}_ses-{wildcards.session}_task-{story_name_to_task[wildcards.story_name]}_meg.con"
     output:
-        dataset = "data/dataset/{model}/{stimulus}.{subject}.{session}.pkl"
+        dataset = "data/dataset/{model}/{story_name}.{subject}.{session}.pkl"
 
 
 rule produce_average_dataset:
     input:
-        datasets = expand("data/dataset/{model}/{stimulus}.{subject}.{session}.pkl",
+        datasets = expand("data/dataset/{model}/{story_name}.{subject}.{session}.pkl",
                           subject=SUBJECTS, session=SESSIONS, allow_missing=True)
     output:
-        dataset = "data/dataset/{model}/{stimulus}.average.pkl"
+        dataset = "data/dataset/{model}/{story_name}.average.pkl"
     script: "{base_dir}/scripts/meg-masc/average_datasets.py"
