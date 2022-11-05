@@ -43,7 +43,7 @@ task_to_story_name = {
     0: "lw1",
     1: "cable_spool_fort",
     2: "easy_money",
-    3: "The_Black_Willow",
+    3: "the_black_willow",
 }
 story_name_to_task = {v: k for k, v in task_to_story_name.items()}
 
@@ -57,10 +57,10 @@ story_name_to_task = {v: k for k, v in task_to_story_name.items()}
 # relative to the subject-session's EEG time series.
 rule extract_presentation_data:
     input:
-        expand("raw-data/sub-{subject}/ses-{session}/meg/sub-{subject}_ses-{session}_task-{task}_meg.con",
-               subject=SUBJECTS, session=SESSIONS, task=TASKS, allow_missing=True)
-    params:
-        story_name = lambda wildcards: task_to_story_name[wildcards.task]
+        lambda wildcards:
+            expand("raw-data/sub-{{subject}}/ses-{{session}}/meg/sub-{{subject}}_ses-{{session}}_task-{task}_meg.con",
+                   task=story_name_to_task[wildcards.story_name],
+                   allow_missing=True)
     output:
         words = "data/presentation/{story_name}.{subject}.{session}.words.csv",
         phonemes = "data/presentation/{story_name}.{subject}.{session}.phonemes.csv"
@@ -130,19 +130,22 @@ rule produce_dataset:
     params:
         task = lambda wildcards: story_name_to_task[wildcards.story_name]
     input:
-        aligned_words = "data/presentation/{model}/{story_name}.{subject}.{session}.words.csv",
-        aligned_phonemes = "data/presentation/{model}/{story_name}.{subject}.{session}.phonemes.csv",
+        presentation_words = "data/presentation/{story_name}.{subject}.{session}.words.csv",
+        presentation_phonemes = "data/presentation/{story_name}.{subject}.{session}.phonemes.csv",
+
+        aligned_words = "data/aligned/{model}/{story_name}.words.csv",
+        aligned_phonemes = "data/aligned/{model}/{story_name}.phonemes.csv",
+
         stimulus = "data/stimulus/{model}/{story_name}.pkl",
 
-        # bids = "raw-data/sub-{subject}/ses-{session}/meg/sub-{subject}_ses-{session}_task-{task}_meg.con"
         bids = lambda wildcards:
-            expand("raw-data/sub-{subject}/ses-{session}/meg/sub-{subject}_ses-{session}_task-{task}_meg.con",
-                   subject=wildcards.subject, session=wildcards.session, task=story_name_to_task[wildcards.story_name])
-            # f"raw-data/sub-{wildcards.subject}/ses-{wildcards.session}/meg/sub-{wildcards.subject}_ses-{wildcards.session}_task-{story_name_to_task[wildcards.story_name]}_meg.con"
+            expand("raw-data/sub-{{subject}}/ses-{{session}}/meg/sub-{{subject}}_ses-{{session}}_task-{task}_meg.con",
+                   task=story_name_to_task[wildcards.story_name])
     output:
         dataset = "data/dataset/{model}/{story_name}.{subject}.{session}.pkl"
 
 
+# Average EEG response time series for colection of aligned subject-session datasets.
 rule produce_average_dataset:
     input:
         datasets = expand("data/dataset/{model}/{story_name}.{subject}.{session}.pkl",
