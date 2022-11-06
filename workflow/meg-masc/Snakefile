@@ -82,9 +82,15 @@ rule extract_presentation_data:
 
 
 rule tokenized:
-    input: "raw-data/stimuli/text/{story_name}.txt"
+    input: "data/raw-text/{story_name}.txt"
     output: "data/tokenized/{model}/{story_name}.txt"
-    script: "{root_dir}/scripts/meg-masc/tokenize.py"
+    shell:
+        """
+        papermill scripts/meg-masc/tokenize.ipynb /dev/null \
+            -p model {wildcards.model} \
+            -p input_path {input} \
+            -p output_path {output}
+        """
 
 
 # Match up force-aligned corpus with raw text corpus on a token-to-token level.
@@ -96,7 +102,7 @@ rule align_with_raw_text:
             take_first("data/presentation/{{story_name}}/{subject}/{session}/word.csv",
                           subject=SUBJECTS, session=SESSIONS),
         presentation_phonemes = lambda _:
-            take_first("data/presentation/{{story_name}}/{subject}/{session}.phoneme.csv",
+            take_first("data/presentation/{{story_name}}/{subject}/{session}/phoneme.csv",
                           subject=SUBJECTS, session=SESSIONS),
         tokenized = "data/tokenized/{model}/{story_name}.txt"
     output:
