@@ -1,10 +1,10 @@
 from pathlib import Path
 import itertools
 
-# TODO schema?
-configfile: "config.yaml"
+# TODO config schema?
 
-base_dir = Path(__file__).parent
+# Project root directory
+root_dir = Path(workflow.basedir).parent
 
 model = config["language_modeling"]["model"]
 
@@ -58,6 +58,8 @@ rule extract_presentation_data:
             expand("raw-data/sub-{{subject}}/ses-{{session}}/meg/sub-{{subject}}_ses-{{session}}_task-{task}_meg.con",
                    task=story_name_to_task[wildcards.story_name],
                    allow_missing=True)
+    params:
+        root_dir = root_dir
     output:
         words = "data/presentation/{story_name}.{subject}.{session}.words.csv",
         phonemes = "data/presentation/{story_name}.{subject}.{session}.phonemes.csv"
@@ -65,13 +67,13 @@ rule extract_presentation_data:
     # TODO after this step, there should be a check/assertion that the time series
     # are uniform between subjects after baselining
     # At the same time, save the offsets relevant for aligning things later on.
-    script: "{base_dir}/scripts/meg-masc/extract_presentation_data.py"
+    script: "{root_dir}/scripts/meg-masc/extract_presentation_data.py"
 
 
 rule tokenized:
     input: "raw-data/stimuli/text/{story_name}.txt"
     output: "data/tokenized/{model}/{story_name}.txt"
-    script: "{base_dir}/scripts/meg-masc/tokenize.py"
+    script: "{root_dir}/scripts/meg-masc/tokenize.py"
 
 
 # Match up force-aligned corpus with raw text corpus on a token-to-token level.
@@ -91,9 +93,9 @@ rule align_with_raw_text:
         aligned_phonemes = "data/aligned/{model}/{story_name}.phonemes.csv"
     shell:
         """
-        python {base_dir}/scripts/meg-masc/align_with_raw_text.py \
-            -m {model} \
-            -o data/aligned/{model} \
+        python ../scripts/meg-masc/align_with_raw_text.py \
+            -m {wildcards.model} \
+            -o data/aligned/{wildcards.model} \
             {input.tokenized} {input.presentation_words} {input.presentation_phonemes}
         """
 
@@ -110,8 +112,8 @@ rule run_language_modeling:
         stimulus = "data/stimulus/{model}/{story_name}.pkl"
     shell:
         """
-        python {base_dir}/scripts/meg-masc/run_language_modeling.py \
-            -m {model} \
+        python ../scripts/meg-masc/run_language_modeling.py \
+            -m {wildcards.model} \
             -n {{config['language_modeling']['n_candidates']}} \
             --vocab_path {{config['language_modeling']['vocab_path']}} \
             -o {output.stimulus} \
@@ -149,4 +151,4 @@ rule produce_average_dataset:
                           subject=SUBJECTS, session=SESSIONS, allow_missing=True)
     output:
         dataset = "data/dataset/{model}/{story_name}.average.pkl"
-    script: "{base_dir}/scripts/meg-masc/average_datasets.py"
+    script: "{root_dir}/scripts/meg-masc/average_datasets.py"
