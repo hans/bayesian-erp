@@ -1,7 +1,9 @@
 from pathlib import Path
 import itertools
 
+# TODO schema?
 configfile: "config.yaml"
+
 base_dir = Path(__file__).parent
 
 model = config["language_modeling"]["model"]

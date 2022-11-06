@@ -1,0 +1,11 @@
+from snakemake.utils import min_version
+min_version("6.0")
+
+configfile: "workflow/config.yaml"
+
+module meg_masc:
+    snakefile: "meg-masc/Snakefile"
+    config: config["datasets"]["meg_masc"] | config
+
+
+use rule * from meg_masc as meg_masc_*
