@@ -1,6 +1,9 @@
 from pathlib import Path
 import itertools
 
+from snakemake.remote.HTTP import RemoteProvider as HTTPRemoteProvider
+HTTP = HTTPRemoteProvider()
+
 # TODO config schema?
 
 # Project root directory
@@ -126,18 +129,21 @@ rule align_with_tokens:
 rule run_language_modeling:
     input:
         tokenized = "data/tokenized/{model}/{story_name}.txt",
-        aligned_words = "data/aligned/{model}/{story_name}.word.csv",
-        aligned_phonemes = "data/aligned/{model}/{story_name}.phoneme.csv"
+        aligned_words = "data/aligned/{model}/{story_name}/word.csv",
+        aligned_phonemes = "data/aligned/{model}/{story_name}/phoneme.csv",
+        cmu_ipa_dict = HTTP.remote("github.com/menelik3/cmudict-ipa/raw/master/cmudict-0.7b-ipa.txt")
     output:
         stimulus = "data/stimulus/{model}/{story_name}.pkl"
     shell:
         """
-        python scripts/meg-masc/run_language_modeling.py \
-            -m {wildcards.model} \
-            -n {{config['language_modeling']['n_candidates']}} \
-            --vocab_path {{config['language_modeling']['vocab_path']}} \
-            -o {output.stimulus} \
-            {input.tokenized} {input.aligned_words} {input.aligned_phonemes}
+        papermill scripts/meg-masc/run_language_model.ipynb /dev/null \
+            -p tokenized_path {input.tokenized} \
+            -p aligned_words_path {input.aligned_words} \
+            -p aligned_phonemes_path {input.aligned_phonemes} \
+            -p cmu_ipa_dict_path {input.cmu_ipa_dict} \
+            -p story_name {wildcards.story_name} \
+            -p model {wildcards.model} \
+            -p output_path {output.stimulus}
         """
 
 
