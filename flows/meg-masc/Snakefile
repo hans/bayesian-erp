@@ -20,7 +20,7 @@ model = config["language_modeling"]["model"]
 #   data are categorized within stimulus.
 
 # Read specified subjects/sessions/tasks for loading
-SUBJECTS, SESSIONS, TASKS = config['subjects'], config['sessions'], config['tasks']
+SUBJECTS, SESSIONS, TASKS = config['subjects'], config['sessions'], config['tasks'].keys()
 
 
 wildcard_constraints:
@@ -39,12 +39,7 @@ def take_first(expr, **wildcards):
     return expand(expr, **{wildcard: values[0] for wildcard, values in wildcards.items()})
 
 
-task_to_story_name = {
-    0: "lw1",
-    1: "cable_spool_fort",
-    2: "easy_money",
-    3: "the_black_willow",
-}
+task_to_story_name = config["tasks"]
 story_name_to_task = {v: k for k, v in task_to_story_name.items()}
 
 

@@ -14,5 +14,7 @@ sessions:
     - 1
 
 tasks:
-    - 0
-    - 1
+    0: lw1
+    1: cable_spool_fort
+    2: easy_money
+    3: the_black_willow
