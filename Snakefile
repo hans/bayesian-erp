@@ -3,7 +3,6 @@ min_version("6.0")
 
 configfile: "config.yaml"
 
-
 def make_merged_config(dataset_name, config=config):
     """
     Merge global pipeline config with dataset-specific config.
@@ -20,3 +19,11 @@ module gillis2021:
     prefix: "workflow/gillis2021"
 
 use rule * from gillis2021 as gillis2021_*
+
+
+module meg_masc:
+    snakefile: "workflow/meg-masc/Snakefile"
+    config: make_merged_config("meg_masc")
+    prefix: "workflow/meg-masc"
+
+use rule * from meg_masc as meg_masc_*

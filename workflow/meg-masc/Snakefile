@@ -45,6 +45,11 @@ task_to_story_name = config["tasks"]
 story_name_to_task = {v: k for k, v in task_to_story_name.items()}
 
 
+def f(*args, **kwargs):
+    print(args)
+    print(kwargs)
+    sys.exit(1)
+
 # Extract data about the presentation of a task to a subject in a given session.
 # Each "task" corresponds to a stimulus (story). NB the resulting extracted presentation
 # data is highly denormalized, containing redundant information about phonemes and words
@@ -58,16 +63,22 @@ rule extract_presentation_data:
             expand("raw-data/sub-{{subject}}/ses-{{session}}/meg/sub-{{subject}}_ses-{{session}}_task-{task}_meg.con",
                    task=story_name_to_task[wildcards.story_name],
                    allow_missing=True)
-    params:
-        root_dir = root_dir
     output:
-        words = "data/presentation/{story_name}.{subject}.{session}.words.csv",
-        phonemes = "data/presentation/{story_name}.{subject}.{session}.phonemes.csv"
+        output_dir = directory("data/presentation/{story_name}/{subject}/{session}"),
+        sounds = "data/presentation/{story_name}/{subject}/{session}/sound.csv",
+        words = "data/presentation/{story_name}/{subject}/{session}/word.csv",
+        phonemes = "data/presentation/{story_name}/{subject}/{session}/phoneme.csv"
 
     # TODO after this step, there should be a check/assertion that the time series
     # are uniform between subjects after baselining
     # At the same time, save the offsets relevant for aligning things later on.
-    script: "{root_dir}/scripts/meg-masc/extract_presentation_data.py"
+    shell:
+        """
+        papermill scripts/meg-masc/extract_presentation_data.ipynb /dev/null \
+            -p story_name {wildcards.story_name} \
+            -p meg_path {input} \
+            -p output_dir {output.output_dir}
+        """
 
 
 rule tokenized:
@@ -82,18 +93,18 @@ rule tokenized:
 rule align_with_raw_text:
     input:
         presentation_words = lambda _:
-            take_first("data/presentation/{{story_name}}.{subject}.{session}.words.csv",
+            take_first("data/presentation/{{story_name}}/{subject}/{session}/word.csv",
                           subject=SUBJECTS, session=SESSIONS),
         presentation_phonemes = lambda _:
-            take_first("data/presentation/{{story_name}}.{subject}.{session}.phonemes.csv",
+            take_first("data/presentation/{{story_name}}/{subject}/{session}.phoneme.csv",
                           subject=SUBJECTS, session=SESSIONS),
         tokenized = "data/tokenized/{model}/{story_name}.txt"
     output:
-        aligned_words = "data/aligned/{model}/{story_name}.words.csv",
-        aligned_phonemes = "data/aligned/{model}/{story_name}.phonemes.csv"
+        aligned_words = "data/aligned/{model}/{story_name}/word.csv",
+        aligned_phonemes = "data/aligned/{model}/{story_name}/phoneme.csv"
     shell:
         """
-        python ../scripts/meg-masc/align_with_raw_text.py \
+        python scripts/meg-masc/align_with_raw_text.py \
             -m {wildcards.model} \
             -o data/aligned/{wildcards.model} \
             {input.tokenized} {input.presentation_words} {input.presentation_phonemes}
@@ -106,13 +117,13 @@ rule align_with_raw_text:
 rule run_language_modeling:
     input:
         tokenized = "data/tokenized/{model}/{story_name}.txt",
-        aligned_words = "data/aligned/{model}/{story_name}.words.csv",
-        aligned_phonemes = "data/aligned/{model}/{story_name}.phonemes.csv"
+        aligned_words = "data/aligned/{model}/{story_name}.word.csv",
+        aligned_phonemes = "data/aligned/{model}/{story_name}.phoneme.csv"
     output:
         stimulus = "data/stimulus/{model}/{story_name}.pkl"
     shell:
         """
-        python ../scripts/meg-masc/run_language_modeling.py \
+        python scripts/meg-masc/run_language_modeling.py \
             -m {wildcards.model} \
             -n {{config['language_modeling']['n_candidates']}} \
             --vocab_path {{config['language_modeling']['vocab_path']}} \
@@ -129,11 +140,11 @@ rule produce_dataset:
     params:
         task = lambda wildcards: story_name_to_task[wildcards.story_name]
     input:
-        presentation_words = "data/presentation/{story_name}.{subject}.{session}.words.csv",
-        presentation_phonemes = "data/presentation/{story_name}.{subject}.{session}.phonemes.csv",
+        presentation_words = "data/presentation/{story_name}/{subject}/{session}.word.csv",
+        presentation_phonemes = "data/presentation/{story_name}/{subject}/{session}.phoneme.csv",
 
-        aligned_words = "data/aligned/{model}/{story_name}.words.csv",
-        aligned_phonemes = "data/aligned/{model}/{story_name}.phonemes.csv",
+        aligned_words = "data/aligned/{model}/{story_name}/word.csv",
+        aligned_phonemes = "data/aligned/{model}/{story_name}/phoneme.csv",
 
         stimulus = "data/stimulus/{model}/{story_name}.pkl",
 
@@ -141,14 +152,14 @@ rule produce_dataset:
             expand("raw-data/sub-{{subject}}/ses-{{session}}/meg/sub-{{subject}}_ses-{{session}}_task-{task}_meg.con",
                    task=story_name_to_task[wildcards.story_name])
     output:
-        dataset = "data/dataset/{model}/{story_name}.{subject}.{session}.pkl"
+        dataset = "data/dataset/{model}/{story_name}/{subject}/{session}.pkl"
 
 
 # Average EEG response time series for colection of aligned subject-session datasets.
 rule produce_average_dataset:
     input:
-        datasets = expand("data/dataset/{model}/{story_name}.{subject}.{session}.pkl",
+        datasets = expand("data/dataset/{model}/{story_name}/{subject}/{session}.pkl",
                           subject=SUBJECTS, session=SESSIONS, allow_missing=True)
     output:
-        dataset = "data/dataset/{model}/{story_name}.average.pkl"
+        dataset = "data/dataset/{model}/{story_name}/average.pkl"
     script: "{root_dir}/scripts/meg-masc/average_datasets.py"

@@ -4,7 +4,7 @@ min_version("6.0")
 configfile: "config.yaml"
 
 module meg_masc:
-    snakefile: "meg-masc/Snakefile"
+    snakefile: "workflow/meg-masc/Snakefile"
     config: config["datasets"]["meg_masc"] | config
     prefix: "meg-masc"
 
