@@ -93,10 +93,10 @@ rule tokenized:
         """
 
 
-# Match up force-aligned corpus with raw text corpus on a token-to-token level.
+# Match up force-aligned corpus with model-tokenized corpus.
 # This will allow us to use token-level features computed on the latter corpus
-# together with the timing data from the former.
-rule align_with_raw_text:
+# together with the presentation data from the former.
+rule align_with_tokens:
     input:
         presentation_words = lambda _:
             take_first("data/presentation/{{story_name}}/{subject}/{session}/word.csv",
@@ -106,14 +106,17 @@ rule align_with_raw_text:
                           subject=SUBJECTS, session=SESSIONS),
         tokenized = "data/tokenized/{model}/{story_name}.txt"
     output:
+        aligned_directory = directory("data/aligned/{model}/{story_name}"),
         aligned_words = "data/aligned/{model}/{story_name}/word.csv",
         aligned_phonemes = "data/aligned/{model}/{story_name}/phoneme.csv"
     shell:
         """
-        python scripts/meg-masc/align_with_raw_text.py \
-            -m {wildcards.model} \
-            -o data/aligned/{wildcards.model} \
-            {input.tokenized} {input.presentation_words} {input.presentation_phonemes}
+        papermill scripts/meg-masc/align_with_tokens.ipynb /dev/null \
+            -p presentation_words_path {input.presentation_words} \
+            -p presentation_phonemes_path {input.presentation_phonemes} \
+            -p tokenized_path {input.tokenized} \
+            -p story_name {wildcards.story_name} \
+            -p output_dir {output.aligned_directory}
         """
 
 
