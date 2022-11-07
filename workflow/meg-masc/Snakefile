@@ -1,5 +1,7 @@
 from pathlib import Path
 import itertools
+import re
+import yaml
 
 from snakemake.remote.HTTP import RemoteProvider as HTTPRemoteProvider
 HTTP = HTTPRemoteProvider()
@@ -25,7 +27,9 @@ model = config["language_modeling"]["model"]
 #   data are categorized within stimulus.
 
 # Read specified subjects/sessions/tasks for loading
-SUBJECTS, SESSIONS, TASKS = config['subjects'], config['sessions'], config['tasks'].keys()
+SUBJECTS, SESSIONS = config['subjects'], config['sessions']
+TASKS = config['tasks'].keys()
+STORY_NAMES = config['tasks'].values()
 
 
 wildcard_constraints:
@@ -160,6 +164,44 @@ rule run_language_modeling:
 
 
 # TODO use computed offsets before to align stimulus+EEG data between subject-sessions
+# Compute alignments of different stimulus presentations/recording sessions, so
+# that stimuli/responses can be unified across sessions.
+rule align_sessions:
+    input:
+        presentation_sounds = expand(
+            "data/presentation/{story_name}/{subject}/{session}/sound.csv",
+            story_name=STORY_NAMES, subject=SUBJECTS, session=SESSIONS,
+            allow_missing=True),
+        presentation_words = expand(
+            "data/presentation/{story_name}/{subject}/{session}/word.csv",
+            story_name=STORY_NAMES, subject=SUBJECTS, session=SESSIONS,
+            allow_missing=True),
+        presentation_phonemes = expand(
+            "data/presentation/{story_name}/{subject}/{session}/phoneme.csv",
+            story_name=STORY_NAMES, subject=SUBJECTS, session=SESSIONS,
+            allow_missing=True),
+
+    output:
+        "data/session_alignment.csv"
+
+    run:
+        presentations = [
+            {
+                "key": dict(zip(["subject", "session", "story_name"],
+                                re.findall(r"data/presentation/([^/]+)/([^/]+)/([^/]+)", sound)[0])),
+                "sound": sound, "word": word, "phoneme": phoneme
+            }
+            for sound, word, phoneme
+            in zip(input.presentation_sounds,
+                   input.presentation_words,
+                   input.presentation_phonemes)]
+        yaml_config = yaml.safe_dump(
+            {"presentations": presentations,
+             "output_path": output[0]})
+
+        shell(f"""
+            papermill scripts/meg-masc/align_sessions.ipynb /dev/null -y "{yaml_config}"
+        """)
 
 
 # Produce a BerpDataset from the aligned corpora for a single subject/session.
