@@ -187,7 +187,7 @@ rule align_sessions:
     run:
         presentations = [
             {
-                "key": dict(zip(["subject", "session", "story_name"],
+                "key": dict(zip(["story_name", "subject", "session"],
                                 re.findall(r"data/presentation/([^/]+)/([^/]+)/([^/]+)", sound)[0])),
                 "sound": sound, "word": word, "phoneme": phoneme
             }
