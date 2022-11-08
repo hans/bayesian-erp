@@ -163,7 +163,6 @@ rule run_language_modeling:
         """
 
 
-# TODO use computed offsets before to align stimulus+EEG data between subject-sessions
 # Compute alignments of different stimulus presentations/recording sessions, so
 # that stimuli/responses can be unified across sessions.
 rule align_sessions:
@@ -209,11 +208,13 @@ rule produce_dataset:
     params:
         task = lambda wildcards: story_name_to_task[wildcards.story_name]
     input:
-        presentation_words = "data/presentation/{story_name}/{subject}/{session}.word.csv",
-        presentation_phonemes = "data/presentation/{story_name}/{subject}/{session}.phoneme.csv",
+        presentation_words = "data/presentation/{story_name}/{subject}/{session}/word.csv",
+        presentation_phonemes = "data/presentation/{story_name}/{subject}/{session}/phoneme.csv",
 
         aligned_words = "data/aligned/{model}/{story_name}/word.csv",
         aligned_phonemes = "data/aligned/{model}/{story_name}/phoneme.csv",
+
+        global_session_alignment = "data/session_alignment.csv",
 
         stimulus = "data/stimulus/{model}/{story_name}.pkl",
 
