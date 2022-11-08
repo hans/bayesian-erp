@@ -9,6 +9,7 @@ workflow/*/raw_data
 workflow/*/data
 .nextflow
 .nextflow*
+.snakemake
 
 # Hydra dev output
 outputs
