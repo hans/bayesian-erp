@@ -30,6 +30,6 @@ def split_kfold(dataset: NestedBerpDataset, splitter_cls=KFold,
     # draw the same time slice from different datasets.
     dataset.order_by_time()
 
-    kf = splitter_cls(**kfold_kwargs)
+    kf = splitter_cls(shuffle=False, **kfold_kwargs)
     for train_idxs, test_idxs in kf.split(dataset):
         yield dataset[train_idxs], dataset[test_idxs]
