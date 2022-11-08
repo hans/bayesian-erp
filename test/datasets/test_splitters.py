@@ -5,7 +5,7 @@ import pytest
 import torch
 
 from berp.datasets import BerpDataset, NestedBerpDataset
-from berp.datasets.splitters import split_kfold
+from berp.datasets import splitters
 from berp.generators import thresholded_recognition_simple as generator
 from berp.generators.stimulus import RandomStimulusGenerator
 from berp.models.reindexing_regression import ModelParameters
@@ -68,7 +68,7 @@ def test_kfold(synth_params):
 
     test_fold_assignments = np.zeros((nested.n_datasets, dataset_max_len), dtype=np.int32)
 
-    for fold_i, (train, test) in enumerate(split_kfold(nested, n_splits=4)):
+    for fold_i, (train, test) in enumerate(splitters.kfold(nested, n_splits=4)):
         train_assignment = np.zeros((nested.n_datasets, dataset_max_len), dtype=bool)
 
         train_draws = summarize_dataset(train)
@@ -107,7 +107,7 @@ def test_recursive_kfold(synth_params):
     dataset_max_len = max(len(x) for x in datasets)
     dataset_name2idx = {x.name: idx for idx, x in enumerate(datasets)}
 
-    for fold_i, (train, test) in enumerate(split_kfold(nested, n_splits=4)):
+    for fold_i, (train, test) in enumerate(splitters.kfold(nested, n_splits=4)):
         outer_test_assignment = np.zeros((nested.n_datasets, dataset_max_len), dtype=bool)
         # Ensure that each sample appears in exactly one test fold.
         inner_test_assignment = np.zeros((nested.n_datasets, dataset_max_len), dtype=int)
@@ -117,7 +117,7 @@ def test_recursive_kfold(synth_params):
             start, end = ds.global_slice_indices
             outer_test_assignment[dataset_name2idx[source_dataset], start:end] = True
 
-        for fold_ij, (train2, test2) in enumerate(split_kfold(train, n_splits=4)):
+        for fold_ij, (train2, test2) in enumerate(splitters.kfold(train, n_splits=4)):
             train_assignment = np.zeros((nested.n_datasets, dataset_max_len), dtype=bool)
 
             print(f"Test fold {fold_i}/{fold_ij}: {repr(test2)}")
@@ -148,3 +148,32 @@ def test_recursive_kfold(synth_params):
             err_msg="No samples in the outer test fold should appear in an inner test fold")
         np.testing.assert_array_less(0, inner_test_assignment[~outer_test_assignment],
             err_msg="All samples not in the outer test fold should appear in an inner test fold")
+
+
+def test_train_test_split(synth_params):
+    datasets = make_datasets(synth_params, n=6)
+    nested = NestedBerpDataset(datasets, n_splits=4)
+
+    dataset_max_len = max(len(x) for x in datasets)
+    dataset_name2idx = {x.name: idx for idx, x in enumerate(datasets)}
+
+    sample_assignments = np.zeros((nested.n_datasets, dataset_max_len), dtype=np.int32)
+
+    train, test = splitters.train_test_split(nested, test_size=0.25)
+
+    for ds in train:
+        source_dataset = ds.name.split("/")[0]
+        start, end = ds.global_slice_indices
+        sample_assignments[dataset_name2idx[source_dataset], start:end] = 1
+    
+    for ds in test:
+        source_dataset = ds.name.split("/")[0]
+        start, end = ds.global_slice_indices
+
+        np.testing.assert_array_equal(0, sample_assignments[dataset_name2idx[source_dataset], start:end],
+            err_msg="Test data overlaps with train data")
+
+        sample_assignments[dataset_name2idx[source_dataset], start:end] = 2
+
+    np.testing.assert_array_less(0, sample_assignments,
+        err_msg="Some samples were not assigned to a test or train fold")
