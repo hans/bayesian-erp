@@ -4,8 +4,9 @@ __pycache__
 .vscode
 .devcontainer
 
-data
 work
+workflow/*/raw_data
+workflow/*/data
 .nextflow
 .nextflow*
 

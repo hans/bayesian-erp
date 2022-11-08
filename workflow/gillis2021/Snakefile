@@ -1,0 +1,169 @@
+from pathlib import Path
+import itertools
+import re
+import yaml
+
+from snakemake.remote.HTTP import RemoteProvider as HTTPRemoteProvider
+HTTP = HTTPRemoteProvider()
+
+# TODO config schema?
+
+# Project root directory
+root_dir = Path(workflow.basedir).parent
+
+model = config["language_modeling"]["model"]
+
+# Strip this from all EEG data files when computing subject names
+EEG_SUFFIX = "_1_256_8_average_4_128.mat"
+
+
+# Read specified subjects/stories for loading
+SUBJECTS = config['subjects']
+STORIES = config['stories']
+
+
+wildcard_constraints:
+    subject = "[\w_]+",
+    story = "[\w_]+"
+
+
+def take_first(expr, **wildcards):
+    """
+    Produce inputs drawing the first element of each of the given `wildcards`.
+    This is useful when using denormalized data and we don't care which of the inputs we
+    use -- we just need some reference.
+    """
+    return expand(expr, **{wildcard: values[0] for wildcard, values in wildcards.items()})
+
+
+def f(*args, **kwargs):
+    print(args)
+    print(kwargs)
+    sys.exit(1)
+
+
+# Extract word/phoneme timing information from Praat TextGrid annotation.
+rule convert_textgrid:
+    input:
+        "raw_data/textgrids/{story}.TextGrid"
+    output:
+        "data/presentations/{story}.csv"
+    shell:
+        "python scripts/gillis2021/convert_textgrid.py {input} > {output}"
+
+
+# Convert Gillis' features from Eelbrain representation to numpy representation.
+rule convert_stimulus_features:
+    input:
+        "raw_data/predictors"
+    output:
+        "data/stimuli.npz"
+    shell:
+        "python scripts/gillis2021/convert_stimulus_features.py {input} {output}"
+    # TODO conda env
+
+
+# Match up force-aligned corpus with raw text corpus on a token-to-token level.
+# This will allow us to use token-level features computed on the latter corpus
+# together with the timing data from the former.
+# 
+# Outputs a tokenized version of the raw text and a CSV describing the alignment
+# between this tokenized version and the force-aligned corpus.
+rule align_with_raw_text:
+    input:
+        presentation = "data/presentations/{story}.csv",
+        raw_text = "raw_data/raw_text/{story}.txt"
+    output:
+        tokenized = "data/tokenized/{model}/{story}.txt",
+        words = "data/aligned/{model}/{story}/word.csv",
+        phonemes = "data/aligned/{model}/{story}/phoneme.csv"
+    shell:
+        """
+        python scripts/gillis2021/align_with_raw_text.py \
+            -m {wildcards.model} \
+            {input.raw_text} {input.presentation} \
+            {output.tokenized} {output.words} {output.phonemes}
+        """
+
+
+# Run a language model on the resulting aligned text inputs and generate a
+# NaturalLanguageStimulus, representing word- and phoneme-level prior predictive
+# distributions.
+rule run_language_modeling:
+    input:
+        tokenized = "data/tokenized/{model}/{story_name}.txt",
+        aligned_words = "data/aligned/{model}/{story_name}/word.csv",
+        aligned_phonemes = "data/aligned/{model}/{story_name}/phoneme.csv",
+
+        vocab = "raw_data/vocab.pkl",
+        celex = "raw_data/celex_dpw_cx.txt"
+    output:
+        stimulus = "data/stimulus/{model}/{story_name}.pkl"
+    shell:
+        """
+        python scripts/gillis2021/run_language_modeling.py \
+            -m {wildcards.model} \
+            -n {{config["language_modeling"]["n_candidates"]}} \
+            --vocab_path {input.vocab} \
+            --celex_path {input.celex} \
+            -o {output.stimulus} \
+            {input.tokenized} {input.aligned_words} {input.aligned_phonemes}
+        """
+
+
+# Produce a BerpDataset from the aligned corpora for a single subject.
+rule produce_dataset:
+    input:
+        aligned_words = "data/aligned/{model}/{story_name}/word.csv",
+        aligned_phonemes = "data/aligned/{model}/{story_name}/phoneme.csv",
+
+        stimulus = "data/stimulus/{model}/{story_name}.pkl",
+        stim_features = "data/stimuli.npz",
+
+        eeg_data = expand(
+            "raw_data/eeg/{{story_name}}/{{subject}}{suffix}",
+            suffix=EEG_SUFFIX)
+    output:
+        dataset = "data/dataset/{model}/{story_name}/{subject}.pkl"
+    shell:
+        """
+        python scripts/gillis2021/produce_dataset.py \
+            -o {output.dataset} \
+            {input.stimulus} \
+            {input.aligned_words} {input.aligned_phonemes} \
+            {input.eeg_data} {input.stim_features}
+        """
+
+
+rule prepare_confusion_matrix:
+    input:
+        stimulus = lambda _: take_first(
+            "data/stimulus/{model}/{story}.pkl",
+            story=STORIES, model=[config["language_modeling"]["model"]]),
+
+        confusion_data = "raw_data/confusion/phon2_conf_matrix_gate5.dat"
+    output:
+        confusion_matrix = "data/confusion_matrix.npz"
+    shell:
+        """
+        python scripts/gillis2021/prepare_confusion_matrix.py \
+            -o {output.confusion_matrix} \
+            {input.stimulus} {input.confusion_data}
+        """
+
+
+# Average EEG response time series for collection of aligned subject-story datasets.
+rule produce_average_dataset:
+    input:
+        datasets = expand("data/dataset/{model}/{story_name}/{subject}.pkl",
+                          subject=SUBJECTS, allow_missing=True)
+    output:
+        dataset = "data/dataset/{model}/{story_name}/average.pkl"
+    
+    shell:
+        """
+        python scripts/gillis2021/produce_average_dataset.py \
+            -o {output.dataset} \
+            -n {wildcards.story_name}/average \
+            {input.datasets}
+        """
