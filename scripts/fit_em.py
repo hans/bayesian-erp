@@ -9,11 +9,11 @@ import optuna
 import numpy as np
 import pandas as pd
 from sklearn.base import clone, BaseEstimator
-from sklearn.model_selection import KFold, train_test_split
 from tqdm.auto import tqdm, trange
 
 from berp.config import Config, CVConfig
 from berp.cv import OptunaSearchCV, EarlyStopException
+from berp.datasets.splitters import KFold, train_test_split
 from berp.models.trf_em import GroupTRFForwardPipeline, BerpTRFEMEstimator
 from berp.viz.trf_em import trf_em_tb_callback, checkpoint_model
 
@@ -47,7 +47,7 @@ def make_cv(model, cfg: CVConfig, callbacks=None):
         max_iter=cfg.max_iter, n_trials=n_trials,
         param_distributions=param_distributions,
         error_score="raise",
-        cv=KFold(n_splits=cfg.n_inner_folds, shuffle=False),
+        cv=KFold(n_splits=cfg.n_inner_folds),
         refit=True,
         verbose=1,
         callbacks=callbacks,)
@@ -76,7 +76,7 @@ def main(cfg: Config):
     # test_size = 0.75
     # L.warning("Using a teeny training set for dev purposes")
     test_size = .25
-    data_train, data_test = train_test_split(dataset, test_size=test_size, shuffle=False)
+    data_train, data_test = train_test_split(dataset, test_size=test_size)
 
     params_dir = Path("params")
     params_dir.mkdir()
