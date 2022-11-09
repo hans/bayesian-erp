@@ -208,6 +208,7 @@ rule produce_dataset:
     params:
         task = lambda wildcards: story_name_to_task[wildcards.story_name]
     input:
+        presentation_sounds = "data/presentation/{story_name}/{subject}/{session}/sound.csv",
         presentation_words = "data/presentation/{story_name}/{subject}/{session}/word.csv",
         presentation_phonemes = "data/presentation/{story_name}/{subject}/{session}/phoneme.csv",
 
@@ -224,8 +225,25 @@ rule produce_dataset:
     output:
         dataset = "data/dataset/{model}/{story_name}/{subject}/{session}.pkl"
 
+    shell:
+        """
+        papermill scripts/meg-masc/produce_dataset.ipynb /dev/null \
+            -p story_name {wildcards.story_name} \
+            -p subject {wildcards.subject} \
+            -p session {wildcards.session} \
+            -p presentation_sounds {input.presentation_sounds} \
+            -p presentation_words {input.presentation_words} \
+            -p presentation_phonemes {input.presentation_phonemes} \
+            -p aligned_words {input.aligned_words} \
+            -p aligned_phonemes {input.aligned_phonemes} \
+            -p global_session_alignment {input.global_session_alignment} \
+            -p stimulus {input.stimulus} \
+            -p bids {input.bids} \
+            -p output_path {output.dataset}
+        """
 
-# Average EEG response time series for colection of aligned subject-session datasets.
+
+# Average EEG response time series for collection of aligned subject-session datasets.
 rule produce_average_dataset:
     input:
         datasets = expand("data/dataset/{model}/{story_name}/{subject}/{session}.pkl",
