@@ -384,7 +384,7 @@ class TestGroupVanilla:
         scores = trf_pipe.score_multidimensional(nested)
         assert scores.shape == (len(nested.datasets), vanilla_dataset.n_sensors)
 
-        assert scores.mean() == aggregate_score
+        np.testing.assert_equal(scores.mean(), aggregate_score)
 
 
 @pytest.mark.parametrize("epoch_window", [(0, 0.5)])
