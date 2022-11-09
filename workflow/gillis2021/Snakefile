@@ -186,7 +186,7 @@ def hydra_param(obj):
     return yaml.safe_dump(obj, default_flow_style=True, width=float("inf")).strip()
 
 
-rule fit_model:
+rule fit_baseline_model:
     input:
         datasets = expand(
             "data/dataset/{{model}}/{story_name}/{subject}.pkl",
@@ -195,6 +195,46 @@ rule fit_model:
             "data/stimulus/{{model}}/{story_name}.pkl",
             story_name=STORIES),
         confusion = "data/confusion_matrix.npz"
+
+    params:
+        berp_model = "trf"
+
+    output:
+        trace = directory("results/{model}/trf")
+
+    run:
+        dataset_path_str = hydra_param(input.datasets)
+
+        stimulus_dict = {
+            Path(stimulus).stem: stimulus for stimulus in input.stimuli
+        }
+        stimulus_dict_str = hydra_param(stimulus_dict)
+
+        cv_spec = config["fit"]["cv_strategy"][params.berp_model]
+
+        shell("""
+        export PYTHONPATH=.
+        python scripts/fit_em.py \
+            model={params.berp_model} \
+            'dataset.paths={dataset_path_str}' \
+            +dataset.stimulus_paths='{stimulus_dict_str}' \
+            cv={cv_spec} \
+            solver=adam \
+            hydra.run.dir={output.trace}
+        """)
+
+
+rule fit_model:
+    input:
+        datasets = expand(
+            "data/dataset/{{model}}/{story_name}/{subject}.pkl",
+            story_name=STORIES, subject=SUBJECTS, allow_missing=True),
+        stimuli = expand(
+            "data/stimulus/{{model}}/{story_name}.pkl",
+            story_name=STORIES),
+        confusion = "data/confusion_matrix.npz",
+
+        baseline_model = "results/{model}/trf"
 
     output:
         trace = directory("results/{model}/{berp_model}")
@@ -207,14 +247,18 @@ rule fit_model:
         }
         stimulus_dict_str = hydra_param(stimulus_dict)
 
+        cv_spec = config["fit"]["cv_strategy"][wildcards.berp_model]
+
         shell("""
         export PYTHONPATH=.
         python scripts/fit_em.py \
             model={wildcards.berp_model} \
+            baseline_model_path={input.baseline_model} \
+            {baseline_override_str} \
             'dataset.paths={dataset_path_str}' \
             +dataset.stimulus_paths='{stimulus_dict_str}' \
             model.confusion_path={input.confusion} \
-            cv={config[fit][cv_strategy]} \
+            cv={cv_spec} \
             solver=adam \
             hydra.run.dir={output.trace}
         """)

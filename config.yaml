@@ -20,4 +20,6 @@ language_modeling:
   n_candidates: 10
 
 fit:
-  cv_strategy: search_alpha_threshold_lambda
+  cv_strategy:
+    trf-berp-fixed: search_alpha_threshold_lambda
+    trf: search_alpha
