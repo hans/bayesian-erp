@@ -132,6 +132,7 @@ rule produce_dataset:
         dataset = "data/dataset/{model}/{story_name}/{subject}.pkl"
     shell:
         """
+        export PYTHONPATH=.
         python scripts/gillis2021/produce_dataset.py \
             -o {output.dataset} \
             {input.stimulus} \
@@ -176,6 +177,15 @@ rule produce_average_dataset:
         """
 
 
+def hydra_param(obj):
+    """
+    Prepare the given object for use as a Hydra CLI override.
+    """
+    if isinstance(obj, snakemake.io.Namedlist):
+        obj = list(obj)
+    return yaml.safe_dump(obj, default_flow_style=True, width=float("inf")).strip()
+
+
 rule fit_model:
     input:
         datasets = expand(
@@ -190,19 +200,19 @@ rule fit_model:
         trace = directory("results/{model}/{berp_model}")
 
     run:
-        dataset_path_str = json.dumps(datasets)
+        dataset_path_str = hydra_param(input.datasets)
 
         stimulus_dict = {
-            Path(stimulus).stem: stimulus for stimulus in wildcards.stimuli
+            Path(stimulus).stem: stimulus for stimulus in input.stimuli
         }
-        stimulus_dict_str = json.dumps(stimulus_dict)
+        stimulus_dict_str = hydra_param(stimulus_dict)
 
         shell("""
         export PYTHONPATH=.
         python scripts/fit_em.py \
             model={wildcards.berp_model} \
             'dataset.paths={dataset_path_str}' \
-            +dataset.stimulus_paths={stimulus_dict_str} \
+            +dataset.stimulus_paths='{stimulus_dict_str}' \
             model.confusion_path={input.confusion} \
             cv={config[fit][cv_strategy]} \
             solver=adam \

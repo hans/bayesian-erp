@@ -41,13 +41,15 @@ p.add_argument("aligned_words_path", type=Path)
 p.add_argument("aligned_phonemes_path", type=Path)
 p.add_argument("eeg_path", type=Path)
 p.add_argument("stim_path", type=Path)
+p.add_argument("-o", "--output_path", type=Path, required=True)
 
 if IS_INTERACTIVE:
     args = Namespace(natural_language_stimulus_path=Path("DKZ_1.pkl"),
                      aligned_words_path=Path("DKZ_1.words.csv"),
                      aligned_phonemes_path=Path("DKZ_1.phonemes.csv"),
                      eeg_path=Path("../../data/gillis2021/eeg/DKZ_1/2019_C2DNN_1_1_256_8_average_4_128.mat"),
-                     stim_path=Path("stimuli.npz"),)
+                     stim_path=Path("stimuli.npz"),
+                     output_path=Path("DKZ_1.2019_C2DNN_1.pkl"),)
 else:
     args = p.parse_args()
 
@@ -172,5 +174,5 @@ ret = BerpDataset(
     Y=eeg.get_data().T
 )
 
-with open(f"{story_name}.{subject}.pkl", "wb") as f:
+with args.output_path.open("wb") as f:
     pickle.dump(ret, f)
