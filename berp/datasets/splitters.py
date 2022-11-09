@@ -25,7 +25,11 @@ class KFold(model_selection.KFold):
     """
 
     @typechecked
-    def split(self, dataset: NestedBerpDataset):
+    def split(self, dataset: NestedBerpDataset, y=None, groups=None):
+        if y is not None:
+            raise ValueError("Didn't expect y to be passed")
+        if groups is not None:
+            raise ValueError("Didn't expect groups to be passed")
         assert self.shuffle == False, "Only supports non-shuffled k-fold"
 
         # Scikit-learn K-fold draws contiguous dataset indices.
