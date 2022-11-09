@@ -291,95 +291,100 @@ class TestGroupBerpFixed:
             "Words recognized at prior should have recognition times before word onset"
 
 
-def test_vanilla_pipeline(vanilla_dataset: BerpDataset):
-    nested = NestedBerpDataset([vanilla_dataset])
-    tmin, tmax = 0, 2
+class TestGroupVanilla:
 
-    trf = TemporalReceptiveField(
-        tmin, tmax, nested.sample_rate,
-        alpha=0, n_outputs=nested.n_sensors)
-    trf_pipe = GroupVanillaTRFForwardPipeline(encoder=trf)
-    trf_pipe.prime(nested)
-    trf_pipe.fit(nested)
+    def _make_trf_pipe(self, nested: NestedBerpDataset, **kwargs):
+        kwargs = dict(tmin=0, tmax=2, sfreq=nested.sample_rate,
+                      alpha=0, n_outputs=nested.n_sensors) | kwargs
+        trf = TemporalReceptiveField(**kwargs)
+        trf_pipe = GroupVanillaTRFForwardPipeline(encoder=trf)
+        trf_pipe.prime(nested)
+        return trf_pipe
 
-    expected_coef = torch.tensor([[0, 0], [1, -1], [0, 0]]).float()
-    coef = trf_pipe.encoders_["subj1"].coef_
+    def test_vanilla_pipeline(self, vanilla_dataset: BerpDataset):
+        nested = NestedBerpDataset([vanilla_dataset])
+        trf_pipe = self._make_trf_pipe(nested)
+        trf_pipe.fit(nested)
 
-    torch.testing.assert_close(coef[0], expected_coef)
-    # assert torch.allclose(coef[1], torch.tensor(0.))
+        expected_coef = torch.tensor([[0, 0], [1, -1], [0, 0]]).float()
+        coef = trf_pipe.encoders_["subj1"].coef_
 
+        torch.testing.assert_close(coef[0], expected_coef)
+        # assert torch.allclose(coef[1], torch.tensor(0.))
 
-def test_vanilla_pipeline_partial(vanilla_dataset: BerpDataset):
-    nested = NestedBerpDataset([vanilla_dataset])
-    tmin, tmax = 0, 2
+    def test_vanilla_pipeline_partial(self, vanilla_dataset: BerpDataset):
+        nested = NestedBerpDataset([vanilla_dataset])
+        trf_pipe = self._make_trf_pipe(nested, 
+            optim=SGDSolver(learning_rate=0.5, n_batches=64, early_stopping=None))
+        trf_pipe.partial_fit(nested)
 
-    trf = TemporalReceptiveField(
-        tmin, tmax, nested.sample_rate,
-        alpha=0, n_outputs=nested.n_sensors,
-        optim=SGDSolver(learning_rate=0.5, n_batches=64, early_stopping=None))
-    trf_pipe = GroupVanillaTRFForwardPipeline(encoder=trf)
-    trf_pipe.prime(nested)
-    trf_pipe.partial_fit(nested)
+        expected_coef = torch.tensor([[0, 0], [1, -1], [0, 0]]).float()
+        coef = trf_pipe.encoders_["subj1"].coef_
 
-    expected_coef = torch.tensor([[0, 0], [1, -1], [0, 0]]).float()
-    coef = trf_pipe.encoders_["subj1"].coef_
+        torch.testing.assert_close(coef[0], expected_coef, atol=1e-3, rtol=1e-3)
+        # assert torch.allclose(coef[1], torch.tensor(0.))
 
-    torch.testing.assert_close(coef[0], expected_coef, atol=1e-3, rtol=1e-3)
-    # assert torch.allclose(coef[1], torch.tensor(0.))
+    def test_vanilla_pipeline_twosubjs(self, vanilla_dataset: BerpDataset):
+        # Clone dataset and change expected coefs for one subject.
+        ds1 = deepcopy(vanilla_dataset)
+        ds1.name = "DKZ_1/subj1"
 
+        ds2 = deepcopy(vanilla_dataset)
+        ds2.name = "DKZ_1/subj2"
+        ds2.Y *= -1  # ******
 
-def test_vanilla_pipeline_twosubjs(vanilla_dataset: BerpDataset):
-    # Clone dataset and change expected coefs for one subject.
-    ds1 = deepcopy(vanilla_dataset)
-    ds1.name = "DKZ_1/subj1"
+        nested = NestedBerpDataset([ds1, ds2])
+        trf_pipe = self._make_trf_pipe(nested)
+        trf_pipe.fit(nested)
 
-    ds2 = deepcopy(vanilla_dataset)
-    ds2.name = "DKZ_1/subj2"
-    ds2.Y *= -1  # ******
+        expected_coef = torch.tensor([[0, 0], [1, -1], [0, 0]]).float()
+        encs = trf_pipe.encoders_
 
-    nested = NestedBerpDataset([ds1, ds2])
-    tmin, tmax = 0, 2
+        torch.testing.assert_close(encs["subj1"].coef_[0], expected_coef)
+        torch.testing.assert_close(encs["subj2"].coef_[0], -1 * expected_coef)
 
-    trf = TemporalReceptiveField(
-        tmin, tmax, nested.sample_rate,
-        alpha=0, n_outputs=nested.n_sensors)
-    trf_pipe = GroupVanillaTRFForwardPipeline(encoder=trf)
-    trf_pipe.prime(nested)
-    trf_pipe.fit(nested)
+    def test_vanilla_pipeline_partial_twosubjs(self, vanilla_dataset: BerpDataset):
+        # Clone dataset and change expected coefs for one subject.
+        ds1 = deepcopy(vanilla_dataset)
+        ds1.name = "DKZ_1/subj1"
 
-    expected_coef = torch.tensor([[0, 0], [1, -1], [0, 0]]).float()
-    encs = trf_pipe.encoders_
+        ds2 = deepcopy(vanilla_dataset)
+        ds2.name = "DKZ_1/subj2"
+        ds2.Y *= -1  # ******
 
-    torch.testing.assert_close(encs["subj1"].coef_[0], expected_coef)
-    torch.testing.assert_close(encs["subj2"].coef_[0], -1 * expected_coef)
+        nested = NestedBerpDataset([ds1, ds2])
+        trf_pipe = self._make_trf_pipe(nested,
+            optim=SGDSolver(learning_rate=0.5, n_batches=64, early_stopping=None))
+        trf_pipe.partial_fit(nested)
 
+        expected_coef = torch.tensor([[0, 0], [1, -1], [0, 0]]).float()
+        encs = trf_pipe.encoders_
 
-def test_vanilla_pipeline_partial_twosubjs(vanilla_dataset: BerpDataset):
-    # Clone dataset and change expected coefs for one subject.
-    ds1 = deepcopy(vanilla_dataset)
-    ds1.name = "DKZ_1/subj1"
+        tols = dict(atol=1e-3, rtol=1e-3)
+        torch.testing.assert_close(encs["subj1"].coef_[0], expected_coef, **tols)
+        torch.testing.assert_close(encs["subj2"].coef_[0], -1 * expected_coef, **tols)
 
-    ds2 = deepcopy(vanilla_dataset)
-    ds2.name = "DKZ_1/subj2"
-    ds2.Y *= -1  # ******
+    def test_scores(self, vanilla_dataset: BerpDataset):
+        # Clone dataset and change expected coefs for one subject.
+        ds1 = deepcopy(vanilla_dataset)
+        ds1.name = "DKZ_1/subj1"
 
-    nested = NestedBerpDataset([ds1, ds2])
-    tmin, tmax = 0, 2
+        ds2 = deepcopy(vanilla_dataset)
+        ds2.name = "DKZ_1/subj2"
+        ds2.Y *= -1  # ******
+        ds2.Y += torch.randn_like(ds2.Y)
 
-    trf = TemporalReceptiveField(
-        tmin, tmax, nested.sample_rate,
-        alpha=0, n_outputs=nested.n_sensors,
-        optim=SGDSolver(learning_rate=0.5, n_batches=64, early_stopping=None))
-    trf_pipe = GroupVanillaTRFForwardPipeline(encoder=trf)
-    trf_pipe.prime(nested)
-    trf_pipe.partial_fit(nested)
+        nested = NestedBerpDataset([ds1, ds2])
+        trf_pipe = self._make_trf_pipe(nested)
+        trf_pipe.fit(nested)
 
-    expected_coef = torch.tensor([[0, 0], [1, -1], [0, 0]]).float()
-    encs = trf_pipe.encoders_
+        aggregate_score = trf_pipe.score(nested)
+        assert isinstance(aggregate_score, float)
 
-    tols = dict(atol=1e-3, rtol=1e-3)
-    torch.testing.assert_close(encs["subj1"].coef_[0], expected_coef, **tols)
-    torch.testing.assert_close(encs["subj2"].coef_[0], -1 * expected_coef, **tols)
+        scores = trf_pipe.score_multidimensional(nested)
+        assert scores.shape == (len(nested.datasets), vanilla_dataset.n_sensors)
+
+        assert scores.mean() == aggregate_score
 
 
 @pytest.mark.parametrize("epoch_window", [(0, 0.5)])

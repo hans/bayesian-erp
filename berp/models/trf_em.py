@@ -438,6 +438,23 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
         return np.mean(scores)
 
     @singledispatchmethod
+    def score_multidimensional(self, dataset, y=None) -> np.ndarray:
+        raise NotImplementedError
+
+    @score_multidimensional.register
+    @typechecked
+    def _(self, dataset: BerpDataset, y=None) -> np.ndarray:
+        enc = self._get_or_create_encoder(dataset)
+        design_matrix, _ = self.pre_transform(dataset)
+        return enc.score_multidimensional(design_matrix, dataset.Y)
+
+    @score_multidimensional.register
+    @typechecked
+    def _(self, dataset: NestedBerpDataset, y=None) -> np.ndarray:
+        scores = [self.score_multidimensional(d) for d in dataset.datasets]
+        return np.array(scores)
+
+    @singledispatchmethod
     def log_likelihood(self, dataset):
         raise NotImplementedError
 
