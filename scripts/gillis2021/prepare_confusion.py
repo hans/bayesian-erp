@@ -32,7 +32,7 @@ IS_INTERACTIVE
 parser = ArgumentParser()
 parser.add_argument("confusion_path", type=Path)
 parser.add_argument("dataset_path", type=Path)
-parser.add_argument("output_path", type=Path)
+parser.add_argument("-o", "--output_path", type=Path, required=True)
 
 if IS_INTERACTIVE:
     args = Namespace(confusion_path=Path("../../data/gillis2021/confusion/phon2_conf_matrix_gate5.dat"),

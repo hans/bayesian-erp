@@ -1,5 +1,6 @@
 from pathlib import Path
 import itertools
+import json
 import re
 import yaml
 
@@ -58,9 +59,12 @@ rule convert_stimulus_features:
         "raw_data/predictors"
     output:
         "data/stimuli.npz"
+    conda:
+        "envs/eelbrain.yml"
     shell:
-        "python scripts/gillis2021/convert_stimulus_features.py {input} {output}"
-    # TODO conda env
+        """
+        python scripts/gillis2021/convert_features.py {input} {output}
+        """
 
 
 # Match up force-aligned corpus with raw text corpus on a token-to-token level.
@@ -101,9 +105,10 @@ rule run_language_modeling:
         stimulus = "data/stimulus/{model}/{story_name}.pkl"
     shell:
         """
-        python scripts/gillis2021/run_language_modeling.py \
+        export PYTHONPATH=.
+        python scripts/gillis2021/run_language_model.py \
             -m {wildcards.model} \
-            -n {{config["language_modeling"]["n_candidates"]}} \
+            -n {config[language_modeling][n_candidates]} \
             --vocab_path {input.vocab} \
             --celex_path {input.celex} \
             -o {output.stimulus} \
@@ -146,9 +151,10 @@ rule prepare_confusion_matrix:
         confusion_matrix = "data/confusion_matrix.npz"
     shell:
         """
-        python scripts/gillis2021/prepare_confusion_matrix.py \
+        export PYTHONPATH=.
+        python scripts/gillis2021/prepare_confusion.py \
             -o {output.confusion_matrix} \
-            {input.stimulus} {input.confusion_data}
+            {input.confusion_data} {input.stimulus}
         """
 
 
@@ -162,8 +168,43 @@ rule produce_average_dataset:
     
     shell:
         """
+        export PYTHONPATH=.
         python scripts/gillis2021/produce_average_dataset.py \
             -o {output.dataset} \
             -n {wildcards.story_name}/average \
             {input.datasets}
         """
+
+
+rule fit_model:
+    input:
+        datasets = expand(
+            "data/dataset/{{model}}/{story_name}/{subject}.pkl",
+            story_name=STORIES, subject=SUBJECTS, allow_missing=True),
+        stimuli = expand(
+            "data/stimulus/{{model}}/{story_name}.pkl",
+            story_name=STORIES),
+        confusion = "data/confusion_matrix.npz"
+
+    output:
+        trace = directory("results/{model}/{berp_model}")
+
+    run:
+        dataset_path_str = json.dumps(datasets)
+
+        stimulus_dict = {
+            Path(stimulus).stem: stimulus for stimulus in wildcards.stimuli
+        }
+        stimulus_dict_str = json.dumps(stimulus_dict)
+
+        shell("""
+        export PYTHONPATH=.
+        python scripts/fit_em.py \
+            model={wildcards.berp_model} \
+            'dataset.paths={dataset_path_str}' \
+            +dataset.stimulus_paths={stimulus_dict_str} \
+            model.confusion_path={input.confusion} \
+            cv={config[fit][cv_strategy]} \
+            solver=adam \
+            hydra.run.dir={output.trace}
+        """)

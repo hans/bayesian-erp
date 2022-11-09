@@ -1,0 +1,10 @@
+name: eelbrain
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - numpy=1.22.4=py310h4ef5377_0
+  - python=3.10.5=h582c2e5_0_cpython
+  - pip:
+    - eelbrain==0.38.1
+    - trftools @ https://github.com/christianbrodbeck/TRF-Tools/archive/main.zip

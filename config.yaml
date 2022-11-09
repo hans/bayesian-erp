@@ -18,4 +18,6 @@ datasets:
 language_modeling:
   model: distilgpt2
   n_candidates: 10
-  vocab_path: null
+
+fit:
+  cv_strategy: search_alpha_threshold_lambda
