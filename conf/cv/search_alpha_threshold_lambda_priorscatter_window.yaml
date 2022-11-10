@@ -1,6 +1,6 @@
 n_outer_folds: 4
 n_inner_folds: 4
-n_trials: 100
+n_trials: 500
 
 param_sampler:
   _target_: optuna.samplers.TPESampler
@@ -40,4 +40,4 @@ params:
   variable_trf_zero_right:
     type: int
     low: 0
-    high: 61
+    high: 36

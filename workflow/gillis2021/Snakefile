@@ -188,9 +188,13 @@ def hydra_param(obj):
 
 rule fit_baseline_model:
     input:
+        # datasets = expand(
+        #     "data/dataset/{{model}}/{story_name}/{subject}.pkl",
+        #     story_name=STORIES, subject=SUBJECTS, allow_missing=True),
+        # Fit average.
         datasets = expand(
-            "data/dataset/{{model}}/{story_name}/{subject}.pkl",
-            story_name=STORIES, subject=SUBJECTS, allow_missing=True),
+            "data/dataset/{{model}}/{story_name}/average.pkl",
+            story_name=STORIES, allow_missing=True),
         stimuli = expand(
             "data/stimulus/{{model}}/{story_name}.pkl",
             story_name=STORIES),
@@ -200,7 +204,7 @@ rule fit_baseline_model:
         berp_model = "trf"
 
     output:
-        trace = directory("results/{model}/trf")
+        trace = directory("results_average/{model}/trf")
 
     run:
         dataset_path_str = hydra_param(input.datasets)
@@ -226,18 +230,21 @@ rule fit_baseline_model:
 
 rule fit_model:
     input:
+        # datasets = expand(
+        #     "data/dataset/{{model}}/{story_name}/{subject}.pkl",
+        #     story_name=STORIES, subject=SUBJECTS, allow_missing=True),
         datasets = expand(
-            "data/dataset/{{model}}/{story_name}/{subject}.pkl",
-            story_name=STORIES, subject=SUBJECTS, allow_missing=True),
+            "data/dataset/{{model}}/{story_name}/average.pkl",
+            story_name=STORIES, allow_missing=True),
         stimuli = expand(
             "data/stimulus/{{model}}/{story_name}.pkl",
             story_name=STORIES),
         confusion = "data/confusion_matrix.npz",
 
-        baseline_model = "results/{model}/trf"
+        baseline_model = "results_average/{model}/trf"
 
     output:
-        trace = directory("results/{model}/{berp_model}")
+        trace = directory("results_average/{model}/{berp_model}")
 
     run:
         dataset_path_str = hydra_param(input.datasets)

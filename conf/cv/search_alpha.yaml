@@ -10,8 +10,8 @@ param_sampler:
 params:
   encoder__alpha:
     type: float
-    low: 1e5
-    high: 1e7
+    low: 1e2
+    high: 1e6
     log: true
     # shape: [129]
 

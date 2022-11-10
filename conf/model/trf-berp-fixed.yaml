@@ -14,4 +14,4 @@ threshold: 0.5
 
 scatter_point: 0.5
 prior_scatter_index: 0
-prior_scatter_point: 0.0
+prior_scatter_point: 0.5
