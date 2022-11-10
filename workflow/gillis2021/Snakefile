@@ -103,8 +103,8 @@ rule run_language_modeling:
         celex = "raw_data/celex_dpw_cx.txt"
     output:
         stimulus = "data/stimulus/{model}/{story_name}.pkl"
-    shell:
-        """
+    run:
+        shell("""
         export PYTHONPATH=.
         python scripts/gillis2021/run_language_model.py \
             -m {wildcards.model} \
@@ -113,7 +113,24 @@ rule run_language_modeling:
             --celex_path {input.celex} \
             -o {output.stimulus} \
             {input.tokenized} {input.aligned_words} {input.aligned_phonemes}
-        """
+        """)
+
+    # TODO make a snakemake bug report: using `shell` here interpolates
+    # the global config, not the updated config from the module setup.
+    # so `n_candidates` is not found. Things look okay accessing `config`
+    # from Python script above directly, or using the Snakemake interpolation
+    # syntax
+    # shell:
+    #     """
+    #     export PYTHONPATH=.
+    #     python scripts/gillis2021/run_language_model.py \
+    #         -m {wildcards.model} \
+    #         -n {config[language_modeling][n_candidates]} \
+    #         --vocab_path {input.vocab} \
+    #         --celex_path {input.celex} \
+    #         -o {output.stimulus} \
+    #         {input.tokenized} {input.aligned_words} {input.aligned_phonemes}
+    #     """
 
 
 # Produce a BerpDataset from the aligned corpora for a single subject.
