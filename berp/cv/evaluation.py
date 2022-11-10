@@ -26,7 +26,6 @@ class BaselinedScorer(Generic[Score]):
         baseline_score = self.baseline_model.score_multidimensional(X, y)
         score = estimator.score_multidimensional(X, y)
 
-        # TODO make sure we get multidimensional results
         if isinstance(X, BerpDataset):
             assert baseline_score.ndim == 1
         elif isinstance(X, NestedBerpDataset):
