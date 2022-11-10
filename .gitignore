@@ -7,6 +7,7 @@ __pycache__
 work
 workflow/*/raw_data
 workflow/*/data
+workflow/*/results*
 .nextflow
 .nextflow*
 .snakemake
