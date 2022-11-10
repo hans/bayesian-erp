@@ -1,5 +1,6 @@
 import logging
 import pickle
+from typing import Optional
 
 import pandas as pd
 from sklearn.base import clone
@@ -35,7 +36,8 @@ def get_recognition_times(est, dataset):
     return torch.concat(rec_points), torch.concat(rec_times)
 
 
-def checkpoint_model(est, dataset, params_dir, viz_cfg: VizConfig):
+def checkpoint_model(est, dataset, params_dir, viz_cfg: VizConfig,
+                     baseline_model: Optional[GroupTRFForwardPipeline] = None):
     tb = Tensorboard.instance()
 
     # May have a wrapper around it.
@@ -86,7 +88,8 @@ def checkpoint_model(est, dataset, params_dir, viz_cfg: VizConfig):
         tb.add_figure(f"encoder_coefs/{key}", fig)
 
 
-def trf_em_tb_callback(est, dataset, params_dir, viz_cfg: VizConfig):
+def trf_em_tb_callback(est, dataset, params_dir, viz_cfg: VizConfig,
+                       baseline_model: Optional[GroupTRFForwardPipeline] = None):
     def tb_callback(study, trial):
         tb = Tensorboard.instance()
         tb.global_step += 1
@@ -100,6 +103,7 @@ def trf_em_tb_callback(est, dataset, params_dir, viz_cfg: VizConfig):
             est_i = clone(est)
             est_i.set_params(**trial.params)
             est_i.fit(dataset)
-            checkpoint_model(est_i, dataset, params_dir, viz_cfg)
+            checkpoint_model(est_i, dataset, params_dir, viz_cfg,
+                             baseline_model=baseline_model)
     
     return tb_callback

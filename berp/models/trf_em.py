@@ -671,7 +671,11 @@ class GroupBerpFixedTRFForwardPipeline(GroupBerpTRFForwardPipeline):
         )]
     def _model_params_setter(self, params: List[PartiallyObservedModelParameters]):
         # HACK: No thx
-        L.warning("Ignoring setter for BerpFixed.params")
+        # We are here because the superclass tries to set `params` in its constructor.
+        # but we already did that. So ignore it, with a check that the params will
+        # match what we already have.
+        if not params == self.params:
+            raise RuntimeError("Hacky design assumption violated. Who is setting params?")
         return
     params = property(_model_params_getter, _model_params_setter)
 

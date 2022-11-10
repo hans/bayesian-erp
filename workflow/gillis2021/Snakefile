@@ -254,7 +254,6 @@ rule fit_model:
         python scripts/fit_em.py \
             model={wildcards.berp_model} \
             baseline_model_path={input.baseline_model} \
-            {baseline_override_str} \
             'dataset.paths={dataset_path_str}' \
             +dataset.stimulus_paths='{stimulus_dict_str}' \
             model.confusion_path={input.confusion} \
