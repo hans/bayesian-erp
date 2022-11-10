@@ -1,6 +1,7 @@
 n_outer_folds: 4
 n_inner_folds: 4
-n_trials: 100
+
+n_trials: 500
 
 param_sampler:
   _target_: optuna.samplers.TPESampler
@@ -9,8 +10,8 @@ param_sampler:
 params:
   encoder__alpha:
     type: float
-    low: 1e1
-    high: 1e6
+    low: 1e5
+    high: 1e7
     log: true
     # shape: [129]
 

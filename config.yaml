@@ -3,17 +3,45 @@ datasets:
     data_dir: data/gillis2021
 
     subjects:
+      - 2019_C2DNN_11
       - 2019_C2DNN_1
+      - 2019_C2DNN_12
+      - 2019_C2DNN_18
       - 2019_C2DNN_2
+      - 2019_C2DNN_28
+      - 2019_C2DNN_29
+      - 2019_C2DNN_30
+      - 2019_C2DNN_32
+      - 2019_C2DNN_35
+      - 2019_C2DNN_36
+      - 2019_C2DNN_38
+      - 2019_C2DNN_45
+      - 2019_C2DNN_47
+      - 2019_C2DNN_48
+      - 2019_C2DNN_49
+      - 2019_C2DNN_5
+      - 2019_C2DNN_52
+      - 2019_C2DNN_54
+      - 2019_C2DNN_57
+      - 2019_C2DNN_6
+      - 2019_C2DNN_63
+      - 2019_C2DNN_64
+      - 2019_C2DNN_66
+      - 2019_C2DNN_69
+      - 2019_C2DNN_7
+      - G12A10
+      - L02J10
+      - V09L10
 
     stories:
       - DKZ_1
       - DKZ_2
       # Not ready
       # - DKZ_3
-    
+
     language_modeling:
       model: GroNLP/gpt2-small-dutch
+      n_candidates: 20000
 
 language_modeling:
   model: distilgpt2
@@ -21,5 +49,5 @@ language_modeling:
 
 fit:
   cv_strategy:
-    trf-berp-fixed: search_alpha_threshold_lambda
+    trf-berp-fixed: search_alpha_threshold_lambda_priorscatter_window
     trf: search_alpha

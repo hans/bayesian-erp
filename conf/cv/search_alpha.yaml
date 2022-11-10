@@ -1,6 +1,8 @@
 n_outer_folds: 4
 n_inner_folds: 4
 
+n_trials: 50
+
 param_sampler:
   _target_: optuna.samplers.TPESampler
   multivariate: true
