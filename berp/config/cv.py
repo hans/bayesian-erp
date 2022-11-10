@@ -6,19 +6,6 @@ from hydra_plugins.hydra_optuna_sweeper.config import TPESamplerConfig, Distribu
 
 
 @dataclass
-class TrainTestConfig:
-    series_hold_pct: float
-    """
-    Hold out data from this percentage of time series.
-    """
-
-    data_hold_pct: float
-    """
-    For selected time series, hold out this percentage of samples.
-    """
-
-
-@dataclass
 class DistributionConfig:
 
     # Type of distribution. "int", "float" or "categorical"

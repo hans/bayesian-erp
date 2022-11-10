@@ -4,7 +4,6 @@ defaults:
   - model: trf
   - solver: adam
   - dataset: dkz_1_2
-  - train_test: conservative
   - cv: search_alpha
   - viz: basic
 
