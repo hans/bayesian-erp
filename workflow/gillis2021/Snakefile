@@ -222,6 +222,7 @@ rule fit_baseline_model:
             model={params.berp_model} \
             'dataset.paths={dataset_path_str}' \
             +dataset.stimulus_paths='{stimulus_dict_str}' \
+            'dataset.drop_X_variable=[recognition_onset]' \
             cv={cv_spec} \
             solver=adam \
             hydra.run.dir={output.trace}
