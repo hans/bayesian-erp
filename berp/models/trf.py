@@ -230,6 +230,10 @@ class TemporalReceptiveField(BaseEstimator):
 
     @typechecked
     def score(self, X: TRFDesignMatrix, Y: TRFResponse) -> float:
+        return self.score_multidimensional(X, Y).mean().item()
+
+    @typechecked
+    def score_multidimensional(self, X: TRFDesignMatrix, Y: TRFResponse) -> np.ndarray:
         X, Y = self._check_shapes_types(X, Y)
 
         Y_pred = self.predict(X)
@@ -239,7 +243,7 @@ class TemporalReceptiveField(BaseEstimator):
         Y_pred = Y_pred - Y_pred.mean(axis=0)
 
         corrs = (Y_pred * Y).sum(axis=0) / (Y_pred.norm(2, dim=0) * Y.norm(2, dim=0))
-        return corrs.mean().item()
+        return corrs.numpy()
 
     def log_likelihood(self, X: TRFDesignMatrix, Y: TRFResponse):
         X, Y = self._check_shapes_types(X, Y)

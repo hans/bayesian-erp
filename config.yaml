@@ -1,0 +1,25 @@
+datasets:
+  gillis2021:
+    data_dir: data/gillis2021
+
+    subjects:
+      - 2019_C2DNN_1
+      - 2019_C2DNN_2
+
+    stories:
+      - DKZ_1
+      - DKZ_2
+      # Not ready
+      # - DKZ_3
+    
+    language_modeling:
+      model: GroNLP/gpt2-small-dutch
+
+language_modeling:
+  model: distilgpt2
+  n_candidates: 10
+
+fit:
+  cv_strategy:
+    trf-berp-fixed: search_alpha_threshold_lambda
+    trf: search_alpha

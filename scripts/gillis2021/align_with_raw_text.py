@@ -24,13 +24,20 @@ IS_INTERACTIVE
 p = ArgumentParser()
 p.add_argument("raw_text_path", type=Path)
 p.add_argument("aligned_corpus_path", type=Path)
+p.add_argument("output_tokenized", type=Path)
+p.add_argument("output_words", type=Path)
+p.add_argument("output_phonemes", type=Path)
 p.add_argument("-m", "--model", default="GroNLP/gpt2-small-dutch",
                help="Huggingface model ref. NB this processing is GPT2 specific at the moment (see code comments).")
+
 
 if IS_INTERACTIVE:
     args = Namespace(raw_text_path=Path("../../data/gillis2021/raw_text/DKZ_1.txt"),
                      aligned_corpus_path=Path("DKZ_1.csv"),
-                     model="GroNLP/gpt2-small-dutch")
+                     model="GroNLP/gpt2-small-dutch",
+                     output_tokenized=Path("DKZ_1.tokenized.txt"),
+                     output_words=Path("DKZ_1.words.csv"),
+                     output_phonemes=Path("DKZ_1.phonemes.csv"))
 else:
     args = p.parse_args()
 
@@ -453,8 +460,8 @@ for df in [fa_words, fa_phonemes]:
 assert set(fa_words.original_idx) == set(fa_phonemes.original_idx), \
     "Word and phoneme level annotations should cover the same set of word IDs"
 
-with open(f"{story_name}.tokenized.txt", "w") as f:
+with args.output_tokenized.open("w") as f:
     f.write(" ".join(tokens_flat))
 
-fa_words.to_csv(f"{story_name}.words.csv")
-fa_phonemes.to_csv(f"{story_name}.phonemes.csv")
+fa_words.to_csv(args.output_words)
+fa_phonemes.to_csv(args.output_phonemes)

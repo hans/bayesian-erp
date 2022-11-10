@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 
 from hydra.core.config_store import ConfigStore
 from omegaconf import OmegaConf
@@ -25,6 +25,8 @@ class Config:
     cv: CVConfig
 
     viz: VizConfig
+
+    baseline_model_path: Optional[str] = None
 
 
 cs = ConfigStore.instance()

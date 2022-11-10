@@ -35,6 +35,7 @@ p = ArgumentParser()
 p.add_argument("tokenized_path", type=Path)
 p.add_argument("aligned_words_path", type=Path)
 p.add_argument("aligned_phonemes_path", type=Path)
+p.add_argument("-o", "--output_path", type=Path, required=True)
 p.add_argument("-m", "--model", default="GroNLP/gpt2-small-dutch")
 p.add_argument("-n", "--n_candidates", type=int, default=10)
 p.add_argument("--vocab_path", type=Path, default="../../data/gillis2021/vocab.pkl")
@@ -44,6 +45,7 @@ if IS_INTERACTIVE:
     args = Namespace(tokenized_path=Path("DKZ_1.tokenized.txt"),
                      aligned_words_path=Path("DKZ_1.words.csv"),
                      aligned_phonemes_path=Path("DKZ_1.phonemes.csv"),
+                     output_path=Path("DKZ_1.pkl"),
                      model="GroNLP/gpt2-small-dutch",
                      n_candidates=40000,
                      vocab_path=Path("../../data/gillis2021/vocab.pkl"),
@@ -127,5 +129,5 @@ celex_phonemizer.missing_counter.most_common(50)
 
 len(stim.candidate_vocabulary)
 
-with open(f"{story_name}.pkl", "wb") as f:
+with args.output_path.open("wb") as f:
     pickle.dump(stim, f)

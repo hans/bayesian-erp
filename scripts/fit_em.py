@@ -2,6 +2,7 @@ import json
 import logging
 from pathlib import Path
 import pickle
+from typing import Callable, List, Optional
 
 import hydra
 from omegaconf import OmegaConf
@@ -9,11 +10,13 @@ import optuna
 import numpy as np
 import pandas as pd
 from sklearn.base import clone, BaseEstimator
-from sklearn.model_selection import KFold, train_test_split
 from tqdm.auto import tqdm, trange
 
 from berp.config import Config, CVConfig
 from berp.cv import OptunaSearchCV, EarlyStopException
+from berp.cv.evaluation import BaselinedScorer
+from berp.datasets.splitters import KFold, train_test_split
+from berp.models import load_model
 from berp.models.trf_em import GroupTRFForwardPipeline, BerpTRFEMEstimator
 from berp.viz.trf_em import trf_em_tb_callback, checkpoint_model
 
@@ -25,7 +28,9 @@ optuna.logging.enable_propagation()
 optuna.logging.disable_default_handler()
 
 
-def make_cv(model, cfg: CVConfig, callbacks=None):
+def make_cv(model, cfg: CVConfig,
+            callbacks: Optional[List[Callable]] = None,
+            baseline_model: Optional[GroupTRFForwardPipeline] = None):
     """
     Make cross-validation object.
     """
@@ -38,6 +43,9 @@ def make_cv(model, cfg: CVConfig, callbacks=None):
     
     sampler = hydra.utils.instantiate(cfg.param_sampler)
     study = optuna.create_study(sampler=sampler, direction="maximize")
+
+    scoring = BaselinedScorer(baseline_model) \
+        if baseline_model is not None else None
     
     n_trials = cfg.n_trials if len(cfg.params) > 0 else 1
     return OptunaSearchCV(
@@ -47,7 +55,8 @@ def make_cv(model, cfg: CVConfig, callbacks=None):
         max_iter=cfg.max_iter, n_trials=n_trials,
         param_distributions=param_distributions,
         error_score="raise",
-        cv=KFold(n_splits=cfg.n_inner_folds, shuffle=False),
+        scoring=scoring,
+        cv=KFold(n_splits=cfg.n_inner_folds),
         refit=True,
         verbose=1,
         callbacks=callbacks,)
@@ -69,6 +78,10 @@ def main(cfg: Config):
                              optim=cfg.solver)
     from pprint import pprint; pprint(model.get_params())
 
+    baseline_model: Optional[GroupTRFForwardPipeline] = None
+    if cfg.baseline_model_path is not None:
+        baseline_model = load_model(cfg.baseline_model_path)
+
     # Before splitting datasets, prime model pipeline with full data.
     model.prime(dataset)
 
@@ -76,7 +89,7 @@ def main(cfg: Config):
     # test_size = 0.75
     # L.warning("Using a teeny training set for dev purposes")
     test_size = .25
-    data_train, data_test = train_test_split(dataset, test_size=test_size, shuffle=False)
+    data_train, data_test = train_test_split(dataset, test_size=test_size)
 
     params_dir = Path("params")
     params_dir.mkdir()
@@ -87,8 +100,13 @@ def main(cfg: Config):
         L.info(f"Running cross-validation to estimate hyperparameters, with "
                f"{cfg.cv.n_inner_folds} inner folds.")
 
-        tb_callback = trf_em_tb_callback(model, data_train, params_dir, cfg.viz)
-        cv = make_cv(model, cfg.cv, callbacks=[tb_callback])
+        tb_callback = trf_em_tb_callback(
+            model, data_train, params_dir, cfg.viz,
+            baseline_model=baseline_model)
+        cv = make_cv(
+            model, cfg.cv,
+            baseline_model=baseline_model,
+            callbacks=[tb_callback])
         cv.fit(data_train)
 
         # Save study information for all hparam options.

@@ -198,12 +198,22 @@ class NaturalLanguageStimulusProcessor(object):
             word_p_token = p_token[word_mask]
             word_candidate_token_ids = candidate_token_ids[word_mask]
 
-            # Aggregate.
+            if (~word_p_token.isfinite()).all(dim=0).any():
+                raise RuntimeError(
+                    "Some candidate had probability zero for all tokens in this word. "
+                    f"Need a new candidate sampling strategy. word id {word_id}")
+
+            # Aggregate, ignoring potential disallowed tokens.
+            word_p_token[~word_p_token.isfinite()] = 0
             word_p_candidates = word_p_token.sum(dim=0)
-            # DUMB just take the first one.
-            # Could get the GT string though.
-            word_candidate_token_ids = word_candidate_token_ids[0]
-            word_candidate_strs = self._tokenizer.convert_ids_to_tokens(word_candidate_token_ids)
+            # DUMB just take the first token which isn't disallowed. We really should be
+            # computing/aggregating into entire words here, using a more intelligent
+            # beam search method.
+            word_candidate_strs = [
+                next(token_ij for token_ij in self._tokenizer.convert_ids_to_tokens(candidate_i_tokens)
+                     if self._clean_word(token_ij))
+                for candidate_i_tokens in word_candidate_token_ids.T
+            ]
 
             ret_word_ids.append(word_id)
             p_candidates.append(word_p_candidates)

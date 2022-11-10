@@ -2,7 +2,7 @@ from __future__ import annotations
 import dataclasses
 from dataclasses import dataclass, replace
 import logging
-from typing import List, Optional, Callable, Dict, Tuple, Union
+from typing import List, Optional, Callable, Dict, Tuple, Union, Iterator
 
 import numpy as np
 import torch
@@ -374,6 +374,22 @@ class NestedBerpDataset(object):
                     (i, split_offset, min(len(dataset), split_offset + split_size)))
         self.flat_idxs = np.array(flat_idxs)
 
+    def order_by_dataset(self) -> "NestedBerpDataset":
+        """
+        Order the dataset by dataset, then by time.
+        """
+        ordered = np.lexsort(self.flat_idxs[:, [1, 0]].T)
+        self.flat_idxs = self.flat_idxs[ordered]
+        return self
+
+    def order_by_time(self) -> "NestedBerpDataset":
+        """
+        Reorder splits across dataset by time, then by dataset.
+        """
+        ordered = np.lexsort(self.flat_idxs[:, [0, 1]].T)
+        self.flat_idxs = self.flat_idxs[ordered]
+        return self
+
     @property
     def dtype(self):
         return self.datasets[0].dtype
@@ -427,11 +443,20 @@ class NestedBerpDataset(object):
     @typechecked
     def __getitem__(self, key: Union[int, np.integer, np.ndarray]
                     ) -> Union[BerpDataset, NestedBerpDataset]:
+        """
+        Note that the order of the keys will not be respected in the case
+        where an ndarray is used for indexing. Instead, datasets will be
+        returned in an order that maximizes contiguity of time series.
+        """
         if isinstance(key, (int, np.integer)):
             dataset, split_start, split_end = self.flat_idxs[key]
             return self.datasets[dataset][split_start:split_end]
         elif isinstance(key, np.ndarray):
             flat_idxs = self.flat_idxs[key]
+
+            # Sort by dataset, then by start time
+            flat_idxs = flat_idxs[np.lexsort(flat_idxs[:, [1, 0]].T)]
+
             # Slice in a way that keeps subdatasets maximally contiguous.
             # We only want to slice when 1) the subdataset index changes, or
             # 2) the time series indices are not contiguous.
@@ -458,12 +483,37 @@ class NestedBerpDataset(object):
     def __len__(self):
         return len(self.flat_idxs)
 
+    def __iter__(self) -> Iterator[BerpDataset]:
+        return (self[i] for i in range(len(self)))
+
     def iter_datasets(self):
         return iter(self.datasets)
 
     @property
     def names(self):
         return [ds.name for ds in self.datasets]
+
+    def __repr__(self):
+        """
+        Return a summary of all the datasets contained in this dataset.
+        Merge contiguous subdatasets in this summary.
+        """
+
+        descriptions = [(x.name, x.global_slice_indices, len(x)) for x in self]
+        merged = []
+        for name, slice_bounds, length in descriptions:
+            if slice_bounds is None:
+                merged.append((name, (0, length)))
+                continue
+
+            name = name.split("/")[0]
+            start, end = slice_bounds
+            if merged and merged[-1][0] == name and merged[-1][1][1] == start:
+                merged[-1] = (name, (merged[-1][1][0], end))
+            else:
+                merged.append((name, (start, end)))
+
+        return f"NestedBerpDataset({', '.join(f'{name}[{start}:{end}]' for name, (start, end) in merged)})"
 
     def subset_sensors(self, sensors: List[int]) -> NestedBerpDataset:
         """

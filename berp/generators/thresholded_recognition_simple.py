@@ -136,8 +136,9 @@ def sample_dataset(params: rr.ModelParameters,
     X_ts = torch.zeros((Y.shape[0], 1))
 
     return BerpDataset(
-        name=uuid.uuid4().hex,
-        stimulus_name=uuid.uuid4().hex,
+        name=uuid.uuid4().hex[:8],
+        # TODO store this on Stimulus and draw on it here
+        stimulus_name=uuid.uuid4().hex[:8],
         sample_rate=sample_rate,
         phonemes=PHONEMES.tolist(),
 
