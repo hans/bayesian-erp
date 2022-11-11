@@ -47,7 +47,8 @@ class CVConfig:
     max_iter: int = 50
     n_trials: int = 20
 
-    sensor_aggregation_fn: Literal["mean", "max", "median"] = "mean"
+    # Key into `numpy` attribute for aggregating sensor-level scores.
+    sensor_aggregation_fn: str = "mean"
 
 
 cs = ConfigStore.instance()
