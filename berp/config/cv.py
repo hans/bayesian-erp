@@ -47,6 +47,8 @@ class CVConfig:
     max_iter: int = 50
     n_trials: int = 20
 
+    sensor_aggregation_fn: Literal["mean", "max", "median"] = "mean"
+
 
 cs = ConfigStore.instance()
 cs.store(group="train_test", name="base_train_test", node=TrainTestConfig)
