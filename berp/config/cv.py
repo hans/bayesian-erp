@@ -51,5 +51,4 @@ class CVConfig:
 
 
 cs = ConfigStore.instance()
-cs.store(group="train_test", name="base_train_test", node=TrainTestConfig)
 cs.store(group="cv", name="base_cv", node=CVConfig)
