@@ -44,8 +44,8 @@ def make_cv(model, cfg: CVConfig,
     sampler = hydra.utils.instantiate(cfg.param_sampler)
     study = optuna.create_study(sampler=sampler, direction="maximize")
 
-    scoring = BaselinedScorer(baseline_model) \
-        if baseline_model is not None else None
+    aggregation_fn = getattr(np, cfg.sensor_aggregation_fn)
+    scoring = BaselinedScorer(baseline_model, aggregation_fn=aggregation_fn)
     
     n_trials = cfg.n_trials if len(cfg.params) > 0 else 1
     return OptunaSearchCV(
