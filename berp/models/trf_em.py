@@ -254,7 +254,7 @@ class ScatterParamsMixin:
         return super().set_params(**params)
 
 
-Encoder = TypeVar("Encoder")
+Encoder = TypeVar("Encoder", bound=TemporalReceptiveField)
 class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder]):
 
     """
@@ -416,12 +416,12 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
         Y = torch.cat(Ys, dim=0)
         encoder.fit(design_matrix, Y)
 
-    def fit(self, dataset: NestedBerpDataset, y=None) -> "GroupBerpTRFForwardPipeline":
+    def fit(self, dataset: NestedBerpDataset, y=None) -> "GroupTRFForwardPipeline":
         # Group datasets by encoder and fit jointly.
         grouped_datasets = defaultdict(list)
-        for dataset in dataset.datasets:
-            key = self._get_encoder_key(dataset)
-            grouped_datasets[key].append(dataset)
+        for ds_i in dataset.datasets:
+            key = self._get_encoder_key(ds_i)
+            grouped_datasets[key].append(ds_i)
 
         for key, datasets in tqdm(grouped_datasets.items(), desc="Exact fit"):
             enc = self._get_or_create_encoder(datasets[0])
@@ -434,7 +434,7 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
         encoder.partial_fit(design_matrix, dataset.Y, validation_mask=validation_mask,
                             dataset_tag=dataset.name)
 
-    def partial_fit(self, dataset: NestedBerpDataset, y=None) -> "GroupBerpTRFForwardPipeline":
+    def partial_fit(self, dataset: NestedBerpDataset, y=None) -> "GroupTRFForwardPipeline":
         n_early_stops = 0
 
         encs = self._get_or_create_encoders(dataset)
@@ -533,7 +533,7 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
 class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
 
     def __init__(self, encoder: Encoder,
-                 params: List[PartiallyObservedModelParameters],
+                 params: List[ModelParameters],
                  param_weights: Optional[Responsibilities] = None,
 
                  scatter_point: float = 0.0,
@@ -584,7 +584,7 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
 
     @typechecked
     def get_recognition_points(self, dataset: BerpDataset,
-                               params: PartiallyObservedModelParameters,
+                               params: ModelParameters,
                                ) -> TensorType[torch.long]:
         # TODO cache rec point computation?
         # profile and find out if it's worth it
@@ -599,7 +599,7 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
 
     @typechecked
     def get_recognition_times(self, dataset: BerpDataset,
-                              params: PartiallyObservedModelParameters,
+                              params: ModelParameters,
                               ) -> Tuple[TensorType[torch.long], TensorType[torch.float]]:
         recognition_points = self.get_recognition_points(dataset, params)
         recognition_times = recognition_points_to_times(
@@ -699,13 +699,13 @@ class GroupBerpFixedTRFForwardPipeline(GroupBerpTRFForwardPipeline):
             variable_trf_zero_right=variable_trf_zero_right,
             **kwargs)
 
-    def _model_params_getter(self) -> List[PartiallyObservedModelParameters]:
+    def _model_params_getter(self) -> List[ModelParameters]:
         return [PartiallyObservedModelParameters(
             threshold=torch.as_tensor(self.threshold),
             confusion=torch.as_tensor(self.confusion),
             lambda_=torch.as_tensor(self.lambda_),
         )]
-    def _model_params_setter(self, params: List[PartiallyObservedModelParameters]):
+    def _model_params_setter(self, params: List[ModelParameters]):
         # HACK: No thx
         # We are here because the superclass tries to set `params` in its constructor.
         # but we already did that. So ignore it, with a check that the params will
@@ -716,7 +716,6 @@ class GroupBerpFixedTRFForwardPipeline(GroupBerpTRFForwardPipeline):
     params = property(_model_params_getter, _model_params_setter)
 
 
-@typechecked
 class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
 
     """
@@ -770,6 +769,7 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
             validation_mask=_make_validation_mask(dataset, 0.1),  # TODO magic number
         )
 
+    @typechecked
     def _get_recognition_quantiles(self,
                                    dataset: BerpDataset,
                                    params: ModelParameters
@@ -835,7 +835,7 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
         self._check_shapes(dataset)
         return super().pre_transform(dataset)
     
-    def pre_transform_expanded(self, dataset: NestedBerpDataset) -> Iterator[Tuple[TRFDesignMatrix, np.ndarray]]:
+    def pre_transform_expanded(self, dataset: BerpDataset) -> Iterator[Tuple[TRFDesignMatrix, np.ndarray]]:
         self._check_shapes(dataset)
         return super().pre_transform_expanded(dataset)
 
@@ -843,8 +843,9 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
                           ) -> Tuple[List[str], List[str]]:
         ts_feature_names, variable_feature_names = super().get_feature_names(dataset)
         variable_feature_names = [
-            [f"{name}_{i}" for name in variable_feature_names]
-            for i in self.n_quantiles
+            f"{name}_{i}"
+            for i in range(self.n_quantiles)
+            for name in variable_feature_names
         ]
         return ts_feature_names, variable_feature_names
 
@@ -1133,7 +1134,7 @@ def update_with_pretrained_paths(pipeline: GroupBerpTRFForwardPipeline,
 
 def make_pipeline(
     trf: TemporalReceptiveField,
-    params: List[PartiallyObservedModelParameters],
+    params: List[ModelParameters],
     pretrained_pipeline_paths: Optional[List[str]] = None,
     *args, **kwargs) -> GroupBerpTRFForwardPipeline:
 
