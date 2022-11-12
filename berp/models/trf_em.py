@@ -5,7 +5,8 @@ from functools import singledispatchmethod
 import logging
 import pickle
 import re
-from typing import Optional, List, Dict, Union, Tuple, TypeVar, Generic, Iterator, Type
+from typing import Optional, List, Dict, Union, Tuple, \
+    TypeVar, Generic, Iterator, Type, cast
 
 from hydra.utils import to_absolute_path
 import numpy as np
@@ -115,7 +116,7 @@ def scatter_variable(dataset: BerpDataset, times: TensorType[B, float],
 
 
 def _make_validation_mask(dataset: BerpDataset, validation_fraction: float,
-                          random_state=None) -> np.ndarray:
+                          random_state=None) -> TensorType[torch.bool]:
     y = dataset.Y
 
     n_samples = y.shape[0]
@@ -224,7 +225,7 @@ def clone_count(x):
     return x.clone()
 
 
-class ScatterParamsMixin:
+class ScatterParamsMixin(BaseEstimator):
 
     scatter_key: Optional[str] = None
     scatter_targets: Optional[List[BaseEstimator]] = None
@@ -234,7 +235,7 @@ class ScatterParamsMixin:
         self.scatter_targets = scatter_targets
 
     def set_params(self, **params):
-        if self.scatter_key is None:
+        if self.scatter_key is None or self.scatter_targets is None:
             return super().set_params(**params)
         if not params:
             return self
@@ -322,7 +323,10 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
         a single encoder. (most intuitively this should be e.g. a subject ID.)
         """
         # TODO specific to Gillis
-        return subject_re.match(dataset.name).group(1)
+        match = subject_re.match(dataset.name)
+        if match is None:
+            raise RuntimeError(dataset.name)
+        return match.group(1)
 
     def _get_encoder(self, dataset: BerpDataset) -> Encoder:
         """
@@ -344,7 +348,7 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
         except KeyError:
             key = self._get_encoder_key(dataset)
             L.debug(f"Creating encoder for key {key}")
-            enc = clone(self.encoder)
+            enc: Encoder = cast(Encoder, clone(self.encoder))
             enc.set_name(key)
             self._set_encoder(key, enc)
 
@@ -614,9 +618,9 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
         return recognition_points, recognition_times
 
     def _pre_transform_single(self, dataset: BerpDataset,
-                              params: PartiallyObservedModelParameters,
+                              params: ModelParameters,
                               out: TRFDesignMatrix,
-                              out_weight: float = 1.,
+                              out_weight: Union[float, TensorType[float]] = 1.,
                               ) -> None:
         """
         Run word recognition logic for the given dataset and parameters,
