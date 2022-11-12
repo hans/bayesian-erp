@@ -591,7 +591,8 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
         # Generate lag mask given zero-ing rules.
         lag_mask = torch.ones(out.shape[2], dtype=torch.bool)
         lag_mask[:self.variable_trf_zero_left] = False
-        lag_mask[-self.variable_trf_zero_right:] = False
+        if self.variable_trf_zero_right != 0:
+            lag_mask[-self.variable_trf_zero_right:] = False
 
         scatter_variable(
             dataset, recognition_times,
