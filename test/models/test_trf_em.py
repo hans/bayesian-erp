@@ -445,7 +445,7 @@ class TestGroupVanilla:
         scores = trf_pipe.score_multidimensional(nested)
         assert scores.shape == (len(nested.datasets), vanilla_dataset.n_sensors)
 
-        np.testing.assert_equal(scores.mean(), aggregate_score)
+        np.testing.assert_allclose(scores.mean(), aggregate_score)
 
 
 def check_lagged_features(X: TRFDesignMatrix, samples: TensorType["batch", torch.long],
