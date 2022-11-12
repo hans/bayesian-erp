@@ -402,11 +402,7 @@ def check_lagged_features(X: TRFDesignMatrix, samples: TensorType["batch", torch
         overflow_mask = samples_i >= X.shape[0]
 
         torch.testing.assert_allclose(
-            torch.gather(
-                X[:, :, delay],
-                0,
-                samples_i[~overflow_mask].unsqueeze(1)
-            ),
+            X[samples_i[~overflow_mask], :, delay],
             values[~overflow_mask],
         )
 
