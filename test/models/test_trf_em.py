@@ -6,13 +6,14 @@ from typing import List, Tuple
 import numpy as np
 import pytest
 import torch
+from torchtyping import TensorType  # type: ignore
 
 from berp.cv import EarlyStopException
 from berp.datasets import BerpDataset, NestedBerpDataset
 from berp.generators import thresholded_recognition_simple as generator
 from berp.generators.stimulus import RandomStimulusGenerator
 from berp.models.reindexing_regression import PartiallyObservedModelParameters, ModelParameters
-from berp.models.trf import TemporalReceptiveField, TRFDelayer
+from berp.models.trf import TemporalReceptiveField, TRFDelayer, TRFDesignMatrix
 from berp.models.trf_em import BerpTRFEMEstimator, GroupBerpFixedTRFForwardPipeline, GroupBerpTRFForwardPipeline, GroupVanillaTRFForwardPipeline
 from berp.models import trf_em
 from berp.solvers import Solver, AdamSolver, SGDSolver
@@ -387,6 +388,29 @@ class TestGroupVanilla:
         np.testing.assert_equal(scores.mean(), aggregate_score)
 
 
+def check_lagged_features(X: TRFDesignMatrix, samples: TensorType["batch", torch.long],
+                          values: TensorType["batch", torch.float]):
+    """
+    Check that there is accurate representation of lagged features with onset
+    at `samples` and corresponding `values` in the given TRF design matrix.
+    """
+
+    for delay in range(X.shape[2]):
+        samples_i = samples + delay
+
+        # don't index past time series edge.
+        overflow_mask = samples_i >= X.shape[0]
+
+        torch.testing.assert_allclose(
+            torch.gather(
+                X[:, :, delay],
+                0,
+                samples_i[~overflow_mask].unsqueeze(1)
+            ),
+            values[~overflow_mask],
+        )
+
+
 @pytest.mark.parametrize("epoch_window", [(0, 0.5)])
 def test_scatter_variable(dataset: BerpDataset, epoch_window: Tuple[float, float]):
     tmin, tmax = epoch_window
@@ -409,22 +433,11 @@ def test_scatter_variable(dataset: BerpDataset, epoch_window: Tuple[float, float
 
     trf_em.scatter_variable(dataset, times, design_matrix, 1.0)
     variable_feature_start_idx = dataset.n_ts_features
-    for delay in range(design_matrix.shape[2]):
-        samples = time_to_sample(dataset.word_onsets, dataset.sample_rate) + shift + delay
 
-        # Don't index past time series edge.
-        overflow_mask = samples >= design_matrix.shape[0]
-
-        torch.testing.assert_allclose(
-            torch.gather(
-                design_matrix[:, variable_feature_start_idx:, delay],
-                0,
-                samples[~overflow_mask].unsqueeze(1),
-            ),
-            dataset.X_variable[~overflow_mask]
-        )
-    
-    # import ipdb; ipdb.set_trace()
+    check_lagged_features(
+        design_matrix[:, variable_feature_start_idx:, :],
+        time_to_sample(dataset.word_onsets, dataset.sample_rate) + shift,
+        dataset.X_variable)
 
 
 def test_scatter_add_edges(dataset: BerpDataset):
