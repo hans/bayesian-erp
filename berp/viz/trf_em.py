@@ -70,10 +70,7 @@ def checkpoint_model(est, dataset, params_dir, viz_cfg: VizConfig,
         tb.add_histogram("recognition_times", rec_times)
 
     # Table-ize and render TRF coefficients.
-    ts_feature_names = dataset.ts_feature_names if dataset.ts_feature_names is not None else \
-        [str(x) for x in range(dataset.n_ts_features)]
-    variable_feature_names = dataset.variable_feature_names if dataset.variable_feature_names is not None else \
-        [f"var_{x}" for x in range(dataset.n_variable_features)]
+    ts_feature_names, variable_feature_names = est.get_feature_names(dataset)
     feature_names = ts_feature_names + variable_feature_names
     for key, encoder in tqdm(est.encoders_.items(), desc="Visualizing encoders"):
         coefs_df = trf_to_dataframe(encoder, feature_names=feature_names)

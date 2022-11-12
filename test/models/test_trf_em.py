@@ -159,6 +159,22 @@ def group_fixed_estimator(synth_params: ModelParameters, trf: TemporalReceptiveF
     return pipe
 
 
+@pytest.fixture(scope="function")
+def group_cannon_estimator(synth_params: ModelParameters, trf: TemporalReceptiveField):
+    pipe = trf_em.GroupBerpCannonTRFForwardPipeline(
+        trf,
+        threshold=synth_params.threshold,
+        confusion=synth_params.confusion,
+        lambda_=synth_params.lambda_,
+        n_quantiles=3,
+        scatter_point=np.random.random(),
+        prior_scatter_index=np.random.choice([-3, -2, -1, 0]).item(),
+        prior_scatter_point=np.random.random(),
+    )
+
+    return pipe
+
+
 def test_variable_trf_zero_overflow(trf: TemporalReceptiveField):
     # Should error when variable-onset TRF zero-constraint is too wide
     # given the width of the TRF encoder window.
@@ -290,6 +306,50 @@ class TestGroupBerpFixed:
         recognition_times_relative = recognition_times_relative[recognized_at_prior]
         assert (recognition_times_relative < 0).all(), \
             "Words recognized at prior should have recognition times before word onset"
+
+
+@pytest.mark.usefixtures("group_cannon_estimator")
+class TestGroupCannon:
+
+    def test_recognition_quantiles(self,
+                                   group_cannon_estimator: trf_em.GroupBerpCannonTRFForwardPipeline,
+                                   dataset: BerpDataset):
+        # TODO
+        pass
+
+    def test_pre_transform(self,
+                           group_cannon_estimator: trf_em.GroupBerpCannonTRFForwardPipeline,
+                           dataset: BerpDataset):
+        """
+        Test that the Cannon pipeline works
+        """
+        params = group_cannon_estimator.params[0]
+        quantiles = group_cannon_estimator._get_recognition_quantiles(dataset, params)
+
+        assert quantiles.min() >= 0
+        assert quantiles.max() < group_cannon_estimator.n_quantiles
+
+        ######
+
+        dataset.name = "DKZ_1/subj1"
+        group_cannon_estimator.prime(dataset)
+        design_matrix, _ = group_cannon_estimator.pre_transform(dataset)
+        assert design_matrix.shape[1] == dataset.n_ts_features + group_cannon_estimator.n_quantiles * dataset.n_variable_features
+        for quantile_i in range(group_cannon_estimator.n_quantiles):
+            print(quantile_i)
+            mask = quantiles == quantile_i
+            onsets_i = dataset.word_onsets[mask]
+
+            expected_features = torch.zeros((len(onsets_i), dataset.n_variable_features * group_cannon_estimator.n_quantiles))
+            expected_features[:, quantile_i * dataset.n_variable_features:(quantile_i + 1) * dataset.n_variable_features] = \
+                dataset.X_variable[mask]
+
+            check_lagged_features(
+                design_matrix[:, dataset.n_ts_features:, :],
+                time_to_sample(onsets_i, dataset.sample_rate),
+                expected_features
+            )
+
 
 
 class TestGroupVanilla:
