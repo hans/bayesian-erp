@@ -16,7 +16,8 @@ def make_dataset():
     t_max = stim.phoneme_onsets_global[-1, -1]
     sfreq = 48
     sigma = 1.
-    num_sensors = 1
+    num_sensors = 3
+    sensor_names = ["a", "b", "c"]
     num_ts_features = 3
     num_variable_features = 3
 
@@ -39,7 +40,8 @@ def make_dataset():
 
         X_ts=X_ts,
         X_variable=X_variable,
-        Y=Y
+        Y=Y,
+        sensor_names=sensor_names,
     )
 
 
@@ -108,3 +110,26 @@ def test_nested_getitem_contiguous(nested_dataset_2):
     assert len(sliced.datasets) == 2, "First dataset should be kept contiguous"
     assert sliced.datasets[0].name == nested_dataset_2.datasets[0].name, "First dataset should be kept contiguous"
     assert sliced.datasets[1].name.startswith(f"{nested_dataset_2.datasets[1].name}/slice:"), "Second dataset should be sliced"
+
+
+@pytest.mark.parametrize("sensor_spec", [["a", "c"], [0, 2]])
+def test_subset_sensors(sensor_spec):
+    ds = make_dataset()
+    ds2 = ds.subset_sensors(sensor_spec)
+
+    assert ds.Y.shape[0] == ds2.Y.shape[0]
+    assert ds.Y.shape[1] == 3
+    assert ds2.Y.shape[1] == 2
+    assert ds2.sensor_names == ["a", "c"]
+    torch.testing.assert_allclose(ds2.Y, ds.Y[:, [0, 2]])
+
+
+def test_average_sensors():
+    ds = make_dataset()
+    ds2 = ds.average_sensors()
+
+    assert ds.Y.shape[0] == ds2.Y.shape[0]
+    assert ds.Y.shape[1] == 3
+    assert ds2.Y.shape[1] == 1
+    assert ds2.sensor_names == ["average_a_b_c"]
+    torch.testing.assert_allclose(ds2.Y, ds.Y.mean(dim=1, keepdim=True))

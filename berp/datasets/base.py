@@ -72,6 +72,11 @@ class BerpDataset:
     Response data.
     """
 
+    sensor_names: Optional[List[str]] = None
+    """
+    Names of sensors (columns of `Y`).
+    """
+
     ### Stimulus data shared between subjects, may be saved separately
 
     phonemes: Optional[List[str]] = None
@@ -282,6 +287,9 @@ class BerpDataset:
         assert self.X_variable.shape == (self.n_words, self.n_variable_features)
         assert self.Y.shape == (self.n_samples, self.n_sensors)
 
+        if self.sensor_names is not None:
+            assert self.Y.shape[1] == len(self.sensor_names)
+
         if self.p_candidates is not None:
             assert self.p_candidates.shape == (self.n_words, self.n_candidates)
             assert self.word_lengths.shape == (self.n_words,)
@@ -326,11 +334,40 @@ class BerpDataset:
 
         return self
 
-    def subset_sensors(self, sensors: List[int]) -> BerpDataset:
+    def subset_sensors(self, sensors: Union[List[int], List[str]]) -> BerpDataset:
         """
         Subset sensors in response variable. Returns a copy.
         """
-        return dataclasses.replace(self, Y=self.Y[:, sensors])
+        sensor_idxs, sensor_names = [], []
+        for sensor in sensors:
+            if isinstance(sensor, int):
+                if sensor > self.n_sensors:
+                    raise ValueError(f"Sensor index {sensor} out of range.")
+
+                sensor_idxs.append(sensor)
+                sensor_names.append(self.sensor_names[sensor])
+            elif isinstance(sensor, str):
+                try:
+                    sensor_idx = self.sensor_names.index(sensor)
+                except ValueError:
+                    raise ValueError(f"Sensor name {sensor} not found.")
+                else:
+                    sensor_idxs.append(self.sensor_names.index(sensor))
+                    sensor_names.append(sensor)
+
+        return dataclasses.replace(self,
+            Y=self.Y[:, sensor_idxs],
+            sensor_names=sensor_names)
+
+    def average_sensors(self) -> BerpDataset:
+        """
+        Average across sensor values per sample, creating a univariate
+        response. Returns a copy.
+        """
+        # TODO outliers?
+        return dataclasses.replace(self,
+            Y=self.Y.mean(dim=1, keepdim=True),
+            sensor_names=["average_%s" % "_".join(self.sensor_names)])
 
     # Avoid saving stimulus data in pickle data
     def __getstate__(self):
@@ -521,6 +558,14 @@ class NestedBerpDataset(object):
         """
         return NestedBerpDataset(
             [dataset.subset_sensors(sensors) for dataset in self.datasets],
+            n_splits=self.n_splits)
+
+    def average_sensors(self) -> NestedBerpDataset:
+        """
+        Average sensors in response variable. Returns a copy.
+        """
+        return NestedBerpDataset(
+            [dataset.average_sensors() for dataset in self.datasets],
             n_splits=self.n_splits)
 
 
