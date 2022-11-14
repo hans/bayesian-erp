@@ -347,6 +347,10 @@ class BerpDataset:
                 sensor_idxs.append(sensor)
                 sensor_names.append(self.sensor_names[sensor])
             elif isinstance(sensor, str):
+                if self.sensor_names is None:
+                    raise ValueError(
+                        "Dataset has no sensor names but string sensor identifiers passed.")
+
                 try:
                     sensor_idx = self.sensor_names.index(sensor)
                 except ValueError:
