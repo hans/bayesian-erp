@@ -127,15 +127,16 @@ class NaturalLanguageStimulus:
         phoneme sequence. Sequences are padded with `pad_phoneme_id`.
         """
         # Compute phoneme sequences for all candidates.
+        max_phonemes = self.max_n_phonemes
         candidate_phoneme_voc = torch.zeros(
-            (len(self.candidate_vocabulary), self.max_n_phonemes),
+            (len(self.candidate_vocabulary), max_phonemes),
             dtype=torch.long)
         candidate_phoneme_voc.fill_(self.pad_phoneme_id)
 
         phon2idx = {p: i for i, p in enumerate(self.phonemes)}
         for i, candidate in enumerate(self.candidate_vocabulary):
             phoneme_seq = torch.tensor([phon2idx[phon] for phon in candidate])
-            candidate_phoneme_voc[i, :len(phoneme_seq)] = phoneme_seq
+            candidate_phoneme_voc[i, :len(phoneme_seq)] = phoneme_seq[:max_phonemes]
 
         reindexed = torch.index_select(candidate_phoneme_voc, 0,
                                        self.candidate_ids.flatten())
