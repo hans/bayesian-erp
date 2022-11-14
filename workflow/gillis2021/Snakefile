@@ -25,7 +25,8 @@ STORIES = config['stories']
 
 wildcard_constraints:
     subject = "[\w_]+",
-    story = "[\w_]+"
+    story = "[\w_]+",
+    group_average_strategy = "macro|micro"
 
 
 def take_first(expr, **wildcards):
@@ -181,8 +182,10 @@ rule produce_average_dataset:
     input:
         datasets = expand("data/dataset/{model}/{story_name}/{subject}.pkl",
                           subject=SUBJECTS, allow_missing=True)
+    params:
+        method_name = "{group_average_strategy}average"
     output:
-        dataset = "data/dataset/{model}/{story_name}/macroaverage.pkl"
+        dataset = "data/dataset/{model}/{story_name}/{group_average_strategy}average.pkl"
     
     run:
         if config["subset_sensors"]:
@@ -194,8 +197,9 @@ rule produce_average_dataset:
         export PYTHONPATH=.
         python scripts/gillis2021/produce_average_dataset.py \
             -o {output.dataset} \
-            -n {wildcards.story_name}/macroaverage \
-            {subset_sensor_str} --macro_average \
+            -n {wildcards.story_name}/{params.method_name} \
+            {subset_sensor_str} \
+            --average_strategy {wildcards.group_average_strategy} \
             {input.datasets}
         """)
 
@@ -216,7 +220,7 @@ rule fit_baseline_model:
         #     story_name=STORIES, subject=SUBJECTS, allow_missing=True),
         # Fit average.
         datasets = expand(
-            "data/dataset/{{model}}/{story_name}/macroaverage.pkl",
+            "data/dataset/{{model}}/{story_name}/{group_average_strategy}average.pkl",
             story_name=STORIES, allow_missing=True),
         stimuli = expand(
             "data/stimulus/{{model}}/{story_name}.pkl",
@@ -227,7 +231,7 @@ rule fit_baseline_model:
         berp_model = "trf"
 
     output:
-        trace = directory("results_macroaverage/{model}/trf")
+        trace = directory("results_{group_average_strategy}average/{model}/trf")
 
     run:
         dataset_path_str = hydra_param(input.datasets)
@@ -258,17 +262,17 @@ rule fit_model:
         #     "data/dataset/{{model}}/{story_name}/{subject}.pkl",
         #     story_name=STORIES, subject=SUBJECTS, allow_missing=True),
         datasets = expand(
-            "data/dataset/{{model}}/{story_name}/macroaverage.pkl",
+            "data/dataset/{{model}}/{story_name}/{group_average_strategy}average.pkl",
             story_name=STORIES, allow_missing=True),
         stimuli = expand(
             "data/stimulus/{{model}}/{story_name}.pkl",
             story_name=STORIES),
         confusion = "data/confusion_matrix.npz",
 
-        baseline_model = "results_macroaverage/{model}/trf"
+        baseline_model = "results_{group_average_strategy}average/{model}/trf"
 
     output:
-        trace = directory("results_macroaverage/{model}/{berp_model}")
+        trace = directory("results_{group_average_strategy}average/{model}/{berp_model}")
 
     run:
         dataset_path_str = hydra_param(input.datasets)
