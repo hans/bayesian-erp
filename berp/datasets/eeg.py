@@ -12,7 +12,7 @@ from berp.datasets.base import BerpDataset, NestedBerpDataset
 L = logging.getLogger(__name__)
 
 
-def load_eeg_dataset(paths: List[str], montage_name: str,
+def load_eeg_dataset(paths: List[str],
                      subset_sensors: Optional[List[str]] = None,
                      normalize_X_ts: bool = True,
                      normalize_X_variable: bool = True,
@@ -75,9 +75,6 @@ def load_eeg_dataset(paths: List[str], montage_name: str,
                 ds.Y = norm_ts(ds.Y)
 
     if subset_sensors is not None:
-        montage = mne.channels.make_standard_montage(montage_name)
-
-        sensor_idxs = [montage.ch_names.index(s) for s in subset_sensors]
-        dataset = dataset.subset_sensors(sensor_idxs)
+        dataset = dataset.subset_sensors(subset_sensors)
 
     return dataset
