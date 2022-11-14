@@ -15,7 +15,7 @@ p = ArgumentParser()
 p.add_argument("dataset_paths", nargs="+", type=Path)
 p.add_argument("-n", "--name", default="average")
 p.add_argument("-o", "--output_path", type=Path, required=True)
-p.add_argument("--macro_average", type=bool, action="store_true",
+p.add_argument("--macro_average", action="store_true",
                help="Average across sensors within-subject before averaging across subjects")
 
 
