@@ -184,15 +184,20 @@ rule produce_average_dataset:
     output:
         dataset = "data/dataset/{model}/{story_name}/macroaverage.pkl"
     
-    shell:
-        """
+    run:
+        if config["subset_sensors"]:
+            subset_sensor_str = "--subset_sensors " + ",".join(config["subset_sensors"])
+        else:
+            subset_sensor_str = ""
+        
+        shell("""
         export PYTHONPATH=.
         python scripts/gillis2021/produce_average_dataset.py \
             -o {output.dataset} \
             -n {wildcards.story_name}/macroaverage \
-            --macro_average \
+            {subset_sensor_str} --macro_average \
             {input.datasets}
-        """
+        """)
 
 
 def hydra_param(obj):

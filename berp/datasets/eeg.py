@@ -75,6 +75,6 @@ def load_eeg_dataset(paths: List[str],
                 ds.Y = norm_ts(ds.Y)
 
     if subset_sensors is not None:
-        dataset = dataset.subset_sensors(subset_sensors)
+        dataset = dataset.subset_sensors(list(subset_sensors))
 
     return dataset

@@ -2,10 +2,5 @@ defaults:
   - base_eeg_dataset
 
 subset_sensors:
-  - C1
-  - Cz
-  - C2
-  - CP1
-  - CPz
-  - CP2
+  - average_C1_Cz_C2_CP1_CPz_CP2
 paths: []

@@ -38,6 +38,14 @@ datasets:
       - DKZ_2
       - DKZ_3
 
+    subset_sensors:
+      - C1
+      - Cz
+      - C2
+      - CP1
+      - CPz
+      - CP2
+
     language_modeling:
       model: GroNLP/gpt2-small-dutch
       n_candidates: 20000
