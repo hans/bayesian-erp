@@ -46,6 +46,8 @@ def make_cv(model, cfg: CVConfig,
 
     aggregation_fn = getattr(np, cfg.sensor_aggregation_fn)
     scoring = BaselinedScorer(baseline_model, aggregation_fn=aggregation_fn)
+
+    from sklearn.model_selection import KFold as sk_KFold
     
     n_trials = cfg.n_trials if len(cfg.params) > 0 else 1
     return OptunaSearchCV(
@@ -55,8 +57,8 @@ def make_cv(model, cfg: CVConfig,
         max_iter=cfg.max_iter, n_trials=n_trials,
         param_distributions=param_distributions,
         error_score="raise",
-        scoring=scoring,
-        cv=KFold(n_splits=cfg.n_inner_folds),
+        # scoring=scoring,
+        cv=sk_KFold(n_splits=cfg.n_inner_folds),
         refit=True,
         verbose=1,
         callbacks=callbacks,)
