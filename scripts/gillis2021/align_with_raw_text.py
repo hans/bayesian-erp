@@ -32,17 +32,14 @@ p.add_argument("-m", "--model", default="GroNLP/gpt2-small-dutch",
 
 
 if IS_INTERACTIVE:
-    args = Namespace(raw_text_path=Path("../../data/gillis2021/raw_text/DKZ_1.txt"),
-                     aligned_corpus_path=Path("DKZ_1.csv"),
+    args = Namespace(raw_text_path=Path("../../workflow/gillis2021/raw_data/raw_text/DKZ_3.txt"),
+                     aligned_corpus_path=Path("DKZ_3.csv"),
                      model="GroNLP/gpt2-small-dutch",
-                     output_tokenized=Path("DKZ_1.tokenized.txt"),
-                     output_words=Path("DKZ_1.words.csv"),
-                     output_phonemes=Path("DKZ_1.phonemes.csv"))
+                     output_tokenized=Path("DKZ_3.tokenized.txt"),
+                     output_words=Path("DKZ_3.words.csv"),
+                     output_phonemes=Path("DKZ_3.phonemes.csv"))
 else:
     args = p.parse_args()
-
-raw_text = args.raw_text_path.read_text()
-story_name = args.raw_text_path.stem
 
 # The given phonemes in the forced aligned annotations will be dropped from the output alignment
 # All other phonemes and timings will remain untouched.
@@ -51,6 +48,9 @@ DROP_PHONEMES = {"#"}
 # #####
 
 tokenizer = transformers.AutoTokenizer.from_pretrained(args.model)
+
+raw_text_orig = args.raw_text_path.read_text()
+story_name = args.raw_text_path.stem
 
 # +
 # # From http://www.sprookjes.org/index.php?option=com_content&view=article&id=175&Itemid=82
@@ -213,11 +213,32 @@ raw_text_replacements = {
         ("Maar mij moet je ook", "Maar je moet mij ook"),
         ("wat je hebt, wil", "wat je bezit, wil"),
     ],
+    
+    "DKZ_3": [
+        ("sprekende ogen, daar", "sprekende ogen, en daar"),
+        ("Nou, komt er", "Nu, komt er"),
+        ("uit, dat snijd ik eraf als betaling", "uit, dan snijd ik het eraf als betaling"),
+        ("Hygiëne", "Hygiene"),
+        ("was het net alsof er tranen van een krokodil opstegen uit de ketel", "was het net als of van een krokodil"),
+        ("springen hun armen en hun vingers", "springen hun armen en vingers"),
+        ("doorschijnende drankje, dat leek op een schitterende stem, in haar hand zagen", "doorschijnende drankje in haar hand zagen"),
+        ("ze de meest beeldige", "ze de beeldigste"),
+        ("zoals de heks haar had", "zoals de heks het had"),
+        ("in zijn handen en grijnslachte naar haar", "in zijn handen en glimlachte naar haar"),
+        ("bevallige, luchtige dansen op de heerlijkste", "bevallig en luchtig dansten op heerlijke"),
+        ("zweefde over de vloer", "zweefde over de vloeren"),
+        ("danste almaar door", "danste alsmaar door"),
+        ("dat haar voet de grond raakte", "dat haar voeten de grond raakte"),
+        ("Hij het een pagekostuum voor haar maken zodat ze met hem mee uit rijden",
+         "Hij liet een pagekostuumvoor haar maken zodat ze met hem uit rijden"),
+        ("lachte zij erom en ging", "lachte zij en ging"),
+        ("die naar vreemde linden trekt", "die naar vreemde landen trekt"),
+    ],
 }
 # -
 
 # Preprocess raw text lightly.
-raw_text = re.sub(r"\s+", " ", raw_text)
+raw_text = re.sub(r"\s+", " ", raw_text_orig)
 
 # -----
 
@@ -254,7 +275,7 @@ def align_corpora(fa_words, tokens_flat):
             next_token_raw = tokens_flat[tok_cursor]
             next_token = process_token(next_token_raw)
 
-        # print("///", tok_cursor, next_token)
+        print("///", tok_cursor, next_token)
 
         return tok_cursor, next_token
     
@@ -276,7 +297,7 @@ def align_corpora(fa_words, tokens_flat):
         return tok_cursor, next_token
 
     def commit(fa_row, tok_cursor, flags=None, do_advance=True):
-        # print(f"{fa_words.loc[fa_idx].text} -- {tokens_flat[tok_cursor]}")
+        print(f"{fa_row.text} -- {tokens_flat[tok_cursor]}")
         alignment.append((fa_row.original_idx, tok_cursor, flags))
 
         if do_advance:
@@ -298,6 +319,8 @@ def align_corpora(fa_words, tokens_flat):
         for idx, row in tqdm(fa_words.iterrows(), total=len(fa_words)):
             if stop:
                 break
+            while only_punct_re.match(tok_el):
+                tok_cursor, tok_el = advance(tok_cursor)
 
             fa_el = row.text
             if fa_el == our_skip_sentinel:
@@ -351,6 +374,17 @@ def patch_story(fa_words, name):
     matching with raw text stimulus.
     """
     
+    def patch_misplaced_skip(loc1, word1, word2, loc2=None):
+        """Move a SKIP1 annotation back by one."""
+        if loc2 is not None:
+            assert loc2 > loc1
+        else:
+            loc2 = loc1 + 1
+        assert fa_words.loc[loc1, "text"] == word1, str(fa_words.loc[loc1])
+        assert fa_words.loc[loc2, "text"] == f"{word2}(SKIP1)", str(fa_words.loc[loc2])
+        fa_words.loc[loc1, "text"] = f"{word1}(SKIP1)"
+        fa_words.loc[loc2, "text"] = word2
+    
     # Skip some annotation mistakes / force things to match up easily with our
     # raw text.
     if name == "DKZ_1":
@@ -365,6 +399,21 @@ def patch_story(fa_words, name):
     elif name == "DKZ_2":
         assert fa_words.loc[390, "text"] == "vertellen(SKIP1)"
         fa_words.loc[390, "text"] = "vertellen"
+    elif name == "DKZ_3":
+        # Don't know what this SKIP is
+        assert fa_words.loc[798, "text"] == "op(SKIP1)"
+        fa_words.loc[798, "text"] = "op"
+        
+        # TODO can't find out what belongs in the SKIP here
+        assert fa_words.loc[1075, "text"] == "de(SKIP1)"
+        assert fa_words.loc[1076, "text"] == "arm(SKIP2)"
+        fa_words.loc[1075, "text"] = "de"
+        fa_words.loc[1076, "text"] = "arm"
+        
+        # Misplaced SKIPs
+        patch_misplaced_skip(loc1=1180, loc2=1183, word1="hij", word2="hield")
+        patch_misplaced_skip(1355, "hij", "meer")
+        patch_misplaced_skip(1677, "hij", "nam")
     else:
         raise ValueError(f"unknown story name {name}")
     
@@ -410,6 +459,8 @@ tokens_flat = tokenizer.convert_ids_to_tokens(encoded["input_ids"])
 fa_df = pd.read_csv(args.aligned_corpus_path)
 fa_words = fa_df[fa_df.tier == "words"]
 fa_words = patch_story(fa_words, story_name)
+
+fa_words
 
 alignment = pd.DataFrame(align_corpora(fa_words, tokens_flat),
                             columns=["textgrid_idx", "tok_idx", "flags"])
