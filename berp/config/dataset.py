@@ -16,7 +16,6 @@ class DatasetConfig:
 
 @dataclass
 class EEGDatasetConfig(DatasetConfig):
-    montage_name: str
 
     subset_sensors: Optional[List[str]] = None
     """

@@ -133,3 +133,15 @@ def test_average_sensors():
     assert ds2.Y.shape[1] == 1
     assert ds2.sensor_names == ["average_a_b_c"]
     torch.testing.assert_allclose(ds2.Y, ds.Y.mean(dim=1, keepdim=True))
+
+
+def test_average_unnamed_sensors():
+    ds = make_dataset()
+    ds.sensor_names = None
+    ds2 = ds.average_sensors()
+
+    assert ds.Y.shape[0] == ds2.Y.shape[0]
+    assert ds.Y.shape[1] == 3
+    assert ds2.Y.shape[1] == 1
+    assert ds2.sensor_names == ["average"]
+    torch.testing.assert_allclose(ds2.Y, ds.Y.mean(dim=1, keepdim=True))

@@ -369,9 +369,12 @@ class BerpDataset:
         response. Returns a copy.
         """
         # TODO outliers?
+        sensor_names = ["average"] if self.sensor_names is None \
+            else ["average_%s" % "_".join(self.sensor_names)]
+
         return dataclasses.replace(self,
             Y=self.Y.mean(dim=1, keepdim=True),
-            sensor_names=["average_%s" % "_".join(self.sensor_names)])
+            sensor_names=sensor_names)
 
     # Avoid saving stimulus data in pickle data
     def __getstate__(self):
