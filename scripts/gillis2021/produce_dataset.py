@@ -171,7 +171,8 @@ ret = BerpDataset(
     X_variable=X_variable,
     variable_feature_names=variable_feature_names,
     
-    Y=eeg.get_data().T
+    Y=eeg.get_data().T,
+    sensor_names=eeg.info.ch_names,
 )
 
 with args.output_path.open("wb") as f:

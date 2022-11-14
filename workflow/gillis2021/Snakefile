@@ -182,14 +182,15 @@ rule produce_average_dataset:
         datasets = expand("data/dataset/{model}/{story_name}/{subject}.pkl",
                           subject=SUBJECTS, allow_missing=True)
     output:
-        dataset = "data/dataset/{model}/{story_name}/average.pkl"
+        dataset = "data/dataset/{model}/{story_name}/macroaverage.pkl"
     
     shell:
         """
         export PYTHONPATH=.
         python scripts/gillis2021/produce_average_dataset.py \
             -o {output.dataset} \
-            -n {wildcards.story_name}/average \
+            -n {wildcards.story_name}/macroaverage \
+            --macro_average \
             {input.datasets}
         """
 
@@ -210,7 +211,7 @@ rule fit_baseline_model:
         #     story_name=STORIES, subject=SUBJECTS, allow_missing=True),
         # Fit average.
         datasets = expand(
-            "data/dataset/{{model}}/{story_name}/average.pkl",
+            "data/dataset/{{model}}/{story_name}/macroaverage.pkl",
             story_name=STORIES, allow_missing=True),
         stimuli = expand(
             "data/stimulus/{{model}}/{story_name}.pkl",
@@ -221,7 +222,7 @@ rule fit_baseline_model:
         berp_model = "trf"
 
     output:
-        trace = directory("results_average/{model}/trf")
+        trace = directory("results_macroaverage/{model}/trf")
 
     run:
         dataset_path_str = hydra_param(input.datasets)
@@ -252,17 +253,17 @@ rule fit_model:
         #     "data/dataset/{{model}}/{story_name}/{subject}.pkl",
         #     story_name=STORIES, subject=SUBJECTS, allow_missing=True),
         datasets = expand(
-            "data/dataset/{{model}}/{story_name}/average.pkl",
+            "data/dataset/{{model}}/{story_name}/macroaverage.pkl",
             story_name=STORIES, allow_missing=True),
         stimuli = expand(
             "data/stimulus/{{model}}/{story_name}.pkl",
             story_name=STORIES),
         confusion = "data/confusion_matrix.npz",
 
-        baseline_model = "results_average/{model}/trf"
+        baseline_model = "results_macroaverage/{model}/trf"
 
     output:
-        trace = directory("results_average/{model}/{berp_model}")
+        trace = directory("results_macroaverage/{model}/{berp_model}")
 
     run:
         dataset_path_str = hydra_param(input.datasets)

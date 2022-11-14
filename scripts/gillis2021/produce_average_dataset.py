@@ -15,13 +15,18 @@ p = ArgumentParser()
 p.add_argument("dataset_paths", nargs="+", type=Path)
 p.add_argument("-n", "--name", default="average")
 p.add_argument("-o", "--output_path", type=Path, required=True)
+p.add_argument("--macro_average", type=bool, action="store_true",
+               help="Average across sensors within-subject before averaging across subjects")
 
 
 def main(args):
     datasets = []
     for path in args.dataset_paths:
         with path.open("rb") as f:
-            datasets.append(pickle.load(f).ensure_torch())
+            ds = pickle.load(f).ensure_torch()
+            if args.macro_average:
+                ds = ds.average_sensors()
+            datasets.append(ds)
     dataset = average_datasets(datasets, name=args.name)
 
     with args.output_path.open("wb") as f:
