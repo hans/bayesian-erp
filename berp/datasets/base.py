@@ -590,6 +590,9 @@ def assert_compatible(ds1: BerpDataset, ds2: BerpDataset):
     assert ds1.Y.shape[1:] == ds2.Y.shape[1:]
     assert ds1.X_ts.shape[0] == ds1.Y.shape[0]
 
+    # These may be none
+    assert ds1.sensor_names == ds2.sensor_names
+
     if ds2.ts_feature_names is not None:
         assert ds2.ts_feature_names == ds1.ts_feature_names
     if ds2.variable_feature_names is not None:
