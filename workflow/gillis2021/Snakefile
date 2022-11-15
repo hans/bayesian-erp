@@ -241,12 +241,14 @@ rule fit_baseline_model:
         }
         stimulus_dict_str = hydra_param(stimulus_dict)
 
+        dataset_spec = f"dkz_{wildcards.group_average_strategy}average"
         cv_spec = config["fit"]["cv_strategy"][params.berp_model]
 
         shell("""
         export PYTHONPATH=.
         python scripts/fit_em.py \
             model={params.berp_model} \
+            dataset={dataset_spec} \
             'dataset.paths={dataset_path_str}' \
             +dataset.stimulus_paths='{stimulus_dict_str}' \
             'dataset.drop_X_variable=[recognition_onset]' \
@@ -282,6 +284,7 @@ rule fit_model:
         }
         stimulus_dict_str = hydra_param(stimulus_dict)
 
+        dataset_spec = f"dkz_{wildcards.group_average_strategy}average"
         cv_spec = config["fit"]["cv_strategy"][wildcards.berp_model]
 
         shell("""
@@ -289,6 +292,7 @@ rule fit_model:
         python scripts/fit_em.py \
             model={wildcards.berp_model} \
             baseline_model_path={input.baseline_model} \
+            dataset={dataset_spec} \
             'dataset.paths={dataset_path_str}' \
             +dataset.stimulus_paths='{stimulus_dict_str}' \
             model.confusion_path={input.confusion} \
