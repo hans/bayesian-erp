@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from functools import cached_property
 import logging
-from typing import List
+from typing import List, Iterator, Tuple
 
 import numpy as np
 import torch
@@ -26,10 +26,13 @@ class Vocabulary(object):
 
     def __init__(self):
         self.tok2idx = {}
-        self.idx2tok = []
+        self.idx2tok: List[str] = []
 
     def __len__(self):
         return len(self.idx2tok)
+
+    def __iter__(self) -> Iterator[Tuple[int, str]]:
+        return enumerate(self.idx2tok)
     
     def __getitem__(self, key):
         if isinstance(key, (int, np.integer)):
@@ -134,9 +137,9 @@ class NaturalLanguageStimulus:
         candidate_phoneme_voc.fill_(self.pad_phoneme_id)
 
         phon2idx = {p: i for i, p in enumerate(self.phonemes)}
-        for i, candidate in enumerate(self.candidate_vocabulary):
+        for idx, candidate in self.candidate_vocabulary:
             phoneme_seq = torch.tensor([phon2idx[phon] for phon in candidate])
-            candidate_phoneme_voc[i, :len(phoneme_seq)] = phoneme_seq[:max_phonemes]
+            candidate_phoneme_voc[idx, :len(phoneme_seq)] = phoneme_seq[:max_phonemes]
 
         reindexed = torch.index_select(candidate_phoneme_voc, 0,
                                        self.candidate_ids.flatten())
