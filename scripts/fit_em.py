@@ -70,7 +70,7 @@ def main(cfg: Config):
     tb = hydra.utils.call(cfg.viz.tensorboard)
 
     dataset = hydra.utils.call(cfg.dataset)
-    dataset.set_n_splits(4)
+    dataset.set_n_splits(8)
 
     model = hydra.utils.call(cfg.model,
                              phonemes=dataset.phonemes,
