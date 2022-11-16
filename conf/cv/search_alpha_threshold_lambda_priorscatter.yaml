@@ -7,6 +7,8 @@ param_sampler:
   _target_: optuna.samplers.TPESampler
   multivariate: true
 
+sensor_aggregation_fn: max
+
 params:
   encoder__alpha:
     type: float
