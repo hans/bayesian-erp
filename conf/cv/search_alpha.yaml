@@ -1,5 +1,5 @@
 n_outer_folds: 4
-n_inner_folds: 4
+n_inner_folds: 8
 
 n_trials: 50
 
