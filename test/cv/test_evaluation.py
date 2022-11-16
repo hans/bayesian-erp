@@ -24,7 +24,7 @@ class TestBaselinedScorer:
             score_multidimensional=lambda X, y: scores,
         )
 
-        X = MagicMock(spec=NestedBerpDataset, n_sensors=n_sensors)
+        X = MagicMock(spec=NestedBerpDataset, n_sensors=n_sensors, datasets=[])
 
         scorer = BaselinedScorer(baseline_model)
         ret = scorer(estimator, X)
