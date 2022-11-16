@@ -13,7 +13,7 @@ def log_scores(dataset: NestedBerpDataset, scores: np.ndarray, tag="score"):
     for ds, ds_scores in zip(dataset.datasets, scores):
         assert ds.sensor_names is not None
         for sensor_idx, sensor_score in enumerate(ds_scores):
-            tb_add_scalar(f"{tag}/{ds.name}/{ds.sensor_names[sensor_idx]}", sensor_score)
+            tb_add_scalar(f"{tag}/{ds.base_name}/{ds.sensor_names[sensor_idx]}", sensor_score)
 
 Score = TypeVar("Score")
 class BaselinedScorer(Generic[Score]):
