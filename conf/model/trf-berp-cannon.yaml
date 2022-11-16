@@ -1,0 +1,18 @@
+defaults:
+  - base_trf_berp_cannon
+
+type: trf-berp-cannon
+
+trf:
+  tmin: 0
+  tmax: 0.5625
+  sfreq: 128
+  n_outputs: 64
+  alpha: 1
+
+threshold: 0.5
+n_quantiles: 3
+
+scatter_point: 0.5
+prior_scatter_index: 0
+prior_scatter_point: 0.5

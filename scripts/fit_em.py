@@ -78,12 +78,13 @@ def main(cfg: Config):
                              optim=cfg.solver)
     from pprint import pprint; pprint(model.get_params())
 
+    # Before splitting datasets, prime model pipeline with full data.
+    model.prime(dataset)
+
     baseline_model: Optional[GroupTRFForwardPipeline] = None
     if cfg.baseline_model_path is not None:
         baseline_model = load_model(cfg.baseline_model_path)
-
-    # Before splitting datasets, prime model pipeline with full data.
-    model.prime(dataset)
+        baseline_model.prime(dataset)
 
     # DEV: use a much smaller training set for dev cycle efficiency
     # test_size = 0.75

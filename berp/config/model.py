@@ -90,6 +90,16 @@ class BerpTRFFixedModelConfig(BerpTRFModelConfig):
 
 
 @dataclass
+class BerpCannonTRFModelConfig(BerpTRFModelConfig):
+
+    threshold: float = 0.5
+    n_quantiles: int = 3
+
+    type: str = "trf-berp-cannon"
+    _target_: str = "berp.models.trf_em.BerpTRFCannon"
+
+
+@dataclass
 class BerpTRFEMModelConfig(BerpTRFModelConfig):
 
     latent_params: Dict[str, DistributionConfig] = field(default_factory=dict)
@@ -117,3 +127,4 @@ cs.store(group=GROUP, name="base_trf", node=TRFModelConfig)
 cs.store(group=GROUP, name="base_trf_pipeline", node=TRFPipelineConfig)
 cs.store(group=GROUP, name="base_trf_em", node=BerpTRFEMModelConfig)
 cs.store(group=GROUP, name="base_trf_berp_fixed", node=BerpTRFFixedModelConfig)
+cs.store(group=GROUP, name="base_trf_berp_cannon", node=BerpCannonTRFModelConfig)
