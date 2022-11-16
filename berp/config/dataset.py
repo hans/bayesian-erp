@@ -27,6 +27,13 @@ class EEGDatasetConfig(DatasetConfig):
     normalize_X_variable: bool = True
     normalize_Y: bool = True
 
+    special_normalize_variable_intercept: bool = False
+    """
+    If True, intercept values in `X_variable` are normalized such that,
+    after scattering into the design matrix, the values are normally
+    distributed. If False, no normalization is done to intercept values.
+    """
+
     drop_X_variable: Optional[List[str]] = None
 
     _target_: str = "berp.datasets.eeg.load_eeg_dataset"

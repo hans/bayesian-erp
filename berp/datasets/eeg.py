@@ -18,6 +18,7 @@ def load_eeg_dataset(paths: List[str],
                      normalize_X_variable: bool = True,
                      normalize_Y: bool = True,
                      drop_X_variable: Optional[List[str]] = None,
+                     special_normalize_variable_intercept: bool = False,
                      stimulus_paths: Optional[Dict[str, str]] = None,
                      ) -> NestedBerpDataset:
     # If stimulus data is stored separately, load this first.
@@ -65,12 +66,13 @@ def load_eeg_dataset(paths: List[str],
                 mask = ~(ds.X_variable == 1).all(dim=0)
                 ds.X_variable[:, mask] = norm_ts(ds.X_variable[:, mask])
 
-                # Scale intercept columns
-                if (~mask).sum() > 0:
+                if special_normalize_variable_intercept and (~mask).any():
+                    # Scale intercept columns so that the resulting design matrix
+                    # column after scattering has mean 0 and std 1.
                     intercept_col_idx = torch.where(~mask)[0][0]
                     n_add_zeros = ds.X_ts.shape[0] - ds.X_variable[:, intercept_col_idx].sum().int().item()
                     ds.X_variable[:, ~mask] = norm_ts(ds.X_variable[:, ~mask],
-                                                      add_zeros=n_add_zeros)
+                                                        add_zeros=n_add_zeros)
             if normalize_Y:
                 ds.Y = norm_ts(ds.Y)
 
