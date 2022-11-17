@@ -87,14 +87,16 @@ def reestimate_trf_coefficients(est, dataset, params_dir, splitter, viz_cfg: Viz
     feature_names = ts_feature_names + variable_feature_names
     coef_dfs = []
 
-    for i, (train, test) in enumerate(tqdm(splitter.split(dataset), desc="Re-estimating TRF coefficients", unit="fold")):
+    for i, (train, test) in enumerate(tqdm(splitter.split(dataset), total=splitter.n_splits,
+                                           desc="Re-estimating TRF coefficients", unit="fold")):
         est_i = clone(est)
         est_i.fit(dataset[train])
 
         for key, encoder in est_i.encoders_.items():
-            coef_df_i = trf_to_dataframe(est_i, feature_names=feature_names)
+            coef_df_i = trf_to_dataframe(encoder, feature_names=feature_names)
             coef_df_i["fold"] = i
             coef_df_i["name"] = key
+            coef_dfs.append(coef_df_i)
 
     coef_df = pd.concat(coef_dfs)
 
@@ -122,6 +124,7 @@ def trf_em_tb_callback(est, dataset, params_dir, splitter, viz_cfg: VizConfig,
             L.info("Refitting and checkpointing model")
             est_i = clone(est)
             est_i.set_params(**trial.params)
+            est_i.fit(dataset)
             checkpoint_model(est_i, dataset, params_dir, viz_cfg,
                              baseline_model=baseline_model)
 
