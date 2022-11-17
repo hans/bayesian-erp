@@ -69,23 +69,46 @@ def checkpoint_model(est, dataset, params_dir, viz_cfg: VizConfig,
         tb.add_histogram("recognition_points", rec_points)
         tb.add_histogram("recognition_times", rec_times)
 
-    # Table-ize and render TRF coefficients.
+
+def reestimate_trf_coefficients(est, dataset, params_dir, splitter, viz_cfg: VizConfig):
+    """
+    Re-estimate, table-ize, and plot TRF model coefficients over folds
+    of the given dataset.
+    """
+
+    tb = Tensorboard.instance()
+
+    # May have a wrapper around it.
+    if hasattr(est, "pipeline"):
+        est = est.pipeline
+    assert isinstance(est, GroupTRFForwardPipeline)
+
     ts_feature_names, variable_feature_names = est.get_feature_names(dataset)
     feature_names = ts_feature_names + variable_feature_names
-    for key, encoder in tqdm(est.encoders_.items(), desc="Visualizing encoders"):
-        coefs_df = trf_to_dataframe(encoder, feature_names=feature_names)
-        coefs_df["name"] = key
-        coefs_df.to_csv(params_dir / f"encoder_coefs.{key}.csv", index=False)
+    coef_dfs = []
 
-        fig = plot_trf_coefficients(
-            encoder,
-            feature_names=feature_names,
-            feature_match_patterns=viz_cfg.feature_patterns)
+    for i, (train, test) in enumerate(tqdm(splitter.split(dataset), desc="Re-estimating TRF coefficients", unit="fold")):
+        est_i = clone(est)
+        est_i.fit(dataset[train])
+
+        for key, encoder in est_i.encoders_.items():
+            coef_df_i = trf_to_dataframe(est_i, feature_names=feature_names)
+            coef_df_i["fold"] = i
+            coef_df_i["name"] = key
+
+    coef_df = pd.concat(coef_dfs)
+
+    for key, key_coefs in coef_df.groupby("name"):
+        key_coefs.to_csv(params_dir / f"encoder_coefs.{key}.csv", index=False)
+
+        fig = plot_trf_coefficients(key_coefs, feature_names=feature_names,
+                                    feature_match_patterns=viz_cfg.feature_patterns)
         fig.savefig(params_dir / f"encoder_coefs.{key}.png")
         tb.add_figure(f"encoder_coefs/{key}", fig)
 
 
-def trf_em_tb_callback(est, dataset, params_dir, viz_cfg: VizConfig,
+
+def trf_em_tb_callback(est, dataset, params_dir, splitter, viz_cfg: VizConfig,
                        baseline_model: Optional[GroupTRFForwardPipeline] = None):
     def tb_callback(study, trial):
         tb = Tensorboard.instance()
@@ -99,8 +122,9 @@ def trf_em_tb_callback(est, dataset, params_dir, viz_cfg: VizConfig,
             L.info("Refitting and checkpointing model")
             est_i = clone(est)
             est_i.set_params(**trial.params)
-            est_i.fit(dataset)
             checkpoint_model(est_i, dataset, params_dir, viz_cfg,
                              baseline_model=baseline_model)
+
+            reestimate_trf_coefficients(est_i, dataset, params_dir, splitter, viz_cfg)
     
     return tb_callback

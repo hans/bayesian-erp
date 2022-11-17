@@ -101,8 +101,9 @@ def main(cfg: Config):
         L.info(f"Running cross-validation to estimate hyperparameters, with "
                f"{cfg.cv.n_inner_folds} inner folds.")
 
+        viz_splitter = KFold(n_splits=cfg.cv.n_inner_folds)
         tb_callback = trf_em_tb_callback(
-            model, data_train, params_dir, cfg.viz,
+            model, data_train, params_dir, viz_splitter, cfg.viz,
             baseline_model=baseline_model)
         cv = make_cv(
             model, cfg.cv,
