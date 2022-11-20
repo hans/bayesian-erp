@@ -376,6 +376,34 @@ class BerpDataset:
             Y=self.Y.mean(dim=1, keepdim=True),
             sensor_names=sensor_names)
 
+    def select_features(self,
+                        ts: Optional[Union[List[int], List[str]]] = None,
+                        variable: Optional[Union[List[int], List[str]]] = None) -> BerpDataset:
+        """
+        Return a copy of this dataset with the given subset+order of time-series
+        and variable features.
+        """
+        if ts is None:
+            ts = list(range(self.n_ts_features))
+        elif isinstance(ts[0], str):
+            if self.ts_feature_names is None:
+                raise ValueError("Dataset has no time-series feature names but string identifiers passed.")
+            ts = [self.ts_feature_names.index(f) for f in ts]
+        if variable is None:
+            variable = list(range(self.n_variable_features))
+        elif isinstance(variable[0], str):
+            if self.variable_feature_names is None:
+                raise ValueError("Dataset has no variable feature names but string identifiers passed.")
+            variable = [self.variable_feature_names.index(f) for f in variable]
+
+        return dataclasses.replace(self,
+            X_ts=self.X_ts[:, ts],
+            X_variable=self.X_variable[:, variable],
+            ts_feature_names=([self.ts_feature_names[i] for i in ts]
+                              if self.ts_feature_names is not None else None),
+            variable_feature_names=([self.variable_feature_names[i] for i in variable]
+                                    if self.variable_feature_names is not None else None))
+
     # Avoid saving stimulus data in pickle data
     def __getstate__(self):
         state = self.__dict__.copy()
@@ -573,6 +601,17 @@ class NestedBerpDataset(object):
         """
         return NestedBerpDataset(
             [dataset.average_sensors() for dataset in self.datasets],
+            n_splits=self.n_splits)
+
+    def select_features(self,
+                        ts: Optional[Union[List[int], List[str]]] = None,
+                        variable: Optional[Union[List[int], List[str]]] = None) -> NestedBerpDataset:
+        """
+        Return a copy of this dataset with the given subset+order of time-series
+        and variable features.
+        """
+        return NestedBerpDataset(
+            [dataset.select_features(ts, variable) for dataset in self.datasets],
             n_splits=self.n_splits)
 
 

@@ -145,3 +145,17 @@ def test_average_unnamed_sensors():
     assert ds2.Y.shape[1] == 1
     assert ds2.sensor_names == ["average"]
     torch.testing.assert_allclose(ds2.Y, ds.Y.mean(dim=1, keepdim=True))
+
+
+def test_select_features():
+    dataset = make_dataset()
+    dataset.ts_feature_names = [f"ts{x}" for x in range(dataset.n_ts_features)]
+    dataset.X_variable = torch.concat([dataset.X_variable, 2 * dataset.X_variable], dim=1)
+    dataset.variable_feature_names = ["var1", "var2"]
+
+    dataset2 = dataset.select_features(ts=["ts0"], variable=["var2"])
+    dataset2_int = dataset.select_features(ts=[0], variable=[1])
+    torch.testing.assert_allclose(dataset2.X_ts, dataset.X_ts[:, [0]])
+    torch.testing.assert_allclose(dataset2.X_ts, dataset2_int.X_ts)
+    torch.testing.assert_allclose(dataset2.X_variable, dataset.X_variable[:, [1]])
+    torch.testing.assert_allclose(dataset2.X_variable, dataset2_int.X_variable)
