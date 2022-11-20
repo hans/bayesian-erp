@@ -153,4 +153,7 @@ def sample_dataset(params: rr.ModelParameters,
         Y=Y,
         X_variable=X_variable,
         X_ts=X_ts,
+
+        ts_feature_names=[f"ts_{i}" for i in range(X_ts.shape[1])],
+        variable_feature_names=[f"var_{i}" for i in range(X_variable.shape[1])],
     )
