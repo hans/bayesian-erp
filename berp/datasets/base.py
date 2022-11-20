@@ -385,13 +385,13 @@ class BerpDataset:
         """
         if ts is None:
             ts = list(range(self.n_ts_features))
-        elif isinstance(ts[0], str):
+        elif ts and isinstance(ts[0], str):
             if self.ts_feature_names is None:
                 raise ValueError("Dataset has no time-series feature names but string identifiers passed.")
             ts = [self.ts_feature_names.index(f) for f in ts]
         if variable is None:
             variable = list(range(self.n_variable_features))
-        elif isinstance(variable[0], str):
+        elif variable and isinstance(variable[0], str):
             if self.variable_feature_names is None:
                 raise ValueError("Dataset has no variable feature names but string identifiers passed.")
             variable = [self.variable_feature_names.index(f) for f in variable]
