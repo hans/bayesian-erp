@@ -32,7 +32,7 @@ def load_eeg_dataset(paths: List[str],
         with open(to_absolute_path(dataset), "rb") as f:
             ds = pickle.load(f).ensure_torch()
             if stimulus_data is not None:
-                ds = ds.with_stimulus(stimulus_data[ds.stimulus_name])
+                ds.add_stimulus(stimulus_data[ds.stimulus_name])
             datasets.append(ds)
 
     dataset = NestedBerpDataset(datasets)
@@ -64,6 +64,6 @@ def load_eeg_dataset(paths: List[str],
                 ds.Y = norm_ts(ds.Y)
 
     if subset_sensors is not None:
-        dataset = dataset.subset_sensors(list(subset_sensors))
+        dataset.subset_sensors(list(subset_sensors))
 
     return dataset

@@ -445,8 +445,9 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
     #region scikit API
 
     def _select_features(self, dataset: Dataset) -> Dataset:
-        return dataset.select_features(
+        dataset.select_features(
             ts=self.ts_feature_names, variable=self.variable_feature_names)
+        return dataset
 
     def _fit(self, encoder: Encoder, datasets: List[BerpDataset]):
         design_matrices, Ys = [], []
