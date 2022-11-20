@@ -34,8 +34,6 @@ class EEGDatasetConfig(DatasetConfig):
     distributed. If False, no normalization is done to intercept values.
     """
 
-    drop_X_variable: Optional[List[str]] = None
-
     _target_: str = "berp.datasets.eeg.load_eeg_dataset"
 
     @property

@@ -17,7 +17,6 @@ def load_eeg_dataset(paths: List[str],
                      normalize_X_ts: bool = True,
                      normalize_X_variable: bool = True,
                      normalize_Y: bool = True,
-                     drop_X_variable: Optional[List[str]] = None,
                      special_normalize_variable_intercept: bool = False,
                      stimulus_paths: Optional[Dict[str, str]] = None,
                      ) -> NestedBerpDataset:
@@ -37,18 +36,6 @@ def load_eeg_dataset(paths: List[str],
             datasets.append(ds)
 
     dataset = NestedBerpDataset(datasets)
-
-    if drop_X_variable is not None:
-        ds0 = dataset.datasets[0]
-        L.info("Dropping variable features %s", ",".join(drop_X_variable))
-        feature_idxs = [ds0.variable_feature_names.index(label) for label in drop_X_variable]
-        mask = torch.ones(dataset.n_variable_features).bool()
-        for i in feature_idxs:
-            mask[i] = False
-
-        for ds in dataset.datasets:
-            ds.X_variable = ds.X_variable[:, mask]
-            ds.variable_feature_names = [name for i, name in enumerate(ds.variable_feature_names) if mask[i]]
 
     def norm_ts(tensor, add_zeros=None):
         if add_zeros is None:
