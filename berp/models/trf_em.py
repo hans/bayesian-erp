@@ -27,6 +27,7 @@ from torchtyping import TensorType  # type: ignore
 from tqdm.auto import tqdm, trange
 from typeguard import typechecked
 
+from berp.config import FeatureConfig
 from berp.cv import EarlyStopException
 from berp.datasets import BerpDataset, NestedBerpDataset
 from berp.models.reindexing_regression import \
@@ -1213,6 +1214,7 @@ def make_pipeline(
 
 
 def BerpTRFFixed(trf: TemporalReceptiveField,
+                 features: FeatureConfig,
                  threshold: torch.Tensor,
                  n_outputs: int,
                  phonemes: List[str],
@@ -1223,6 +1225,8 @@ def BerpTRFFixed(trf: TemporalReceptiveField,
 
     pipeline = GroupBerpFixedTRFForwardPipeline(
         trf,
+        ts_feature_names=list(features.ts_feature_names),
+        variable_feature_names=list(features.variable_feature_names),
         threshold=torch.as_tensor(threshold),
         confusion=prepare_or_create_confusion(confusion_path, phonemes),
         lambda_=torch.tensor(1.),
@@ -1236,6 +1240,7 @@ def BerpTRFFixed(trf: TemporalReceptiveField,
 
 
 def BerpTRFCannon(trf: TemporalReceptiveField,
+                  features: FeatureConfig,
                   threshold: torch.Tensor,
                   n_quantiles: int,
                   n_outputs: int,
@@ -1247,6 +1252,8 @@ def BerpTRFCannon(trf: TemporalReceptiveField,
 
     pipeline = GroupBerpCannonTRFForwardPipeline(
         trf,
+        ts_feature_names=list(features.ts_feature_names),
+        variable_feature_names=list(features.variable_feature_names),
         threshold=torch.as_tensor(threshold),
         confusion=prepare_or_create_confusion(confusion_path, phonemes),
         lambda_=torch.tensor(1.),
@@ -1294,7 +1301,11 @@ def BerpTRFEM(trf: TemporalReceptiveField,
     return BerpTRFEMEstimator(pipeline, **kwargs)
 
 
-def BasicTRF(trf, n_outputs: int, **kwargs):
+def BasicTRF(trf, features: FeatureConfig, n_outputs: int, **kwargs):
     trf.set_params(n_outputs=n_outputs)
-    pipeline = GroupVanillaTRFForwardPipeline(trf, **kwargs)
+    pipeline = GroupVanillaTRFForwardPipeline(
+        trf,
+        ts_feature_names=list(features.ts_feature_names),
+        variable_feature_names=list(features.variable_feature_names),
+        **kwargs)
     return pipeline

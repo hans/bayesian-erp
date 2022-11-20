@@ -73,9 +73,10 @@ def main(cfg: Config):
     dataset.set_n_splits(8)
 
     model = hydra.utils.call(cfg.model,
+                             features=cfg.features,
+                             optim=cfg.solver,
                              phonemes=dataset.phonemes,
-                             n_outputs=dataset.n_sensors,
-                             optim=cfg.solver)
+                             n_outputs=dataset.n_sensors)
     from pprint import pprint; pprint(model.get_params())
 
     # Before splitting datasets, prime model pipeline with full data.

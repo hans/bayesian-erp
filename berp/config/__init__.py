@@ -6,7 +6,7 @@ from omegaconf import OmegaConf
 
 from berp.config.cv import CVConfig
 from berp.config.dataset import DatasetConfig
-from berp.config.model import ModelConfig
+from berp.config.model import ModelConfig, FeatureConfig
 from berp.config.solver import SolverConfig
 from berp.config.viz import VizConfig
 
@@ -18,6 +18,8 @@ OmegaConf.register_new_resolver("eval", eval)
 @dataclass
 class Config:
     model: ModelConfig
+    features: FeatureConfig
+
     solver: SolverConfig
     dataset: DatasetConfig
 
