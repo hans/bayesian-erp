@@ -334,14 +334,15 @@ class TestGroupCannon:
         dataset.name = "DKZ_1/subj1"
         group_cannon_estimator.prime(dataset)
         design_matrix, _ = group_cannon_estimator.pre_transform(dataset)
-        assert design_matrix.shape[1] == dataset.n_ts_features + group_cannon_estimator.n_quantiles * dataset.n_variable_features
+        assert design_matrix.shape[1] == dataset.n_ts_features + (1 + group_cannon_estimator.n_quantiles) * dataset.n_variable_features
         for quantile_i in range(group_cannon_estimator.n_quantiles):
             print(quantile_i)
             mask = quantiles == quantile_i
             onsets_i = dataset.word_onsets[mask]
 
-            expected_features = torch.zeros((len(onsets_i), dataset.n_variable_features * group_cannon_estimator.n_quantiles))
-            expected_features[:, quantile_i * dataset.n_variable_features:(quantile_i + 1) * dataset.n_variable_features] = \
+            expected_features = torch.zeros((len(onsets_i), (1 + group_cannon_estimator.n_quantiles) * dataset.n_variable_features))
+            expected_features[:, :dataset.n_variable_features] = dataset.X_variable[mask]
+            expected_features[:, (quantile_i + 1) * dataset.n_variable_features:(quantile_i + 2) * dataset.n_variable_features] = \
                 dataset.X_variable[mask]
 
             check_lagged_features(

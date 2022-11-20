@@ -760,11 +760,11 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
 
         datasets = [dataset] if isinstance(dataset, BerpDataset) else dataset.datasets
         for ds in datasets:
-            assert self.encoder.n_features_ == dataset.n_ts_features + self.n_quantiles * dataset.n_variable_features, \
-                "Encoder should have N sets of variable-onset features, for N quantiles"
+            assert self.encoder.n_features_ == dataset.n_ts_features + (self.n_quantiles + 1) * dataset.n_variable_features, \
+                "Encoder should have N + 1 sets of variable-onset features, for N quantiles"
 
     def _build_cache_for_dataset(self, dataset: BerpDataset) -> ForwardPipelineCache:
-        n_variable_onset_features = self.n_quantiles * dataset.n_variable_features
+        n_variable_onset_features = (self.n_quantiles + 1) * dataset.n_variable_features
         return ForwardPipelineCache(
             cache_key=dataset.name,
             design_matrix=make_dummy_design_matrix(
@@ -790,6 +790,8 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
         local_recognition_times = recognition_times - dataset.word_onsets
         recognition_quantiles = torch.quantile(
             local_recognition_times, torch.linspace(0, 1, self.n_quantiles + 1))
+
+        L.warning("Recognition quantiles: %s", recognition_quantiles.numpy())
         
         # NB we have N+1 buckets and at least one value will be assigned to the extreme left
         # bucket (the minimum value). Clamp output such that we have N buckets instead.
@@ -821,10 +823,17 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
 
         word_onset_samples = time_to_sample(dataset.word_onsets, dataset.sample_rate)
 
+        # All bins use the first surprisal feature.
+        target_0 = torch.narrow(out, 1, dataset.n_ts_features, dataset.n_variable_features)
+        scatter_add(target_0,
+                    target_samples=word_onset_samples,
+                    target_values=dataset.X_variable,
+                    lag_mask=lag_mask)
+
         for rec_bin_i in range(self.n_quantiles):
             mask = recognition_quantiles == rec_bin_i
 
-            feature_start_idx = dataset.n_ts_features + rec_bin_i * dataset.n_variable_features
+            feature_start_idx = dataset.n_ts_features + (rec_bin_i + 1) * dataset.n_variable_features
             samples, values = word_onset_samples[mask], dataset.X_variable[mask]
 
             # Pass just the slice of `out` that should be updated. NB `torch.narrow`
@@ -849,7 +858,7 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
         ts_feature_names, variable_feature_names = super().get_feature_names(dataset)
         variable_feature_names = [
             f"{name}_{i}"
-            for i in range(self.n_quantiles)
+            for i in range(self.n_quantiles + 1)
             for name in variable_feature_names
         ]
         return ts_feature_names, variable_feature_names
