@@ -19,7 +19,7 @@ RUN python3 -m pip install --no-cache-dir --upgrade pip && \
         jupyter jupytext torchtyping typeguard icecream \
         pytest pytest-cov coverage \
         transformers \
-        hydra-core hydra-optuna-sweeper optuna tensorboard \
+        hydra-core hydra-optuna-sweeper hydra_colorlog optuna tensorboard \
         pandas scipy seaborn \
         mne scikit-learn \
         textgrid
