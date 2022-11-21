@@ -28,11 +28,11 @@ def main(args):
 
     for path in args.dataset_paths:
         with path.open("rb") as f:
-            ds = pickle.load(f).ensure_torch()
+            ds: BerpDataset = pickle.load(f).ensure_torch()
             if subset_sensors:
-                ds = ds.subset_sensors(subset_sensors)
+                ds.subset_sensors(subset_sensors)
             if args.average_strategy == "macro":
-                ds = ds.average_sensors()
+                ds.average_sensors()
             datasets.append(ds)
     dataset = average_datasets(datasets, name=args.name)
 
