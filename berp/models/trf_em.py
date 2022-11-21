@@ -94,9 +94,11 @@ def scatter_add(design_matrix: TRFDesignMatrix,
 
 
 @typechecked
-def scatter_variable(dataset: BerpDataset, times: TensorType[B, float],
+def scatter_variable(dataset: BerpDataset,
+                     times: TensorType[B, float],
                      out: TRFDesignMatrix,
                      out_weight: float = 1.,
+                     variable_features: Optional[Union[List[int], List[str]]] = None,
                      lag_mask: Optional[TensorType["n_delays", torch.bool]] = None,
                      ) -> None:
     """
@@ -112,7 +114,7 @@ def scatter_variable(dataset: BerpDataset, times: TensorType[B, float],
             `True`.
     """
 
-    values = dataset.X_variable
+    _, values = dataset.get_features(variable=variable_features)
     assert len(times) == values.shape[0]
     feature_start_idx = dataset.n_ts_features
 
@@ -351,7 +353,6 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
         """
         Prepare caching pipelines for each subdataset of the given dataset.
         """
-        dataset = self._select_features(dataset)
         datasets = dataset.datasets if isinstance(dataset, NestedBerpDataset) else [dataset]
         for d in datasets:
             if d.global_slice_indices is not None:
@@ -420,6 +421,8 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
 
     #region domain logic
 
+    
+
     def pre_transform(self, dataset: BerpDataset) -> Tuple[TRFDesignMatrix, np.ndarray]:
         """
         Run a forward pass of the pre-transformation step, averaging out any
@@ -445,9 +448,20 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
     #region scikit API
 
     def _select_features(self, dataset: Dataset) -> Dataset:
+        """
+        Modify the dataset in-place to have the relevant set of features
+        for this model.
+        """
         dataset.select_features(
             ts=self.ts_feature_names, variable=self.variable_feature_names)
         return dataset
+
+    def _get_features(self, dataset: BerpDataset) -> Tuple[TensorType[float], TensorType[float]]:
+        """
+        Get the relevant features from the dataset for this model.
+        """
+        return dataset.get_features(
+            ts=self.ts_feature_names, variable=self.variable_feature_names)
 
     def _fit(self, encoder: Encoder, datasets: List[BerpDataset]):
         design_matrices, Ys = [], []
@@ -461,8 +475,6 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
         encoder.fit(design_matrix, Y)
 
     def fit(self, dataset: NestedBerpDataset, y=None) -> "GroupTRFForwardPipeline":
-        dataset = self._select_features(dataset)
-
         # Group datasets by encoder and fit jointly.
         grouped_datasets = defaultdict(list)
         for ds_i in dataset.datasets:
@@ -483,7 +495,6 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
     def partial_fit(self, dataset: NestedBerpDataset, y=None) -> "GroupTRFForwardPipeline":
         n_early_stops = 0
 
-        dataset = self._select_features(dataset)
         encs = self._get_or_create_encoders(dataset)
         for d, enc in encs:
             try:
@@ -499,7 +510,6 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
 
     @typechecked
     def predict(self, dataset: BerpDataset) -> TRFResponse:
-        dataset = self._select_features(dataset)
         enc = self._get_or_create_encoder(dataset)
         design_matrix, _ = self.pre_transform(dataset)
         return enc.predict(design_matrix)
@@ -511,7 +521,6 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
     @score.register
     @typechecked
     def _(self, dataset: BerpDataset, y=None) -> float:
-        dataset = self._select_features(dataset)
         enc = self._get_or_create_encoder(dataset)
         design_matrix, _ = self.pre_transform(dataset)
         return enc.score(design_matrix, dataset.Y)
@@ -519,7 +528,6 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
     @score.register
     @typechecked
     def _(self, dataset: NestedBerpDataset, y=None) -> float:
-        dataset = self._select_features(dataset)
         scores = [self.score(d) for d in dataset.datasets]
         return np.mean(scores)
 
@@ -530,7 +538,6 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
     @score_multidimensional.register
     @typechecked
     def _(self, dataset: BerpDataset, y=None) -> np.ndarray:
-        dataset = self._select_features(dataset)
         enc = self._get_or_create_encoder(dataset)
         design_matrix, _ = self.pre_transform(dataset)
         return enc.score_multidimensional(design_matrix, dataset.Y)
@@ -538,7 +545,6 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
     @score_multidimensional.register
     @typechecked
     def _(self, dataset: NestedBerpDataset, y=None) -> np.ndarray:
-        dataset = self._select_features(dataset)
         scores = [self.score_multidimensional(d) for d in dataset.datasets]
         return np.array(scores)
 
@@ -549,7 +555,6 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
     @log_likelihood.register
     @typechecked
     def _(self, dataset: BerpDataset) -> TensorType[B, torch.float]:
-        dataset = self._select_features(dataset)
         enc = self._get_or_create_encoder(dataset)
         design_matrix, _ = self.pre_transform(dataset)
         return enc.log_likelihood(design_matrix, dataset.Y).sum()
@@ -557,7 +562,6 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
     @log_likelihood.register
     @typechecked
     def _(self, dataset: NestedBerpDataset) -> List[TensorType[B, torch.float]]:
-        dataset = self._select_features(dataset)
         return [self.log_likelihood(d) for d in dataset.datasets]
 
     @singledispatchmethod
@@ -567,7 +571,6 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
     @log_likelihood_expanded.register
     @typechecked
     def _(self, dataset: BerpDataset) -> TensorType["param_grid", torch.float]:
-        dataset = self._select_features(dataset)
         enc = self._get_or_create_encoder(dataset)
         ret = []
         for design_matrix, _ in self.pre_transform_expanded(dataset):
@@ -579,7 +582,6 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
     def _(self, dataset: NestedBerpDataset
           ) -> Union[List[TensorType["param_grid", torch.float]],
                      List[torch.Tensor]]:
-        dataset = self._select_features(dataset)
         return [self.log_likelihood_expanded(d)
                 for d in dataset.datasets]
 
@@ -693,7 +695,8 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
         scatter_variable(
             dataset, recognition_times,
             out=out, out_weight=float(out_weight),
-            lag_mask=lag_mask)
+            lag_mask=lag_mask,
+            variable_features=self.variable_feature_names)
     
     def pre_transform(self, dataset: BerpDataset) -> Tuple[TRFDesignMatrix, MaskArray]:
         primed = self._get_cache_for_dataset(dataset)
@@ -886,19 +889,20 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
             lag_mask[-self.variable_trf_zero_right:] = False
 
         word_onset_samples = time_to_sample(dataset.word_onsets, dataset.sample_rate)
+        _, X_variable = self._get_features(dataset)
 
         # All bins use the first surprisal feature.
         target_0 = torch.narrow(out, 1, dataset.n_ts_features, dataset.n_variable_features)
         scatter_add(target_0,
                     target_samples=word_onset_samples,
-                    target_values=dataset.X_variable,
+                    target_values=X_variable,
                     lag_mask=lag_mask)
 
         for rec_bin_i in range(self.n_quantiles):
             mask = recognition_quantiles == rec_bin_i
 
             feature_start_idx = dataset.n_ts_features + (rec_bin_i + 1) * dataset.n_variable_features
-            samples, values = word_onset_samples[mask], dataset.X_variable[mask]
+            samples, values = word_onset_samples[mask], X_variable[mask]
 
             # Pass just the slice of `out` that should be updated. NB `torch.narrow`
             # never returns a copy.
@@ -930,11 +934,12 @@ class GroupVanillaTRFForwardPipeline(GroupTRFForwardPipeline):
 
         recognition_onsets = dataset.word_onsets
         recognition_onsets_samp = time_to_sample(recognition_onsets, self.encoder.sfreq)
+        _, X_variable = self._get_features(dataset)
 
         feature_start_idx = dataset.n_ts_features
         scatter_add(design_matrix[:, feature_start_idx:, :],
                     recognition_onsets_samp,
-                    dataset.X_variable,
+                    X_variable,
                     add=False)
 
     def pre_transform(self, dataset: BerpDataset) -> Tuple[TRFDesignMatrix, np.ndarray]:

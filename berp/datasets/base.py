@@ -2,7 +2,8 @@ from __future__ import annotations
 import dataclasses
 from dataclasses import dataclass, replace
 import logging
-from typing import List, Optional, Callable, Dict, Tuple, Union, Iterator
+from pprint import pformat
+from typing import List, Optional, Callable, Dict, Tuple, Union, Iterator, cast
 
 import numpy as np
 import torch
@@ -372,6 +373,52 @@ class BerpDataset:
         self.Y = self.Y.mean(dim=1, keepdim=True)
         self.sensor_names = sensor_names
 
+    def _check_feature_spec(self,
+                            ts: Optional[Union[List[int], List[str]]] = None,
+                            variable: Optional[Union[List[int], List[str]]] = None
+                            ) -> Tuple[List[int], List[int]]:
+        """
+        Check and convert the given feature lists to a list of column indices into
+        `X_ts` and `X_variable`.
+        """
+        if ts is None:
+            ts = list(range(self.n_ts_features))
+        elif ts and isinstance(ts[0], str):
+            if self.ts_feature_names is None:
+                raise ValueError("Dataset has no time-series feature names but string identifiers passed.")
+            try:
+                ts = [self.ts_feature_names.index(f) for f in ts]
+            except ValueError:
+                L.error("Available time-series features in dataset:")
+                L.error(pformat(self.ts_feature_names))
+                raise
+        if variable is None:
+            variable = list(range(self.n_variable_features))
+        elif variable and isinstance(variable[0], str):
+            if self.variable_feature_names is None:
+                raise ValueError("Dataset has no variable feature names but string identifiers passed.")
+            try:
+                variable = [self.variable_feature_names.index(f) for f in variable]
+            except ValueError:
+                L.error("Available variable features in dataset:")
+                L.error(pformat(self.variable_feature_names))
+                raise
+        return ts, variable
+
+    def get_features(self,
+                     ts: Optional[Union[List[int], List[str]]] = None,
+                     variable: Optional[Union[List[int], List[str]]] = None
+                     ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Return the given time-series and variable features as tensors.
+
+        Returns:
+            ts_tensor:
+            variable_tensor:
+        """
+        ts, variable = self._check_feature_spec(ts, variable)
+        return self.X_ts[:, ts], self.X_variable[:, variable]
+
     def select_features(self,
                         ts: Optional[Union[List[int], List[str]]] = None,
                         variable: Optional[Union[List[int], List[str]]] = None) -> None:
@@ -379,18 +426,7 @@ class BerpDataset:
         Subset with the given ordered time-series and variable features.
         Operates in place.
         """
-        if ts is None:
-            ts = list(range(self.n_ts_features))
-        elif ts and isinstance(ts[0], str):
-            if self.ts_feature_names is None:
-                raise ValueError("Dataset has no time-series feature names but string identifiers passed.")
-            ts = [self.ts_feature_names.index(f) for f in ts]
-        if variable is None:
-            variable = list(range(self.n_variable_features))
-        elif variable and isinstance(variable[0], str):
-            if self.variable_feature_names is None:
-                raise ValueError("Dataset has no variable feature names but string identifiers passed.")
-            variable = [self.variable_feature_names.index(f) for f in variable]
+        ts, variable = self._check_feature_spec(ts, variable)
 
         self.X_ts = self.X_ts[:, ts]
         self.X_variable = self.X_variable[:, variable]

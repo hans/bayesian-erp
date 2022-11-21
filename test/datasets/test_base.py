@@ -169,6 +169,16 @@ def test_select_features():
     torch.testing.assert_allclose(dataset2.X_variable, dataset2_int.X_variable)
 
 
+    # Test get_features here too
+    ds2_ts, ds2_variable = dataset.get_features(ts=["ts0"], variable=["var2"])
+    torch.testing.assert_allclose(ds2_ts, dataset2.X_ts)
+    torch.testing.assert_allclose(ds2_variable, dataset2.X_variable)
+
+    ds2_int_ts, ds2_int_variable = dataset.get_features(ts=[0], variable=[1])
+    torch.testing.assert_allclose(ds2_int_ts, dataset2.X_ts)
+    torch.testing.assert_allclose(ds2_int_variable, dataset2.X_variable)
+
+
 def test_select_features_drop_all_variable():
     dataset = make_dataset()
     dataset.ts_feature_names = [f"ts{x}" for x in range(dataset.n_ts_features)]
@@ -179,3 +189,8 @@ def test_select_features_drop_all_variable():
     dataset2.select_features(ts=None, variable=[])
     torch.testing.assert_allclose(dataset2.X_ts, dataset.X_ts)
     assert dataset2.X_variable.shape == (dataset.n_words, 0)
+
+    # Test get_features here too
+    ds2_ts, ds2_variable = dataset.get_features(ts=None, variable=[])
+    torch.testing.assert_allclose(ds2_ts, dataset2.X_ts)
+    assert ds2_variable.shape == (dataset.n_words, 0)
