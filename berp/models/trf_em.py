@@ -237,11 +237,13 @@ def make_dummy_design_matrix(dataset: BerpDataset, delayer: TRFDelayer,
 
 # Global cache container for all pipeline forwards.
 # This allows us to reuse the cache between e.g. different instantiations of full
-# pipelines with different hparams, but with the same data.
+# pipelines with different hparams, but with the same predictors.
 #
 # But NB caches are not shared across different implementations (e.g. Berp vs vanilla)
-# because they may have different data representations.
-GLOBAL_CACHE: Dict[Type["GroupTRFForwardPipeline"], Dict[str, ForwardPipelineCache]] = {}
+# or same implementation with different predictors, because they may have different
+# data representations.
+CacheKey = Tuple[Type["GroupTRFForwardPipeline"], Tuple[str], Tuple[str]]
+GLOBAL_CACHE: Dict[CacheKey, Dict[str, ForwardPipelineCache]] = {}
 
 
 clones = [0]
@@ -328,11 +330,12 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
     #region caching and weight sharing logic
 
     @property
-    def _encoder_cache_key(self) -> Hashable:
+    def _encoder_cache_key(self) -> CacheKey:
         """
         Class instances with the same cache key can safely share `ForwardPipelineCache`s.
         """
-        return (self.__class__, tuple(self.variable_feature_names))
+        ts_names, variable_names = self.encoder_predictor_names
+        return (self.__class__, tuple(ts_names), tuple(variable_names))
 
     @property
     def _cache(self) -> Dict[str, ForwardPipelineCache]:
