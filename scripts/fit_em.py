@@ -143,49 +143,9 @@ def main(cfg: Config):
 
         est = model
 
-    # else:
-    #     for _ in trange(cfg.cv.max_iter):
-    #         try:
-    #             model.partial_fit(data_train)
-    #         except EarlyStopException:
-    #             break
-    #     est = model
-
     checkpoint_model(est, dataset, params_dir, cfg.viz)
 
     tb.close()
-
-    # TODO calculate score on test set. or do full CV.
-
-    # # TODO do we need to clear cache?
-    # for dataset in tqdm(dataset.datasets, desc="Datasets"):
-    #     data_train = NestedBerpDataset([dataset], n_splits=4)
-
-    #     cv = make_cv(model, cfg.cv)
-    #     cv.fit(data_train)
-
-    #     trf = cv.best_estimator_.named_steps["trf"]
-    #     coefs_df = trf_to_dataframe(trf)
-    #     coefs_df["dataset"] = dataset.name
-    #     coefs_df.to_csv(f"coefs.{dataset.name.replace('/', '-')}.csv", index=False)
-
-    #########
-
-    # # TODO figure out shuffling. Can shuffle at the subject level ofc but not at the
-    # # time series level.
-
-    # # Nested cross-validation. Outer CV loop error on test set;
-    # # inner CV loop estimates optimal hyperparameters.
-    # outer_cv = KFold(n_splits=cfg.cv.n_outer_folds, shuffle=False)
-    # fold_results = []
-    # for i_split, (train_fold, test_fold) in enumerate(tqdm(outer_cv.split(data_train))):
-    #     inner_cv = make_cv(model, cfg.cv)
-    #     fold_results.append(inner_cv.fit(data_train[train_fold]))
-
-    # if cfg.solver.type == "svd":
-    #     model.fit(data_train)
-    # else:
-    #     model.partial_fit(data_train)
 
 
 if __name__ == "__main__":
