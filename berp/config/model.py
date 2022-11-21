@@ -122,6 +122,27 @@ class BerpTRFEMModelConfig(BerpTRFModelConfig):
     _target_: str = "berp.models.trf_em.BerpTRFEM"
 
 
+@dataclass
+class FeatureConfig:
+    """
+    Specifies the dataset features that a pipeline should draw on /
+    feed to a model.
+    """
+
+    ts_feature_names: List[str]
+    """
+    Names of the time series features to extract from a dataset. These
+    correspond to the first N columns of the model design matrix.
+    """
+
+    variable_feature_names: List[str]
+    """
+    Names of the variable onset features to extract from a dataset. These
+    will be used to produce some number of variable-onset predictors,
+    depending on the model.
+    """
+
+
 cs = ConfigStore.instance()
 cs.store(group=GROUP, name="base_trf", node=TRFModelConfig)
 cs.store(group=GROUP, name="base_trf_pipeline", node=TRFPipelineConfig)

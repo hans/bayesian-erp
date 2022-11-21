@@ -213,7 +213,9 @@ def hydra_param(obj):
     return yaml.safe_dump(obj, default_flow_style=True, width=float("inf")).strip()
 
 
-rule fit_baseline_model:
+# Fit a "base baseline" model which does not include any variable-onset features (no
+# word surprisal or word frequency).
+rule fit_base_baseline_model:
     input:
         # datasets = expand(
         #     "data/dataset/{{model}}/{story_name}/{subject}.pkl",
@@ -226,6 +228,54 @@ rule fit_baseline_model:
             "data/stimulus/{{model}}/{story_name}.pkl",
             story_name=STORIES),
         confusion = "data/confusion_matrix.npz"
+
+    params:
+        berp_model = "trf"
+
+    output:
+        trace = directory("results_{group_average_strategy}average/{model}/base_trf")
+
+    run:
+        dataset_path_str = hydra_param(input.datasets)
+
+        stimulus_dict = {
+            Path(stimulus).stem: stimulus for stimulus in input.stimuli
+        }
+        stimulus_dict_str = hydra_param(stimulus_dict)
+
+        dataset_spec = f"dkz_{wildcards.group_average_strategy}average"
+        cv_spec = config["fit"]["cv_strategy"][params.berp_model]
+
+        shell("""
+        export PYTHONPATH=.
+        python scripts/fit_em.py \
+            model={params.berp_model} \
+            features=dkz \
+            'features.variable_feature_names=[]' \
+            dataset={dataset_spec} \
+            'dataset.paths={dataset_path_str}' \
+            +dataset.stimulus_paths='{stimulus_dict_str}' \
+            cv={cv_spec} \
+            solver=adam \
+            hydra.run.dir={output.trace}
+        """)
+
+
+rule fit_baseline_model:
+    input:
+        # datasets = expand(
+        #     "data/dataset/{{model}}/{story_name}/{subject}.pkl",
+        #     story_name=STORIES, subject=SUBJECTS, allow_missing=True),
+        # Fit average.
+        datasets = expand(
+            "data/dataset/{{model}}/{story_name}/{group_average_strategy}average.pkl",
+            story_name=STORIES, allow_missing=True),
+        stimuli = expand(
+            "data/stimulus/{{model}}/{story_name}.pkl",
+            story_name=STORIES),
+        confusion = "data/confusion_matrix.npz",
+
+        baseline_model = "results_{group_average_strategy}average/{model}/base_trf"
 
     params:
         berp_model = "trf"
@@ -248,10 +298,12 @@ rule fit_baseline_model:
         export PYTHONPATH=.
         python scripts/fit_em.py \
             model={params.berp_model} \
+            baseline_model_path={input.baseline_model} \
+            features=dkz \
+            'features.variable_feature_names=[word_frequency, word_surprisal]' \
             dataset={dataset_spec} \
             'dataset.paths={dataset_path_str}' \
             +dataset.stimulus_paths='{stimulus_dict_str}' \
-            'dataset.drop_X_variable=[recognition_onset]' \
             cv={cv_spec} \
             solver=adam \
             hydra.run.dir={output.trace}
@@ -292,6 +344,7 @@ rule fit_model:
         python scripts/fit_em.py \
             model={wildcards.berp_model} \
             baseline_model_path={input.baseline_model} \
+            features=dkz \
             dataset={dataset_spec} \
             'dataset.paths={dataset_path_str}' \
             +dataset.stimulus_paths='{stimulus_dict_str}' \

@@ -2,7 +2,8 @@ from __future__ import annotations
 import dataclasses
 from dataclasses import dataclass, replace
 import logging
-from typing import List, Optional, Callable, Dict, Tuple, Union, Iterator
+from pprint import pformat
+from typing import List, Optional, Callable, Dict, Tuple, Union, Iterator, cast
 
 import numpy as np
 import torch
@@ -318,7 +319,7 @@ class BerpDataset:
 
         return self
 
-    def with_stimulus(self, stimulus: NaturalLanguageStimulus) -> BerpDataset:
+    def add_stimulus(self, stimulus: NaturalLanguageStimulus) -> None:
         """
         Add stimulus information to the dataset in-place.
         """
@@ -332,11 +333,9 @@ class BerpDataset:
         self.word_lengths = stimulus.word_lengths
         self.candidate_phonemes = stimulus.candidate_phonemes
 
-        return self
-
-    def subset_sensors(self, sensors: Union[List[int], List[str]]) -> BerpDataset:
+    def subset_sensors(self, sensors: Union[List[int], List[str]]) -> None:
         """
-        Subset sensors in response variable. Returns a copy.
+        Subset sensors in response variable. Operates in place.
         """
         sensor_idxs, sensor_names = [], []
         for sensor in sensors:
@@ -359,22 +358,82 @@ class BerpDataset:
                     sensor_idxs.append(self.sensor_names.index(sensor))
                     sensor_names.append(sensor)
 
-        return dataclasses.replace(self,
-            Y=self.Y[:, sensor_idxs],
-            sensor_names=sensor_names)
+        self.Y = self.Y[:, sensor_idxs]
+        self.sensor_names = sensor_names
 
-    def average_sensors(self) -> BerpDataset:
+    def average_sensors(self) -> None:
         """
         Average across sensor values per sample, creating a univariate
-        response. Returns a copy.
+        response. Operates in place.
         """
         # TODO outliers?
         sensor_names = ["average"] if self.sensor_names is None \
             else ["average_%s" % "_".join(self.sensor_names)]
 
-        return dataclasses.replace(self,
-            Y=self.Y.mean(dim=1, keepdim=True),
-            sensor_names=sensor_names)
+        self.Y = self.Y.mean(dim=1, keepdim=True)
+        self.sensor_names = sensor_names
+
+    def _check_feature_spec(self,
+                            ts: Optional[Union[List[int], List[str]]] = None,
+                            variable: Optional[Union[List[int], List[str]]] = None
+                            ) -> Tuple[List[int], List[int]]:
+        """
+        Check and convert the given feature lists to a list of column indices into
+        `X_ts` and `X_variable`.
+        """
+        if ts is None:
+            ts = list(range(self.n_ts_features))
+        elif ts and isinstance(ts[0], str):
+            if self.ts_feature_names is None:
+                raise ValueError("Dataset has no time-series feature names but string identifiers passed.")
+            try:
+                ts = [self.ts_feature_names.index(f) for f in ts]
+            except ValueError:
+                L.error("Available time-series features in dataset:")
+                L.error(pformat(self.ts_feature_names))
+                raise
+        if variable is None:
+            variable = list(range(self.n_variable_features))
+        elif variable and isinstance(variable[0], str):
+            if self.variable_feature_names is None:
+                raise ValueError("Dataset has no variable feature names but string identifiers passed.")
+            try:
+                variable = [self.variable_feature_names.index(f) for f in variable]
+            except ValueError:
+                L.error("Available variable features in dataset:")
+                L.error(pformat(self.variable_feature_names))
+                raise
+        return ts, variable
+
+    def get_features(self,
+                     ts: Optional[Union[List[int], List[str]]] = None,
+                     variable: Optional[Union[List[int], List[str]]] = None
+                     ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Return the given time-series and variable features as tensors.
+
+        Returns:
+            ts_tensor:
+            variable_tensor:
+        """
+        ts, variable = self._check_feature_spec(ts, variable)
+        return self.X_ts[:, ts], self.X_variable[:, variable]
+
+    def select_features(self,
+                        ts: Optional[Union[List[int], List[str]]] = None,
+                        variable: Optional[Union[List[int], List[str]]] = None) -> None:
+        """
+        Subset with the given ordered time-series and variable features.
+        Operates in place.
+        """
+        ts, variable = self._check_feature_spec(ts, variable)
+
+        self.X_ts = self.X_ts[:, ts]
+        self.X_variable = self.X_variable[:, variable]
+        self.ts_feature_names = [self.ts_feature_names[i] for i in ts] \
+            if self.ts_feature_names is not None else None
+        self.variable_feature_names = [self.variable_feature_names[i] for i in variable] \
+            if self.variable_feature_names is not None else None
 
     # Avoid saving stimulus data in pickle data
     def __getstate__(self):
@@ -559,21 +618,29 @@ class NestedBerpDataset(object):
 
         return f"NestedBerpDataset({', '.join(f'{name}[{start}:{end}]' for name, (start, end) in merged)})"
 
-    def subset_sensors(self, sensors: List[int]) -> NestedBerpDataset:
+    def subset_sensors(self, sensors: List[int]) -> None:
         """
-        Subset sensors in response variable. Returns a copy.
+        Subset sensors in response variable. Operates in place.
         """
-        return NestedBerpDataset(
-            [dataset.subset_sensors(sensors) for dataset in self.datasets],
-            n_splits=self.n_splits)
+        for ds in self.datasets:
+            ds.subset_sensors(sensors)
 
-    def average_sensors(self) -> NestedBerpDataset:
+    def average_sensors(self) -> None:
         """
-        Average sensors in response variable. Returns a copy.
+        Average sensors in response variable. Operates in place.
         """
-        return NestedBerpDataset(
-            [dataset.average_sensors() for dataset in self.datasets],
-            n_splits=self.n_splits)
+        for ds in self.datasets:
+            ds.average_sensors()
+
+    def select_features(self,
+                        ts: Optional[Union[List[int], List[str]]] = None,
+                        variable: Optional[Union[List[int], List[str]]] = None) -> None:
+        """
+        Subset with the given ordered time-series and variable features.
+        Operates in place.
+        """
+        for ds in self.datasets:
+            ds.select_features(ts, variable)
 
 
 def assert_compatible(ds1: BerpDataset, ds2: BerpDataset):

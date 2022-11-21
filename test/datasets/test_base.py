@@ -1,3 +1,4 @@
+from copy import deepcopy
 import uuid
 
 import numpy as np
@@ -115,7 +116,8 @@ def test_nested_getitem_contiguous(nested_dataset_2):
 @pytest.mark.parametrize("sensor_spec", [["a", "c"], [0, 2]])
 def test_subset_sensors(sensor_spec):
     ds = make_dataset()
-    ds2 = ds.subset_sensors(sensor_spec)
+    ds2 = deepcopy(ds)
+    ds2.subset_sensors(sensor_spec)
 
     assert ds.Y.shape[0] == ds2.Y.shape[0]
     assert ds.Y.shape[1] == 3
@@ -126,7 +128,9 @@ def test_subset_sensors(sensor_spec):
 
 def test_average_sensors():
     ds = make_dataset()
-    ds2 = ds.average_sensors()
+
+    ds2 = deepcopy(ds)
+    ds2.average_sensors()
 
     assert ds.Y.shape[0] == ds2.Y.shape[0]
     assert ds.Y.shape[1] == 3
@@ -138,10 +142,55 @@ def test_average_sensors():
 def test_average_unnamed_sensors():
     ds = make_dataset()
     ds.sensor_names = None
-    ds2 = ds.average_sensors()
+
+    ds2 = deepcopy(ds)
+    ds2.average_sensors()
 
     assert ds.Y.shape[0] == ds2.Y.shape[0]
     assert ds.Y.shape[1] == 3
     assert ds2.Y.shape[1] == 1
     assert ds2.sensor_names == ["average"]
     torch.testing.assert_allclose(ds2.Y, ds.Y.mean(dim=1, keepdim=True))
+
+
+def test_select_features():
+    dataset = make_dataset()
+    dataset.ts_feature_names = [f"ts{x}" for x in range(dataset.n_ts_features)]
+    dataset.X_variable = torch.concat([dataset.X_variable, 2 * dataset.X_variable], dim=1)
+    dataset.variable_feature_names = ["var1", "var2"]
+
+    dataset2 = deepcopy(dataset)
+    dataset2.select_features(ts=["ts0"], variable=["var2"])
+    dataset2_int = deepcopy(dataset)
+    dataset2_int.select_features(ts=[0], variable=[1])
+    torch.testing.assert_allclose(dataset2.X_ts, dataset.X_ts[:, [0]])
+    torch.testing.assert_allclose(dataset2.X_ts, dataset2_int.X_ts)
+    torch.testing.assert_allclose(dataset2.X_variable, dataset.X_variable[:, [1]])
+    torch.testing.assert_allclose(dataset2.X_variable, dataset2_int.X_variable)
+
+
+    # Test get_features here too
+    ds2_ts, ds2_variable = dataset.get_features(ts=["ts0"], variable=["var2"])
+    torch.testing.assert_allclose(ds2_ts, dataset2.X_ts)
+    torch.testing.assert_allclose(ds2_variable, dataset2.X_variable)
+
+    ds2_int_ts, ds2_int_variable = dataset.get_features(ts=[0], variable=[1])
+    torch.testing.assert_allclose(ds2_int_ts, dataset2.X_ts)
+    torch.testing.assert_allclose(ds2_int_variable, dataset2.X_variable)
+
+
+def test_select_features_drop_all_variable():
+    dataset = make_dataset()
+    dataset.ts_feature_names = [f"ts{x}" for x in range(dataset.n_ts_features)]
+    dataset.X_variable = torch.concat([dataset.X_variable, 2 * dataset.X_variable], dim=1)
+    dataset.variable_feature_names = ["var1", "var2"]
+
+    dataset2 = deepcopy(dataset)
+    dataset2.select_features(ts=None, variable=[])
+    torch.testing.assert_allclose(dataset2.X_ts, dataset.X_ts)
+    assert dataset2.X_variable.shape == (dataset.n_words, 0)
+
+    # Test get_features here too
+    ds2_ts, ds2_variable = dataset.get_features(ts=None, variable=[])
+    torch.testing.assert_allclose(ds2_ts, dataset2.X_ts)
+    assert ds2_variable.shape == (dataset.n_words, 0)

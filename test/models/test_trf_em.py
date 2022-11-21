@@ -82,13 +82,21 @@ def vanilla_dataset(dataset):
 
     # HACK: drop in and update dataset values
     # May need to update as interface changes
+    # NB this dataset is in an inconsistent state and will likely break Berp!
+    # But it's fine for the vanilla model.
     dataset.name = 'DKZ_1/subj1'
     dataset.sample_rate = sfreq
     dataset.X_ts = X
+    dataset.ts_feature_names = [f"ts_{i}" for i in range(X.shape[1])]
     dataset.word_onsets = torch.tensor([0, 1, 2, 3]).float()
+    dataset.word_offsets = torch.tensor([1, 2, 3, 4]).float()
+    dataset.phoneme_onsets = torch.tensor([0, 1, 2, 3]).float().unsqueeze(1)
     # dataset.X_variable = torch.randn(len(dataset.word_onsets), 2).float()  # torch.tensor([0, 0, 0, 0]).float().unsqueeze(1)
     dataset.X_variable = torch.zeros(len(dataset.word_onsets), 0).float()
+    dataset.variable_feature_names = []
     dataset.Y = Y
+
+    dataset.check_shapes()
 
     return dataset
 
@@ -128,9 +136,12 @@ def model_param_grid(model_params):
 
 # NB some tests modify the underlying dataset, so scope this fixture at the function level
 @pytest.fixture(scope="function")
-def group_em_estimator(synth_params: ModelParameters, trf: TemporalReceptiveField,
-                       model_param_grid: List[PartiallyObservedModelParameters]):
-    pipeline = GroupBerpTRFForwardPipeline(trf, params=model_param_grid)
+def group_em_estimator(synth_params: ModelParameters, dataset: BerpDataset,
+                       trf: TemporalReceptiveField,
+                       model_param_grid: List[ModelParameters]):
+    pipeline = GroupBerpTRFForwardPipeline(trf, params=model_param_grid,
+        ts_feature_names=dataset.ts_feature_names,
+        variable_feature_names=dataset.variable_feature_names)
     ret = BerpTRFEMEstimator(pipeline)
 
     # Prime the pipeline with two datasets.
@@ -145,9 +156,12 @@ def group_em_estimator(synth_params: ModelParameters, trf: TemporalReceptiveFiel
 
 
 @pytest.fixture(scope="function")
-def group_fixed_estimator(synth_params: ModelParameters, trf: TemporalReceptiveField):
+def group_fixed_estimator(synth_params: ModelParameters, dataset: BerpDataset,
+                          trf: TemporalReceptiveField):
     pipe = GroupBerpFixedTRFForwardPipeline(
         trf,
+        ts_feature_names=dataset.ts_feature_names,
+        variable_feature_names=dataset.variable_feature_names,
         threshold=synth_params.threshold,
         confusion=synth_params.confusion,
         lambda_=synth_params.lambda_,
@@ -160,9 +174,12 @@ def group_fixed_estimator(synth_params: ModelParameters, trf: TemporalReceptiveF
 
 
 @pytest.fixture(scope="function")
-def group_cannon_estimator(synth_params: ModelParameters, trf: TemporalReceptiveField):
+def group_cannon_estimator(synth_params: ModelParameters, dataset: BerpDataset,
+                           trf: TemporalReceptiveField):
     pipe = trf_em.GroupBerpCannonTRFForwardPipeline(
         trf,
+        ts_feature_names=dataset.ts_feature_names,
+        variable_feature_names=dataset.variable_feature_names,
         threshold=synth_params.threshold,
         confusion=synth_params.confusion,
         lambda_=synth_params.lambda_,
@@ -175,7 +192,7 @@ def group_cannon_estimator(synth_params: ModelParameters, trf: TemporalReceptive
     return pipe
 
 
-def test_variable_trf_zero_overflow(trf: TemporalReceptiveField):
+def test_variable_trf_zero_overflow(trf: TemporalReceptiveField, dataset: BerpDataset):
     # Should error when variable-onset TRF zero-constraint is too wide
     # given the width of the TRF encoder window.
     too_many_samples = int((trf.tmax - trf.tmin) * trf.sfreq) + 128
@@ -185,6 +202,8 @@ def test_variable_trf_zero_overflow(trf: TemporalReceptiveField):
     with pytest.raises(ValueError):
         GroupBerpTRFForwardPipeline(
             trf,
+            ts_feature_names=dataset.ts_feature_names,
+            variable_feature_names=dataset.variable_feature_names,
             params=[PartiallyObservedModelParameters()],
             variable_trf_zero_left=left_zero,
             variable_trf_zero_right=right_zero
@@ -359,7 +378,8 @@ class TestGroupVanilla:
         kwargs = dict(tmin=0, tmax=2, sfreq=nested.sample_rate,
                       alpha=0, n_outputs=nested.n_sensors) | kwargs
         trf = TemporalReceptiveField(**kwargs)
-        trf_pipe = GroupVanillaTRFForwardPipeline(encoder=trf)
+        trf_pipe = GroupVanillaTRFForwardPipeline(encoder=trf, ts_feature_names=nested.ts_feature_names,
+                                                  variable_feature_names=nested.variable_feature_names)
         trf_pipe.prime(nested)
         return trf_pipe
 

@@ -1,0 +1,26 @@
+ts_feature_names:
+  - binned acoustical edges >100Hz_0
+  - binned acoustical edges >100Hz_1
+  - binned acoustical edges >100Hz_2
+  - binned acoustical edges >100Hz_3
+  - binned acoustical edges >100Hz_4
+  - binned acoustical edges >100Hz_5
+  - binned acoustical edges >100Hz_6
+  - binned acoustical edges >100Hz_7
+  - phoneme entropy_0
+  - phoneme onsets_0
+  - phoneme surprisal_0
+  - binned spectrogram >100Hz_0
+  - binned spectrogram >100Hz_1
+  - binned spectrogram >100Hz_2
+  - binned spectrogram >100Hz_3
+  - binned spectrogram >100Hz_4
+  - binned spectrogram >100Hz_5
+  - binned spectrogram >100Hz_6
+  - binned spectrogram >100Hz_7
+  - word onsets_0
+
+variable_feature_names:
+  - recognition_onset
+  - word_frequency
+  - word_surprisal

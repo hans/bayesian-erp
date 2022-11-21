@@ -83,7 +83,7 @@ def reestimate_trf_coefficients(est, dataset, params_dir, splitter, viz_cfg: Viz
         est = est.pipeline
     assert isinstance(est, GroupTRFForwardPipeline)
 
-    ts_feature_names, variable_feature_names = est.get_feature_names(dataset)
+    ts_feature_names, variable_feature_names = est.encoder_predictor_names
     feature_names = ts_feature_names + variable_feature_names
     coef_dfs = []
 
