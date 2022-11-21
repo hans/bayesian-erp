@@ -15,7 +15,7 @@ import logging
 import pickle
 import re
 from typing import Optional, List, Dict, Union, Tuple, \
-    TypeVar, Generic, Iterator, Type, cast
+    TypeVar, Generic, Iterator, Type, cast, Hashable
 
 from hydra.utils import to_absolute_path
 import numpy as np
@@ -192,7 +192,11 @@ class ForwardPipelineCache:
 
         assert n_features - self.n_variable_predictors == dataset.n_ts_features
         if dataset.variable_feature_names is not None:
-            assert set(dataset.variable_feature_names) - set(self.variable_feature_names) == set()
+            unknown_features = set(self.variable_feature_names) - set(dataset.variable_feature_names)
+            if unknown_features:
+                raise ValueError(
+                    f"Dataset {dataset.name} is missing features: {unknown_features}"
+                )
         
         assert len(dataset) <= n_samples
         if dataset.global_slice_indices is not None:
@@ -324,10 +328,18 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
     #region caching and weight sharing logic
 
     @property
+    def _encoder_cache_key(self) -> Hashable:
+        """
+        Class instances with the same cache key can safely share `ForwardPipelineCache`s.
+        """
+        return (self.__class__, tuple(self.variable_feature_names))
+
+    @property
     def _cache(self) -> Dict[str, ForwardPipelineCache]:
-        if self.__class__ not in GLOBAL_CACHE:
-            GLOBAL_CACHE[self.__class__] = {}
-        return GLOBAL_CACHE[self.__class__]
+        key = self._encoder_cache_key
+        if key not in GLOBAL_CACHE:
+            GLOBAL_CACHE[key] = {}
+        return GLOBAL_CACHE[key]
 
     def _build_cache_for_dataset(self, dataset: BerpDataset) -> ForwardPipelineCache:
         _, variable_predictor_names = self.encoder_predictor_names
