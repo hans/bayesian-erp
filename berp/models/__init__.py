@@ -13,17 +13,6 @@ def load_model(model_dir: str) -> GroupTRFForwardPipeline:
     with pipeline_pickle.open("rb") as f:
         pipeline = pickle.load(f)
 
-    # HACK: Add dummy feature in coefs, because the full model includes a rec point feature.
-    if isinstance(pipeline, GroupVanillaTRFForwardPipeline):
-        for encoder in pipeline.encoders_.values():
-            insert_point = 21
-            encoder.coef_ = torch.cat(
-                [encoder.coef_[:insert_point, :, :],
-                 torch.zeros(1, *encoder.coef_.shape[1:]),
-                 encoder.coef_[insert_point:, :, :]],
-                 dim=0)
-            encoder.n_features_ += 1
-
     return pipeline
 
 
