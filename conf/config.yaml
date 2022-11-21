@@ -4,7 +4,7 @@ defaults:
   - model: trf
   - features: dkz
   - solver: adam
-  - dataset: dkz_1_2
+  - dataset: dkz_microaverage
   - cv: search_alpha
   - viz: basic
 
