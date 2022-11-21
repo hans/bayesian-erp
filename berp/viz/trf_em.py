@@ -107,27 +107,3 @@ def reestimate_trf_coefficients(est, dataset, params_dir, splitter, viz_cfg: Viz
                                     feature_match_patterns=viz_cfg.feature_patterns)
         fig.savefig(params_dir / f"encoder_coefs.{key}.png")
         tb.add_figure(f"encoder_coefs/{key}", fig)
-
-
-
-def trf_em_tb_callback(est, dataset, params_dir, splitter, viz_cfg: VizConfig,
-                       baseline_model: Optional[GroupTRFForwardPipeline] = None):
-    def tb_callback(study, trial):
-        tb = Tensorboard.instance()
-        tb.global_step += 1
-        if study.best_trial.number == trial.number:
-            for param, value in trial.params.items():
-                tb.add_scalar(f"optuna/{param}", value)
-            tb.add_scalar("optuna/test_score", trial.value)
-
-            # Refit and checkpoint model.
-            L.info("Refitting and checkpointing model")
-            est_i = clone(est)
-            est_i.set_params(**trial.params)
-            est_i.fit(dataset)
-            checkpoint_model(est_i, dataset, params_dir, viz_cfg,
-                             baseline_model=baseline_model)
-
-            reestimate_trf_coefficients(est_i, dataset, params_dir, splitter, viz_cfg)
-    
-    return tb_callback
