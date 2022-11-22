@@ -2,7 +2,7 @@
 Defines data and utilities for Dutch processing.
 """
 
-from collections import Counter
+from collections import Counter, defaultdict
 from functools import cache
 import logging
 import re
@@ -10,6 +10,7 @@ from typing import List, Tuple
 
 import numpy as np
 import pandas as pd
+from tqdm.auto import tqdm
 
 
 L = logging.getLogger(__name__)
@@ -159,31 +160,14 @@ smits_ipa_chars = set(convert_to_smits_ipa(phon) for phon in ipa_chars)
 
 punct_only_re = re.compile(r"^[.?!:'\"]+$")
 
-
+CELEX_PHONEME_RE = re.compile("|".join(sorted(celex_ipa_mapping.keys(), key=len, reverse=True)))
 def convert_celex_to_ipa(celex_word, phoneme_processor=None) -> List[Phoneme]:
-    # Greedily consume phonemes
-    celex_keys = sorted(celex_ipa_mapping.keys(), key=lambda code: -len(code))
-    ret = []
-    orig = celex_word
-    i = 0
-    while celex_word:
-        for key in celex_keys:
-            if celex_word.startswith(key):
-                phon_i = celex_ipa_mapping[key]
-                if phoneme_processor is not None:
-                    phon_i = phoneme_processor(phon_i)
-
-                ret.append(phon_i)
-                celex_word = celex_word[len(key):]
-                break
-        else:
-            raise KeyError(f"{orig} -> {celex_word}")
-            
-        i += 1
-        if i == 10:
-            break
-            
-    return ret
+    phonemes = CELEX_PHONEME_RE.findall(celex_word)
+    phonemes = [celex_ipa_mapping[phon] for phon in phonemes]
+    # TODO check
+    if phoneme_processor is not None:
+        phonemes = [phoneme_processor(phon) for phon in phonemes]
+    return phonemes
 
 
 # Sequentially matches all phonemes
@@ -207,16 +191,23 @@ class CelexPhonemizer:
 
         # Pre-convert to IPA, and reduce to Smits representation
         # Compute a unigram phoneme frequency distribution at the same time
-        ipa_values, phoneme_freqs = [], Counter()
-        for celex_word in phonemizer_df.celex:
+        # Compute cohort maps at the same time
+        ipa_values, phoneme_freqs, cohorts = [], Counter(), defaultdict(set)
+        for celex_word in tqdm(phonemizer_df.celex, desc="Preprocessing pronunciation dictionary"):
             ipa_word = convert_celex_to_ipa(celex_word, phoneme_processor=convert_to_smits_ipa)
-            ipa_values.append("".join(ipa_word))
+            ipa_word_str = "".join(ipa_word)
+            ipa_values.append(ipa_word_str)
+
             phoneme_freqs.update(ipa_word)
+            for prefix in range(len(ipa_word)):
+                cohorts["".join(ipa_word[:prefix])].add(ipa_word_str)
         phonemizer_df["ipa"] = ipa_values
         self._phoneme_freqs = pd.Series(phoneme_freqs)
         self._phoneme_freqs /= self._phoneme_freqs.sum()
+        self._cohorts = {prefix: list(cohort) for prefix, cohort in cohorts.items()}
         
         self._df = phonemizer_df.drop(columns=["celex", "celex_syl"])
+        self._df_by_ipa = self._df.reset_index().set_index("ipa")
         
         self._celex_chars = set([char for celex in phonemizer_df.celex.tolist() for char in celex])
         
@@ -225,7 +216,7 @@ class CelexPhonemizer:
     @cache
     def __call__(self, string) -> List[Phoneme]:
         if punct_only_re.match(string):
-            return ""
+            return [""]
 
         try:
             return SMITS_IPA_PHONEME_RE.findall(self._df.loc[string].ipa)
@@ -241,9 +232,10 @@ class CelexPhonemizer:
         """
         Compute a cohort word distribution compatible with the given prefix.
         """
-        cohort_df = self._df[self._df.ipa.str.startswith(ipa_prefix)].copy()
-        if len(cohort_df) == 0:
+        cohort_words = self._cohorts.get(ipa_prefix, [])
+        if not cohort_words:
             return None
+        cohort_df = self._df_by_ipa.loc[cohort_words].reset_index()
         
         cohort_df["next"] = cohort_df.ipa.str[len(ipa_prefix):] \
             .str.findall(SMITS_IPA_PHONEME_RE).str[0] \

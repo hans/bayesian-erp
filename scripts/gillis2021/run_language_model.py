@@ -126,7 +126,7 @@ word_features = dict(words_df.groupby(["original_idx"])
 # Prepare phoneme-level features: surprisal and cohort entropy
 phoneme_features = {
     idx: torch.tensor(celex_phonemizer.word_phoneme_info("".join(phons)))
-    for idx, phons in tqdm(ground_truth_phonemes.items())
+    for idx, phons in tqdm(ground_truth_phonemes.items(), desc="Computing phoneme features")
 }
 
 stim = proc(story_name, tokens, word_to_token,

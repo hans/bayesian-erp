@@ -280,7 +280,6 @@ class NaturalLanguageStimulusProcessor(object):
 
         return candidate_ids, torch.tensor(word_lengths)
 
-    @typechecked
     def __call__(self, name: str,
                  tokens: List[str],
                  word_to_token: Dict[int, List[int]],
