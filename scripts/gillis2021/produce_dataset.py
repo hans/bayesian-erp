@@ -158,12 +158,12 @@ for word_onset_i, phoneme_onsets_i, phoneme_features_i in zip(word_onsets, phone
     flat_phoneme_onsets.append(phoneme_onsets_i + word_onset_i)
     flat_phoneme_features.append(phoneme_features_i)
 flat_phoneme_onsets_samp = time_to_sample(torch.cat(flat_phoneme_onsets), sfreq)
-flat_phoneme_features = torch.cat(flat_phoneme_features)
+flat_phoneme_features = torch.cat(flat_phoneme_features).float()
 X_ts_phoneme[flat_phoneme_onsets_samp] = flat_phoneme_features
 
 X_ts = torch.cat([X_ts, X_ts_phoneme], dim=1)
 ts_feature_names += story_stim.phoneme_feature_names
-assert X_ts.shape[1] == len(ts_feature_names) + len(story_stim.phoneme_feature_names)
+assert X_ts.shape[1] == len(ts_feature_names)
 
 # +
 
