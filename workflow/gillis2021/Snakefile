@@ -26,7 +26,8 @@ STORIES = config['stories']
 wildcard_constraints:
     subject = "[\w_]+",
     story = "[\w_]+",
-    group_average_strategy = "macro|micro"
+    group_average_strategy = "macro|micro",
+    berp_model = "trf-berp-.+"
 
 
 def take_first(expr, **wildcards):
