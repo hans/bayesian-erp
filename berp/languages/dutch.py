@@ -6,8 +6,9 @@ from collections import Counter
 from functools import cache
 import logging
 import re
-from typing import List
+from typing import List, Tuple
 
+import numpy as np
 import pandas as pd
 
 
@@ -185,6 +186,9 @@ def convert_celex_to_ipa(celex_word, phoneme_processor=None) -> List[Phoneme]:
     return ret
 
 
+# Sequentially matches all phonemes
+SMITS_IPA_PHONEME_RE = re.compile("|".join(sorted(smits_ipa_chars, key=len, reverse=True)))
+
 class CelexPhonemizer:
     
     def __init__(self, celex_path):
@@ -197,21 +201,34 @@ class CelexPhonemizer:
         phonemizer_df = phonemizer_df \
             .sort_values("inl_freq", ascending=False) \
             .drop_duplicates(subset="word").set_index("word")
-        phonemizer_df["celex"] = phonemizer_df.celex_syl.str.replace(r"[\[\]]", "", regex=True)
+        phonemizer_df["celex"] = phonemizer_df.celex_syl \
+            .str.replace(r"[\[\]\s]", "", regex=True) \
+            .str.replace("::", ":", regex=False)
+
+        # Pre-convert to IPA, and reduce to Smits representation
+        # Compute a unigram phoneme frequency distribution at the same time
+        ipa_values, phoneme_freqs = [], Counter()
+        for celex_word in phonemizer_df.celex:
+            ipa_word = convert_celex_to_ipa(celex_word, phoneme_processor=convert_to_smits_ipa)
+            ipa_values.append("".join(ipa_word))
+            phoneme_freqs.update(ipa_word)
+        phonemizer_df["ipa"] = ipa_values
+        self._phoneme_freqs = pd.Series(phoneme_freqs)
+        self._phoneme_freqs /= self._phoneme_freqs.sum()
         
-        self._df = phonemizer_df
+        self._df = phonemizer_df.drop(columns=["celex", "celex_syl"])
         
         self._celex_chars = set([char for celex in phonemizer_df.celex.tolist() for char in celex])
         
         self.missing_counter = Counter()
         
     @cache
-    def __call__(self, string):
+    def __call__(self, string) -> List[Phoneme]:
         if punct_only_re.match(string):
             return ""
 
         try:
-            celex_form = self._df.loc[string].celex
+            return SMITS_IPA_PHONEME_RE.findall(self._df.loc[string].ipa)
         except KeyError:
             self.missing_counter[string] += 1
             # if self.missing_counter[string] == 1:
@@ -219,9 +236,54 @@ class CelexPhonemizer:
 
             # Dumb -- just return the subset of characters that are in IPA code
             return [char for char in string if char in ipa_chars]
-        else:
-            ipa_form = convert_celex_to_ipa(celex_form)
-            
-            # Reduce to Smits IPA representation
-            ipa_form = [convert_to_smits_ipa(phon) for phon in ipa_form]
-            return ipa_form
+
+    def cohort_distribution(self, ipa_prefix, pad_phoneme="_"):
+        """
+        Compute a cohort word distribution compatible with the given prefix.
+        """
+        cohort_df = self._df[self._df.ipa.str.startswith(ipa_prefix)].copy()
+        if len(cohort_df) == 0:
+            return None
+        
+        cohort_df["next"] = cohort_df.ipa.str[len(ipa_prefix):] \
+            .str.findall(SMITS_IPA_PHONEME_RE).str[0] \
+            .fillna(pad_phoneme)
+        # add-1 smoothed probability over words
+        cohort_df["p"] = (cohort_df.inl_freq + 1) / (cohort_df.inl_freq + 1).sum()
+        return cohort_df.drop(columns=["inl_freq"])
+
+    @cache
+    def cohort_phoneme_distribution(self, ipa_prefix, pad_phoneme="_"):
+        df = self.cohort_distribution(ipa_prefix, pad_phoneme=pad_phoneme)
+        if df is None:
+            # Back off to unigram distribution
+            return self._phoneme_freqs
+
+        ps = df.groupby("next").p.sum()
+        # backoff smooth with phoneme unigram distribution.
+        gamma = 1e-3
+        ps = (1 - gamma) * ps
+        ps = ps.add(gamma * self._phoneme_freqs, fill_value=0)
+        ps /= ps.sum()
+        return ps
+
+    def phoneme_surprisal_entropy(self, ipa_prefix, phoneme) -> Tuple[float, float]:
+        """
+        Compute the entropy over the predictive phoneme distribution conditioned
+        on the prefix, and the surprisal of the given phoneme.
+        """
+        dist = self.cohort_phoneme_distribution(ipa_prefix)
+        surprisals = -np.log2(dist)
+        return surprisals.loc[phoneme], (dist * surprisals).sum()
+
+    def word_phoneme_info(self, ipa_word) -> List[Tuple[float, float]]:
+        """
+        Compute phoneme surprisal and entropy values for each phoneme of the
+        given IPA word.
+        """
+        ret = []
+        phonemes = SMITS_IPA_PHONEME_RE.findall(ipa_word)
+        for prefix_length in range(len(phonemes)):
+            prefix = "".join(phonemes[:prefix_length])
+            ret.append(self.phoneme_surprisal_entropy(prefix, phonemes[prefix_length]))
+        return ret

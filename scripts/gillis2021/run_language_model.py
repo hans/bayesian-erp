@@ -47,9 +47,9 @@ if IS_INTERACTIVE:
                      aligned_phonemes_path=Path("DKZ_1.phonemes.csv"),
                      output_path=Path("DKZ_1.pkl"),
                      model="GroNLP/gpt2-small-dutch",
-                     n_candidates=40000,
-                     vocab_path=Path("../../data/gillis2021/vocab.pkl"),
-                     celex_path=Path("../../data/gillis2021/celex_dpw_cx.txt"))
+                     n_candidates=100,
+                     vocab_path=Path("../../workflow/gillis2021/raw_data/vocab.pkl"),
+                     celex_path=Path("../../workflow/gillis2021/raw_data/celex_dpw_cx.txt"))
 else:
     args = p.parse_args()
 
@@ -117,13 +117,22 @@ ground_truth_phonemes = {
           for phon in phons]
     for idx, phons in ground_truth_phonemes.items()
 }
+# -
 
 # Prepare word-level features.
 word_features = dict(words_df.groupby(["original_idx"])
                      .apply(lambda xs: torch.tensor(xs.iloc[0].frequency).unsqueeze(0)))
-# -
 
-stim = proc(story_name, tokens, word_to_token, word_features, ground_truth_phonemes)
+# Prepare phoneme-level features: surprisal and cohort entropy
+phoneme_features = {
+    idx: torch.tensor(celex_phonemizer.word_phoneme_info("".join(phons)))
+    for idx, phons in tqdm(ground_truth_phonemes.items())
+}
+
+stim = proc(story_name, tokens, word_to_token,
+            word_features=word_features, word_feature_names=["word_frequency"],
+            phoneme_features=phoneme_features, phoneme_feature_names=["phoneme_surprisal", "phoneme_entropy"],
+            ground_truth_phonemes=ground_truth_phonemes)
 
 celex_phonemizer.missing_counter.most_common(50)
 

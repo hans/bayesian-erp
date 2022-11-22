@@ -280,10 +280,14 @@ class NaturalLanguageStimulusProcessor(object):
 
         return candidate_ids, torch.tensor(word_lengths)
 
+    @typechecked
     def __call__(self, name: str,
                  tokens: List[str],
                  word_to_token: Dict[int, List[int]],
                  word_features: Dict[int, torch.Tensor],
+                 word_feature_names: List[str],
+                 phoneme_features: Dict[int, torch.Tensor],
+                 phoneme_feature_names: List[str],
                  ground_truth_phonemes: Optional[Dict[int, List[Phoneme]]] = None,
                  ) -> NaturalLanguageStimulus:
         """
@@ -292,7 +296,9 @@ class NaturalLanguageStimulusProcessor(object):
             tokens:
             word_to_token: Mapping from word ID to list of token indices. NB that
                 some tokens will have no corresponding words.
-            word_features: Tensor associating each word ID with a set of features.
+            word_features: Dict associating each word ID with a set of features.
+            phoneme_features: Dict associating each word ID with a list of per-
+                phoneme features.
             ground_truth_phonemes: Phoneme sequences for the ground-truth words.
         """
         assert len(tokens) >= len(word_to_token), \
@@ -305,7 +311,12 @@ class NaturalLanguageStimulusProcessor(object):
         if ground_truth_phonemes is not None:
             assert len(word_to_token) == len(ground_truth_phonemes), \
                 str((len(word_to_token), len(ground_truth_phonemes)))
-        assert len(word_to_token) == len(word_features)
+        assert set(word_to_token.keys()) == set(word_features.keys())
+        assert set(word_to_token.keys()) == set(phoneme_features.keys())
+        for word_feature in word_features.values():
+            assert len(word_feature) == len(word_feature_names)
+        for phoneme_feature in phoneme_features.values():
+            assert phoneme_feature.shape[1] == len(phoneme_feature_names)
 
         # By default, map tokens to word ID -1. This helps us easily catch tokens
         # that should be dropped.
@@ -427,11 +438,11 @@ class NaturalLanguageStimulusProcessor(object):
         p_candidates = p_candidates[touched_words]
         candidate_ids = candidate_ids[touched_words]
 
-        # Reindex word-level features.
-        word_features_tensor = None
-        if word_features is not None:
-            word_features_tensor = torch.stack([word_features[word_id.item()]
-                                                for word_id in word_ids])
+        # Reindex word-level and phoneme-level features.
+        phoneme_features = [phoneme_features[word_id.item()]
+                            for word_id in word_ids]
+        word_features_tensor = torch.stack([word_features[word_id.item()]
+                                            for word_id in word_ids])
 
         return NaturalLanguageStimulus(
             name=name,
@@ -441,7 +452,11 @@ class NaturalLanguageStimulusProcessor(object):
 
             word_ids=word_ids,
             word_lengths=word_lengths,
+
             word_features=word_features_tensor,
+            word_feature_names=word_feature_names,
+            phoneme_features=phoneme_features,
+            phoneme_feature_names=phoneme_feature_names,
 
             candidate_vocabulary=candidate_vocabulary,
             p_candidates=p_candidates,

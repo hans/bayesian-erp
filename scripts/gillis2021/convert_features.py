@@ -81,9 +81,12 @@ def main(args):
     print("Feature names:")
     pprint(feature_names)
 
-    # By default, drop frequency and surprisal, because these are already accounted
-    # for in the variable-onset data.
-    drop_features = ["ngram word frequency_0", "ngram surprisal_0"]
+    # By default, drop word- and phoneme-level informational features, because
+    # these are recomputed by the language modeling pipeline.
+    drop_features = [
+        "ngram word frequency_0", "ngram surprisal_0",
+        "phoneme entropy_0", "phoneme surprisal_0",
+    ]
     if args.drop_features is not None:
         drop_features += args.drop_features.strip().split(",")
 

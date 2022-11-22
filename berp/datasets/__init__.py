@@ -95,6 +95,16 @@ class NaturalLanguageStimulus:
     Arbitrary word-level features.
     """
 
+    word_feature_names: List[str]
+
+    phoneme_features: List[TensorType[..., "num_phoneme_features", float]]
+    """
+    Arbitrary phoneme-level features. The `i`th tensor in this list is of
+    length `word_lengths[i]`.
+    """
+
+    phoneme_feature_names: List[str]
+
     p_candidates: TensorType[N_W, N_C, torch.float, is_log_probability]
     """
     Prior predictive distribution over words at each timestep. Each

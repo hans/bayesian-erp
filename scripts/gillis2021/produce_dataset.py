@@ -9,6 +9,7 @@ import re
 import sys
 sys.path.append(str(Path(".").resolve().parent.parent))
 
+from colorama import Fore, Style
 import h5py
 import mne
 import numpy as np
@@ -32,8 +33,9 @@ EEG_SUFFIX = "_1_256_8_average_4_128"
 # %load_ext autoreload
 # %autoreload 2
 
-from berp.datasets import BerpDataset
+from berp.datasets import BerpDataset, NaturalLanguageStimulus
 from berp.datasets import NaturalLanguageStimulusProcessor
+from berp.util import time_to_sample
 
 p = ArgumentParser()
 p.add_argument("natural_language_stimulus_path", type=Path)
@@ -59,7 +61,7 @@ story_name = args.natural_language_stimulus_path.stem
 # ## Load and process natural language stimulus and time series features
 
 with args.natural_language_stimulus_path.open("rb") as f:
-    story_stim = pickle.load(f)
+    story_stim: NaturalLanguageStimulus = pickle.load(f)
 assert story_stim.name == story_name
 ts_features_dict = np.load(args.stim_path)
 ts_feature_names = ts_features_dict["feature_names"].tolist()
@@ -73,11 +75,16 @@ X_variable = torch.concat(
      story_stim.word_surprisals.unsqueeze(1)],
     dim=1)
 # NB word_frequency comes from stimulus processor setup in previous script
-variable_feature_names = ["recognition_onset", "word_frequency", "word_surprisal"]
+variable_feature_names = ["recognition_onset"] + story_stim.word_feature_names + ["word_surprisal"]
 assert X_variable.shape[1] == len(variable_feature_names)
 
 # Load other stimulus time-series features.
 X_ts = torch.tensor(time_series_features)
+
+assert sorted(set(variable_feature_names)) == sorted(variable_feature_names), \
+    "Variable feature names must be unique"
+assert sorted(set(ts_feature_names)) == sorted(ts_feature_names), \
+    "Time series feature names must be unique"
 
 # ## Load aligned word/phoneme data
 
@@ -140,6 +147,60 @@ phoneme_onsets = phonemes_df.groupby("original_idx") \
     .apply(lambda xs: list(xs.start - xs.start.min())).to_dict()
 phoneme_onsets = [torch.tensor(phoneme_onsets[word_id.item()])
                   for word_id in story_stim.word_ids]
+# -
+
+sfreq = int(info["sfreq"])
+
+# Add phoneme-level features based on aligned phoneme data.
+X_ts_phoneme = torch.zeros(len(X_ts), len(story_stim.phoneme_feature_names))
+flat_phoneme_onsets, flat_phoneme_features = [], []
+for word_onset_i, phoneme_onsets_i, phoneme_features_i in zip(word_onsets, phoneme_onsets, story_stim.phoneme_features):
+    flat_phoneme_onsets.append(phoneme_onsets_i + word_onset_i)
+    flat_phoneme_features.append(phoneme_features_i)
+flat_phoneme_onsets_samp = time_to_sample(torch.cat(flat_phoneme_onsets), sfreq)
+flat_phoneme_features = torch.cat(flat_phoneme_features)
+X_ts_phoneme[flat_phoneme_onsets_samp] = flat_phoneme_features
+
+X_ts = torch.cat([X_ts, X_ts_phoneme], dim=1)
+ts_feature_names += story_stim.phoneme_feature_names
+assert X_ts.shape[1] == len(ts_feature_names) + len(story_stim.phoneme_feature_names)
+
+# +
+
+# Compare word onset measures from aligned data with stimulus features.
+word_onset_feature_idx = ts_feature_names.index("word onsets_0")
+ts_word_onset_samps = torch.where(X_ts[:, word_onset_feature_idx] == 1)[0]
+word_onset_samps = time_to_sample(word_onsets, sfreq)
+print(f"{Style.BRIGHT}Word onset checks{Style.RESET_ALL}")
+print(f"{len(ts_word_onset_samps)} word onsets from time series features")
+print(f"{len(word_onset_samps)} word onsets from aligned data")
+n_words_missing_in_ts = len(set(word_onset_samps.numpy()) - set(ts_word_onset_samps.numpy()))
+print(f"Words in aligned data missing from time series: {n_words_missing_in_ts} "
+      f"({n_words_missing_in_ts / len(word_onset_samps):.2%})")
+n_words_missing_in_aligned = len(set(ts_word_onset_samps.numpy()) - set(word_onset_samps.numpy()))
+print(f"Words in time series missing from aligned data: {n_words_missing_in_aligned} "
+      f"({n_words_missing_in_aligned / len(ts_word_onset_samps):.2%})")
+print(f"{Fore.GREEN}Updating time series word onset feature to match our word representations.\n{Style.RESET_ALL}")
+X_ts[:, word_onset_feature_idx] = 0
+X_ts[word_onset_samps, word_onset_feature_idx] = 1
+
+# Compare phoneme onset measures from aligned data with stimulus features.
+phoneme_onset_feature_idx = ts_feature_names.index("phoneme onsets_0")
+ts_phoneme_onset_samps = torch.where(X_ts[:, phoneme_onset_feature_idx] == 1)[0]
+phoneme_onsets_flat = torch.cat([ph_ons_i + word_onset for word_onset, ph_ons_i in zip(word_onsets, phoneme_onsets)])
+phoneme_onset_samps = time_to_sample(phoneme_onsets_flat, sfreq)
+print(f"{Style.BRIGHT}Phoneme onset checks{Style.RESET_ALL}")
+print(f"{len(ts_phoneme_onset_samps)} phoneme onsets from time series features")
+print(f"{len(flat_phoneme_onsets_samp)} phoneme onsets from aligned data")
+n_phonemes_missing_in_ts = len(set(flat_phoneme_onsets_samp.numpy()) - set(ts_phoneme_onset_samps.numpy()))
+print(f"Phonemes in aligned data missing from time series: {n_phonemes_missing_in_ts} "
+      f"({n_phonemes_missing_in_ts / len(flat_phoneme_onsets_samp):.2%})")
+n_phonemes_missing_in_aligned = len(set(ts_phoneme_onset_samps.numpy()) - set(flat_phoneme_onsets_samp.numpy()))
+print(f"Phonemes in time series missing from aligned data: {n_phonemes_missing_in_aligned} "
+      f"({n_phonemes_missing_in_aligned / len(ts_phoneme_onset_samps):.2%})")
+print(f"{Fore.GREEN}Updating time series phoneme onset feature to match our phoneme representations.\n{Style.RESET_ALL}")
+X_ts[:, phoneme_onset_feature_idx] = 0
+X_ts[flat_phoneme_onsets_samp, phoneme_onset_feature_idx] = 1
 
 max_num_phonemes = max(len(onsets) for onsets in phoneme_onsets)
 # Sanity check: max_num_phonemes as computed from aligned data should
@@ -153,12 +214,11 @@ phoneme_onsets = torch.stack([
     else onsets[:max_num_phonemes]
     for onsets in phoneme_onsets
 ])
-# -
 
 ret = BerpDataset(
     name=f"{story_name}/{subject}",
     stimulus_name=story_stim.name,
-    sample_rate=int(info["sfreq"]),
+    sample_rate=sfreq,
     
     phonemes=story_stim.phonemes,
     
