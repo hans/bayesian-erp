@@ -673,7 +673,6 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
                                ) -> TensorType[torch.long]:
         # TODO cache rec point computation?
         # profile and find out if it's worth it
-        import ipdb; ipdb.set_trace()
         p_candidates_posterior = predictive_model(
             dataset.p_candidates, dataset.candidate_phonemes,
             params.confusion, params.lambda_
