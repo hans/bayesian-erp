@@ -19,6 +19,7 @@ def load_eeg_dataset(paths: List[str],
                      normalize_Y: bool = True,
                      special_normalize_variable_intercept: bool = False,
                      stimulus_paths: Optional[Dict[str, str]] = None,
+                     device: Optional[str] = None,
                      ) -> NestedBerpDataset:
     # If stimulus data is stored separately, load this first.
     stimulus_data: Dict[str, NaturalLanguageStimulus] = {}
@@ -30,7 +31,7 @@ def load_eeg_dataset(paths: List[str],
     datasets = []
     for dataset in paths:
         with open(to_absolute_path(dataset), "rb") as f:
-            ds = pickle.load(f).ensure_torch()
+            ds = pickle.load(f).ensure_torch(device=device)
             if stimulus_data is not None:
                 ds.add_stimulus(stimulus_data[ds.stimulus_name])
             datasets.append(ds)

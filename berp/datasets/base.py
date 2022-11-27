@@ -301,21 +301,21 @@ class BerpDataset:
         if self.variable_feature_names is not None:
             assert len(self.variable_feature_names) == self.n_variable_features
 
-    def ensure_torch(self, dtype=torch.float32) -> BerpDataset:
+    def ensure_torch(self, device: Optional[str] = None, dtype=torch.float32) -> BerpDataset:
         """
         Convert all tensors to torch tensors.
         """
-        self.word_onsets = torch.as_tensor(self.word_onsets, dtype=torch.float32)
-        self.word_offsets = torch.as_tensor(self.word_offsets, dtype=torch.float32)
-        self.phoneme_onsets = torch.as_tensor(self.phoneme_onsets, dtype=torch.float32)
-        self.X_ts = torch.as_tensor(self.X_ts, dtype=torch.float32)
-        self.X_variable = torch.as_tensor(self.X_variable, dtype=torch.float32)
-        self.Y = torch.as_tensor(self.Y, dtype=torch.float32)
+        self.word_onsets = torch.as_tensor(self.word_onsets, dtype=dtype).to(device)
+        self.word_offsets = torch.as_tensor(self.word_offsets, dtype=dtype).to(device)
+        self.phoneme_onsets = torch.as_tensor(self.phoneme_onsets, dtype=dtype).to(device)
+        self.X_ts = torch.as_tensor(self.X_ts, dtype=dtype).to(device)
+        self.X_variable = torch.as_tensor(self.X_variable, dtype=dtype).to(device)
+        self.Y = torch.as_tensor(self.Y, dtype=dtype).to(device)
 
         if self.p_candidates is not None:
-            self.p_candidates = torch.as_tensor(self.p_candidates, dtype=torch.float32)
-            self.word_lengths = torch.as_tensor(self.word_lengths)
-            self.candidate_phonemes = torch.as_tensor(self.candidate_phonemes)
+            self.p_candidates = torch.as_tensor(self.p_candidates, dtype=dtype).to(device)
+            self.word_lengths = torch.as_tensor(self.word_lengths).to(device)
+            self.candidate_phonemes = torch.as_tensor(self.candidate_phonemes).to(device)
 
         return self
 
@@ -329,8 +329,12 @@ class BerpDataset:
             raise ValueError(f"Stimulus name does not match. {self.stimulus_name} != {stimulus.name}.")
 
         self.phonemes = stimulus.phonemes
-        self.p_candidates = stimulus.p_candidates
-        self.word_lengths = stimulus.word_lengths
+
+        # Reference tensor for dtype/device
+        ref_tensor = self.word_onsets
+
+        self.p_candidates = stimulus.p_candidates.to(ref_tensor)
+        self.word_lengths = stimulus.word_lengths.to(ref_tensor.device)
         self.candidate_phonemes = stimulus.candidate_phonemes
 
     def subset_sensors(self, sensors: Union[List[int], List[str]]) -> None:

@@ -229,7 +229,8 @@ def make_dummy_design_matrix(dataset: BerpDataset, delayer: TRFDelayer,
     if n_variable_predictors is None:
         n_variable_predictors = dataset.n_variable_features
     dummy_variable_predictors: TRFPredictors = \
-        torch.zeros(dataset.n_samples, n_variable_predictors, dtype=dataset.X_ts.dtype)
+        torch.zeros(dataset.n_samples, n_variable_predictors) \
+            .to(dataset.X_ts)
     dummy_predictors = torch.concat([dataset.X_ts, dummy_variable_predictors], dim=1)
     design_matrix, _ = delayer.transform(dummy_predictors)
     return design_matrix
@@ -296,7 +297,9 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
 
     def __init__(self, encoder: Encoder,
                  ts_feature_names: List[str],
-                 variable_feature_names: List[str], **kwargs):
+                 variable_feature_names: List[str],
+                 device: Optional[str] = None,
+                 **kwargs):
         self.encoder = encoder
 
         # Names of distinct time series / variable onset features in the
@@ -304,6 +307,8 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
         # features (e.g. interaction features).
         self.ts_feature_names = ts_feature_names
         self.variable_feature_names = variable_feature_names
+
+        self.device = device
 
         self.delayer = TRFDelayer(encoder.tmin, encoder.tmax, encoder.sfreq)
         self.encoders_: Dict[str, Encoder] = {}
@@ -346,10 +351,13 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
 
     def _build_cache_for_dataset(self, dataset: BerpDataset) -> ForwardPipelineCache:
         _, variable_predictor_names = self.encoder_predictor_names
+
+        design_matrix = make_dummy_design_matrix(dataset, self.delayer,
+                n_variable_predictors=len(variable_predictor_names))
+
         return ForwardPipelineCache(
             cache_key=dataset.name,
-            design_matrix=make_dummy_design_matrix(dataset, self.delayer,
-                n_variable_predictors=len(variable_predictor_names)),
+            design_matrix=design_matrix,
             n_variable_predictors=len(variable_predictor_names),
             variable_feature_names=self.variable_feature_names,
             validation_mask=_make_validation_mask(dataset, 0.1),  # TODO magic number
@@ -665,6 +673,7 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
                                ) -> TensorType[torch.long]:
         # TODO cache rec point computation?
         # profile and find out if it's worth it
+        import ipdb; ipdb.set_trace()
         p_candidates_posterior = predictive_model(
             dataset.p_candidates, dataset.candidate_phonemes,
             params.confusion, params.lambda_

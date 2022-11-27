@@ -35,6 +35,8 @@ class TRFModelConfig(ModelConfig):
 class TRFPipelineConfig(ModelConfig):
     trf: TRFModelConfig
 
+    device: str = "cpu"
+
     _target_: str = "berp.models.trf_em.BasicTRF"
 
 
@@ -46,6 +48,8 @@ class BerpTRFModelConfig(ModelConfig):
     """
 
     trf: TRFModelConfig
+
+    device: str = "cpu"
 
     scatter_point: float = 0.0
     prior_scatter_index: int = 0

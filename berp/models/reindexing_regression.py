@@ -102,7 +102,7 @@ def predictive_model(p_candidates: TensorType[B, N_C, is_log_probability],
     """
 
     # Temperature adjustment
-    confusion = confusion.pow(1 / lambda_)
+    confusion = confusion.to(p_candidates).pow(1 / lambda_)
     confusion /= confusion.sum(dim=0, keepdim=True)
 
     # Compute likelihood for each candidate and each phoneme position.

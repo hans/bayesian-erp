@@ -14,7 +14,7 @@ from berp.models.trf import TemporalReceptiveField
 def trf_to_dataframe(model: TemporalReceptiveField,
                      feature_names: Optional[List[str]] = None) -> pd.DataFrame:
     df_data = []
-    for i, feature in enumerate(model.coef_.detach().numpy()):
+    for i, feature in enumerate(model.coef_.detach().cpu().numpy()):
         for j, lag in enumerate(feature):
             for k, sensor_coef in enumerate(lag):
                 df_data.append((i, j, k, sensor_coef))

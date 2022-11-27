@@ -13,6 +13,8 @@ class DatasetConfig:
     paths: List[str]
     stimulus_paths: Dict[str, str]
 
+    device: str = "cpu"
+
 
 @dataclass
 class EEGDatasetConfig(DatasetConfig):

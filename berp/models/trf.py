@@ -122,10 +122,10 @@ class TemporalReceptiveField(BaseEstimator):
         if self.alpha is None:
             self.coef_ = torch.linalg.lstsq(lhs, rhs).solution
         elif self.alpha.ndim == 0:
-            ridge = self.alpha * torch.eye(lhs.shape[0])
+            ridge = self.alpha * torch.eye(lhs.shape[0]).to(lhs)
             self.coef_ = torch.linalg.lstsq(lhs + ridge, rhs).solution
         else:
-            ridge = torch.diag(self.alpha.repeat_interleave(self.n_features_))
+            ridge = torch.diag(self.alpha.repeat_interleave(self.n_features_)).to(lhs)
             self.coef_ = torch.linalg.lstsq(lhs + ridge, rhs).solution
 
         # Reshape resulting coefficients
@@ -243,7 +243,7 @@ class TemporalReceptiveField(BaseEstimator):
         Y_pred = Y_pred - Y_pred.mean(axis=0)
 
         corrs = (Y_pred * Y).sum(axis=0) / (Y_pred.norm(2, dim=0) * Y.norm(2, dim=0))
-        return corrs.numpy()
+        return corrs.cpu().numpy()
 
     def log_likelihood(self, X: TRFDesignMatrix, Y: TRFResponse):
         X, Y = self._check_shapes_types(X, Y)
@@ -400,7 +400,7 @@ def _delay_time_series(X, tmin, tmax, sfreq, fill_mean=False):
     """
     delays = _times_to_delays(tmin, tmax, sfreq)
     # Iterate through indices and append
-    delayed = torch.zeros(X.shape + (len(delays),), dtype=X.dtype)
+    delayed = torch.zeros(X.shape + (len(delays),)).to(X)
     if fill_mean:
         mean_value = X.mean(dim=0)
         delayed[:] = mean_value[:, None]
