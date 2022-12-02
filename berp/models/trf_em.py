@@ -737,6 +737,12 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
 
         for params, weight in zip(self.params, self.param_weights):
             self._pre_transform_single(dataset, params, out=acc, out_weight=weight)
+
+        # DEV: normalize X_variable columns including zeros
+        variable_slice = acc[:, feature_start_idx:, :]
+        acc[:, feature_start_idx:, :] = \
+            (variable_slice - variable_slice.mean(dim=0)) / variable_slice.std(dim=0)
+        
         return acc, primed.validation_mask
 
     def pre_transform_expanded(self, dataset: BerpDataset) -> Iterator[Tuple[TRFDesignMatrix, MaskArray]]:
@@ -969,6 +975,11 @@ class GroupVanillaTRFForwardPipeline(GroupTRFForwardPipeline):
                     recognition_onsets_samp,
                     X_variable,
                     add=False)
+
+        # DEV: normalize X_variable columns including zeros
+        variable_slice = design_matrix[:, feature_start_idx:, :]
+        design_matrix[:, feature_start_idx:, :] = \
+            (variable_slice - variable_slice.mean(dim=0)) / variable_slice.std(dim=0)
 
     def pre_transform(self, dataset: BerpDataset) -> Tuple[TRFDesignMatrix, np.ndarray]:
         primed = self._get_cache_for_dataset(dataset)
