@@ -261,7 +261,7 @@ class CelexPhonemizer:
 
         ps = df.groupby("next").p.sum()
         # backoff smooth with phoneme unigram distribution.
-        gamma = 0.5
+        gamma = 0.1
         ps = (1 - gamma) * ps
         ps = ps.add(gamma * self._phoneme_freqs, fill_value=0)
         ps /= ps.sum()
