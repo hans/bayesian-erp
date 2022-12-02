@@ -83,8 +83,8 @@ def reestimate_trf_coefficients(est, dataset, params_dir, splitter, viz_cfg: Viz
         est = est.pipeline
     assert isinstance(est, GroupTRFForwardPipeline)
 
-    ts_feature_names, variable_feature_names = est.encoder_predictor_names
-    feature_names = ts_feature_names + variable_feature_names
+    ts_predictor_names, variable_predictor_names = est.encoder_predictor_names
+    predictor_names = ts_predictor_names + variable_predictor_names
     coef_dfs = []
 
     for i, (train, test) in enumerate(tqdm(splitter.split(dataset), total=splitter.n_splits,
@@ -93,7 +93,7 @@ def reestimate_trf_coefficients(est, dataset, params_dir, splitter, viz_cfg: Viz
         est_i.fit(dataset[train])
 
         for key, encoder in est_i.encoders_.items():
-            coef_df_i = trf_to_dataframe(encoder, feature_names=feature_names)
+            coef_df_i = trf_to_dataframe(encoder, predictor_names=predictor_names)
             coef_df_i["fold"] = i
             coef_df_i["name"] = key
             coef_dfs.append(coef_df_i)
@@ -103,7 +103,7 @@ def reestimate_trf_coefficients(est, dataset, params_dir, splitter, viz_cfg: Viz
     for key, key_coefs in coef_df.groupby("name"):
         key_coefs.to_csv(params_dir / f"encoder_coefs.{key}.csv", index=False)
 
-        fig = plot_trf_coefficients(key_coefs, feature_names=feature_names,
-                                    feature_match_patterns=viz_cfg.feature_patterns)
+        fig = plot_trf_coefficients(key_coefs, predictor_names=predictor_names,
+                                    predictor_match_patterns=viz_cfg.predictor_patterns)
         fig.savefig(params_dir / f"encoder_coefs.{key}.png")
         tb.add_figure(f"encoder_coefs/{key}", fig)

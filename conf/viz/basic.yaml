@@ -2,7 +2,7 @@ defaults:
   - base_viz
   - tensorboard: default
 
-feature_patterns:
+predictor_patterns:
   - word_frequency
   - word_surprisal
   - "word onsets_0"

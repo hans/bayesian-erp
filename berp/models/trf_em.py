@@ -172,6 +172,7 @@ class ForwardPipelineCache:
     design_matrix: TRFDesignMatrix
 
     n_variable_predictors: int
+    ts_feature_names: List[str]
     variable_feature_names: List[str]
     """
     List of variable features drawn from the dataset used to produce
@@ -190,13 +191,10 @@ class ForwardPipelineCache:
         
         n_samples, n_features = self.design_matrix.shape[:2]
 
-        assert n_features - self.n_variable_predictors == dataset.n_ts_features
-        if dataset.variable_feature_names is not None:
-            unknown_features = set(self.variable_feature_names) - set(dataset.variable_feature_names)
+        for feature_list, label in [(dataset.ts_feature_names, "ts"), (dataset.variable_feature_names, "variable")]:
+            unknown_features = set(getattr(self, f"{label}_feature_names")) - set(feature_list)
             if unknown_features:
-                raise ValueError(
-                    f"Dataset {dataset.name} is missing features: {unknown_features}"
-                )
+                raise ValueError(f"Unknown {label} features, missing from dataset {dataset.name}: {unknown_features}")
         
         assert len(dataset) <= n_samples
         if dataset.global_slice_indices is not None:
@@ -221,6 +219,7 @@ class ForwardPipelineCache:
 
 @typechecked
 def make_dummy_design_matrix(dataset: BerpDataset, delayer: TRFDelayer,
+                             ts_predictor_names: Optional[List[str]] = None,
                              n_variable_predictors=None) -> TRFDesignMatrix:
     """
     Prepare a design matrix with time series values inserted, leaving variable-onset values
@@ -228,10 +227,14 @@ def make_dummy_design_matrix(dataset: BerpDataset, delayer: TRFDelayer,
     """
     if n_variable_predictors is None:
         n_variable_predictors = dataset.n_variable_features
+
+    ts_features, _ = dataset.get_features(ts_predictor_names)
+
     dummy_variable_predictors: TRFPredictors = \
         torch.zeros(dataset.n_samples, n_variable_predictors) \
-            .to(dataset.X_ts)
-    dummy_predictors = torch.concat([dataset.X_ts, dummy_variable_predictors], dim=1)
+            .to(ts_features)
+
+    dummy_predictors = torch.concat([ts_features, dummy_variable_predictors], dim=1)
     design_matrix, _ = delayer.transform(dummy_predictors)
     return design_matrix
 
@@ -350,15 +353,17 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
         return GLOBAL_CACHE[key]
 
     def _build_cache_for_dataset(self, dataset: BerpDataset) -> ForwardPipelineCache:
-        _, variable_predictor_names = self.encoder_predictor_names
+        ts_predictor_names, variable_predictor_names = self.encoder_predictor_names
 
         design_matrix = make_dummy_design_matrix(dataset, self.delayer,
+                ts_predictor_names=ts_predictor_names,
                 n_variable_predictors=len(variable_predictor_names))
 
         return ForwardPipelineCache(
             cache_key=dataset.name,
             design_matrix=design_matrix,
             n_variable_predictors=len(variable_predictor_names),
+            ts_feature_names=self.ts_feature_names,
             variable_feature_names=self.variable_feature_names,
             validation_mask=_make_validation_mask(dataset, 0.1),  # TODO magic number
         )
@@ -727,7 +732,7 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
         acc = clone_count(primed.design_matrix)
         
         # Ensure variable-onset features are zeroed out.
-        feature_start_idx = dataset.n_ts_features
+        feature_start_idx = self.n_ts_features
         acc[:, feature_start_idx:, :] = 0.
 
         for params, weight in zip(self.params, self.param_weights):
@@ -736,7 +741,7 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
 
     def pre_transform_expanded(self, dataset: BerpDataset) -> Iterator[Tuple[TRFDesignMatrix, MaskArray]]:
         primed = self._get_cache_for_dataset(dataset)
-        feature_start_idx = dataset.n_ts_features
+        feature_start_idx = self.n_ts_features
 
         for params in self.params:
             # NB _pre_transform_single operates in place, so we'll reset variable-onset
@@ -915,7 +920,7 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
         _, X_variable = self._get_features(dataset)
 
         # All bins use the first surprisal feature.
-        target_0 = torch.narrow(out, 1, dataset.n_ts_features, dataset.n_variable_features)
+        target_0 = torch.narrow(out, 1, self.n_ts_features, dataset.n_variable_features)
         scatter_add(target_0,
                     target_samples=word_onset_samples,
                     target_values=X_variable,
@@ -924,7 +929,7 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
         for rec_bin_i in range(self.n_quantiles):
             mask = recognition_quantiles == rec_bin_i
 
-            feature_start_idx = dataset.n_ts_features + (rec_bin_i + 1) * dataset.n_variable_features
+            feature_start_idx = self.n_ts_features + (rec_bin_i + 1) * dataset.n_variable_features
             samples, values = word_onset_samples[mask], X_variable[mask]
 
             # Pass just the slice of `out` that should be updated. NB `torch.narrow`
@@ -959,7 +964,7 @@ class GroupVanillaTRFForwardPipeline(GroupTRFForwardPipeline):
         recognition_onsets_samp = time_to_sample(recognition_onsets, self.encoder.sfreq)
         _, X_variable = self._get_features(dataset)
 
-        feature_start_idx = dataset.n_ts_features
+        feature_start_idx = self.n_ts_features
         scatter_add(design_matrix[:, feature_start_idx:, :],
                     recognition_onsets_samp,
                     X_variable,

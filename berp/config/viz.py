@@ -24,9 +24,9 @@ class TensorboardConfig:
 @dataclass
 class VizConfig:
 
-    feature_patterns: List[str] = field(default_factory=lambda: [".*"])
+    predictor_patterns: List[str] = field(default_factory=lambda: [".*"])
     """
-    List of regex patterns to match against feature names. Only features matching
+    List of regex patterns to match against predictor names. Only predictors matching
     at least one of these patterns will be plotted.
     """
 
