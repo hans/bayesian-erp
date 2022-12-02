@@ -6,7 +6,7 @@ from collections import Counter, defaultdict
 from functools import cache
 import logging
 import re
-from typing import List, Tuple
+from typing import List, Tuple, Optional, Dict
 
 import numpy as np
 import pandas as pd
@@ -175,7 +175,11 @@ SMITS_IPA_PHONEME_RE = re.compile("|".join(sorted(smits_ipa_chars, key=len, reve
 
 class CelexPhonemizer:
     
-    def __init__(self, celex_path):
+    def __init__(self, celex_path,
+                 override_words: Optional[Dict[str, List[Phoneme]]] = None
+                 ):
+        override_words = override_words or {}
+
         # Load CELEX pronunciation database. Keep only the most frequent 
         # pronunciation for a word.
         phonemizer_df = pd.read_csv(
@@ -193,8 +197,12 @@ class CelexPhonemizer:
         # Compute a unigram phoneme frequency distribution at the same time
         # Compute cohort maps at the same time
         ipa_values, phoneme_freqs, cohorts = [], Counter(), defaultdict(set)
-        for celex_word in tqdm(phonemizer_df.celex, desc="Preprocessing pronunciation dictionary"):
-            ipa_word = convert_celex_to_ipa(celex_word, phoneme_processor=convert_to_smits_ipa)
+        for word, row in tqdm(phonemizer_df.iterrows(),
+                              desc="Preprocessing pronunciation dictionary",
+                              total=len(phonemizer_df)):
+            ipa_word = override_words.get(word, None)
+            if ipa_word is None:
+                ipa_word = convert_celex_to_ipa(row.celex, phoneme_processor=convert_to_smits_ipa)
             ipa_word_str = "".join(ipa_word)
             ipa_values.append(ipa_word_str)
 
@@ -253,7 +261,7 @@ class CelexPhonemizer:
 
         ps = df.groupby("next").p.sum()
         # backoff smooth with phoneme unigram distribution.
-        gamma = 1e-3
+        gamma = 0.5
         ps = (1 - gamma) * ps
         ps = ps.add(gamma * self._phoneme_freqs, fill_value=0)
         ps /= ps.sum()
@@ -272,10 +280,34 @@ class CelexPhonemizer:
         """
         Compute phoneme surprisal and entropy values for each phoneme of the
         given IPA word.
+
+        Surprisal here is the negative log conditional of phoneme p_i
+
+            -log_2 p(p_i | p_1,...p_{i-1})
+
+        and entropy is the expected surprisal of the POSTERIOR distribution after
+        consuming phoneme p_i
+
+            H(word | p_1, ... p_i)
+
+        NB that they are not computed on the same distribution. We do this to
+        match the Gillis implementation.
         """
-        ret = []
+        surprisals, entropies = [], []
         phonemes = SMITS_IPA_PHONEME_RE.findall(ipa_word)
-        for prefix_length in range(len(phonemes)):
+        for prefix_length in range(len(phonemes) + 1):
             prefix = "".join(phonemes[:prefix_length])
-            ret.append(self.phoneme_surprisal_entropy(prefix, phonemes[prefix_length]))
-        return ret
+
+            if prefix_length == len(phonemes):
+                # Only compute posterior entropy
+                surprisal = 0
+                dist_prev = self.cohort_phoneme_distribution(prefix)
+                entropy = (dist_prev * -np.log2(dist_prev)).sum()
+            else:
+                # Compute surprisal and entropy
+                surprisal, entropy = self.phoneme_surprisal_entropy(prefix, phonemes[prefix_length])
+
+            surprisals.append(surprisal)
+            entropies.append(entropy)
+
+        return list(zip(surprisals[:-1], entropies[1:]))
