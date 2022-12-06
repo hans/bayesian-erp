@@ -12,7 +12,7 @@ sensor_aggregation_fn: max
 params:
   encoder__alpha:
     type: float
-    low: 1e4
+    low: 1e2
     high: 1e6
     log: true
     # shape: [129]
