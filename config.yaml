@@ -50,6 +50,13 @@ datasets:
       model: GroNLP/gpt2-small-dutch
       n_candidates: 20000
 
+  heilbron2022:
+
+    subjects:
+      - 1
+    runs:
+      - 1
+
 language_modeling:
   model: distilgpt2
 

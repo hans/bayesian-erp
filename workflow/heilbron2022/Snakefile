@@ -1,0 +1,214 @@
+from pathlib import Path
+import itertools
+import re
+import yaml
+
+from snakemake.remote.HTTP import RemoteProvider as HTTPRemoteProvider
+HTTP = HTTPRemoteProvider()
+
+# TODO config schema?
+
+# Project root directory
+root_dir = Path(workflow.basedir).parent
+meg_masc_dir = workflow.current_basedir
+
+model = config["language_modeling"]["model"]
+
+
+# # Glossary
+#
+# Task = stimulus = story. Tasks are indexed by integers and are ordered the same
+# across subjects/sessions.
+# TODO double-check this for all subjects+sessions
+#
+# # Other notes
+#
+# - NB that the general variable order for naming files here is
+#   `task`, `subject`, `session`. This matches the Berp standard, where subject-session-level
+#   data are categorized within stimulus.
+
+# Read specified subjects/runs for loading
+SUBJECTS, RUNS = config['subjects'], config['runs']
+
+
+wildcard_constraints:
+    subject = "\d+",
+    run = "\d+",
+
+
+def take_first(expr, **wildcards):
+    """
+    Produce inputs drawing the first element of each of the given `wildcards`.
+    This is useful when using denormalized data and we don't care which of the inputs we
+    use -- we just need some reference.
+    """
+    return expand(expr, **{wildcard: values[0] for wildcard, values in wildcards.items()})
+
+
+def f(*args, **kwargs):
+    print(args)
+    print(kwargs)
+    sys.exit(1)
+
+
+rule tokenize:
+    input: "data/raw-text/{story_name}.txt"
+    output: "data/tokenized/{model}/{story_name}.txt"
+    shell:
+        """
+        papermill scripts/heilbron2022/tokenize.ipynb /dev/null \
+            -p model {wildcards.model} \
+            -p input_path {input} \
+            -p output_path {output}
+        """
+
+
+# Match up force-aligned corpus with model-tokenized corpus.
+# This will allow us to use token-level features computed on the latter corpus
+# together with the presentation data from the former.
+rule align_with_tokens:
+    input:
+        presentation_words = "data/presentation/{story_name}/word.csv",
+        presentation_phonemes = "data/presentation/{story_name}/phoneme.csv",
+        tokenized = "data/tokenized/{model}/{story_name}.txt"
+    output:
+        aligned_directory = directory("data/aligned/{model}/{story_name}"),
+        aligned_words = "data/aligned/{model}/{story_name}/word.csv",
+        aligned_phonemes = "data/aligned/{model}/{story_name}/phoneme.csv"
+    shell:
+        """
+        papermill scripts/heilbron2022/align_with_tokens.ipynb /dev/null \
+            -p presentation_words_path {input.presentation_words} \
+            -p presentation_phonemes_path {input.presentation_phonemes} \
+            -p tokenized_path {input.tokenized} \
+            -p story_name {wildcards.story_name} \
+            -p output_dir {output.aligned_directory}
+        """
+
+
+# rule fetch_frequency_data:
+#     input:
+#         HTTP.remote("ugent.be/pp/experimentele-psychologie/en/research/documents/subtlexus/subtlexus2.zip")
+#     output:
+#         "data/frequency/subtlexus2.csv"
+#     shell:
+#         "unzip -p {input} SUBTLEXus74286wordstextversion.txt > {output}"
+
+
+# # Run a language model on the resulting aligned text inputs and generate a
+# # NaturalLanguageStimulus, representing word- and phoneme-level prior predictive
+# # distributions.
+# rule run_language_modeling:
+#     input:
+#         tokenized = "data/tokenized/{model}/{story_name}.txt",
+#         aligned_words = "data/aligned/{model}/{story_name}/word.csv",
+#         aligned_phonemes = "data/aligned/{model}/{story_name}/phoneme.csv",
+
+#         cmu_ipa_dict = HTTP.remote("github.com/menelik3/cmudict-ipa/raw/master/cmudict-0.7b-ipa.txt"),
+#         frequency_data = "data/frequency/subtlexus2.csv"
+#     output:
+#         stimulus = "data/stimulus/{model}/{story_name}.pkl"
+#     shell:
+#         """
+#         papermill scripts/meg-masc/run_language_model.ipynb /dev/null \
+#             -p tokenized_path {input.tokenized} \
+#             -p aligned_words_path {input.aligned_words} \
+#             -p aligned_phonemes_path {input.aligned_phonemes} \
+#             -p cmu_ipa_dict_path {input.cmu_ipa_dict} \
+#             -p vocab_path {input.frequency_data} \
+#             -p story_name {wildcards.story_name} \
+#             -p model {wildcards.model} \
+#             -p output_path {output.stimulus}
+#         """
+
+
+# # Compute alignments of different stimulus presentations/recording sessions, so
+# # that stimuli/responses can be unified across sessions.
+# rule align_sessions:
+#     input:
+#         presentation_sounds = expand(
+#             "data/presentation/{story_name}/{subject}/{session}/sound.csv",
+#             story_name=STORY_NAMES, subject=SUBJECTS, session=SESSIONS,
+#             allow_missing=True),
+#         presentation_words = expand(
+#             "data/presentation/{story_name}/{subject}/{session}/word.csv",
+#             story_name=STORY_NAMES, subject=SUBJECTS, session=SESSIONS,
+#             allow_missing=True),
+#         presentation_phonemes = expand(
+#             "data/presentation/{story_name}/{subject}/{session}/phoneme.csv",
+#             story_name=STORY_NAMES, subject=SUBJECTS, session=SESSIONS,
+#             allow_missing=True),
+
+#     output:
+#         "data/session_alignment.csv"
+
+#     run:
+#         presentations = [
+#             {
+#                 "key": dict(zip(["story_name", "subject", "session"],
+#                                 re.findall(r"data/presentation/([^/]+)/([^/]+)/([^/]+)", sound)[0])),
+#                 "sound": sound, "word": word, "phoneme": phoneme
+#             }
+#             for sound, word, phoneme
+#             in zip(input.presentation_sounds,
+#                    input.presentation_words,
+#                    input.presentation_phonemes)]
+#         yaml_config = yaml.safe_dump(
+#             {"presentations": presentations,
+#              "output_path": output[0]})
+
+#         shell(f"""
+#             papermill scripts/meg-masc/align_sessions.ipynb /dev/null -y "{yaml_config}"
+#         """)
+
+
+# # Produce a BerpDataset from the aligned corpora for a single subject/session.
+# rule produce_dataset:
+#     params:
+#         task = lambda wildcards: story_name_to_task[wildcards.story_name]
+#     input:
+#         presentation_sounds = "data/presentation/{story_name}/{subject}/{session}/sound.csv",
+#         presentation_words = "data/presentation/{story_name}/{subject}/{session}/word.csv",
+#         presentation_phonemes = "data/presentation/{story_name}/{subject}/{session}/phoneme.csv",
+
+#         aligned_words = "data/aligned/{model}/{story_name}/word.csv",
+#         aligned_phonemes = "data/aligned/{model}/{story_name}/phoneme.csv",
+
+#         global_session_alignment = "data/session_alignment.csv",
+
+#         stimulus = "data/stimulus/{model}/{story_name}.pkl",
+#         stimulus_features = "data/stimulus_features/{story_name}.npz",
+
+#         bids = lambda wildcards:
+#             expand("raw-data/sub-{{subject}}/ses-{{session}}/meg/sub-{{subject}}_ses-{{session}}_task-{task}_meg.con",
+#                    task=story_name_to_task[wildcards.story_name])
+#     output:
+#         dataset = "data/dataset/{model}/{story_name}/{subject}/{session}.pkl"
+
+#     shell:
+#         """
+#         papermill scripts/meg-masc/produce_dataset.ipynb /dev/null \
+#             -p story_name {wildcards.story_name} \
+#             -p subject {wildcards.subject} \
+#             -p session {wildcards.session} \
+#             -p presentation_sounds {input.presentation_sounds} \
+#             -p presentation_words {input.presentation_words} \
+#             -p presentation_phonemes {input.presentation_phonemes} \
+#             -p aligned_words {input.aligned_words} \
+#             -p aligned_phonemes {input.aligned_phonemes} \
+#             -p global_session_alignment {input.global_session_alignment} \
+#             -p stimulus {input.stimulus} \
+#             -p stimulus_features {input.stimulus_features} \
+#             -p bids {input.bids} \
+#             -p output_path {output.dataset}
+#         """
+
+
+# # Average EEG response time series for collection of aligned subject-session datasets.
+# rule produce_average_dataset:
+#     input:
+#         datasets = expand("data/dataset/{model}/{story_name}/{subject}/{session}.pkl",
+#                           subject=SUBJECTS, session=SESSIONS, allow_missing=True)
+#     output:
+#         dataset = "data/dataset/{model}/{story_name}/average.pkl"
+#     script: "{root_dir}/scripts/meg-masc/average_datasets.py"
