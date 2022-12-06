@@ -431,6 +431,9 @@ class NaturalLanguageStimulusProcessor(object):
         # Sanity check
         assert (p_candidates[~touched_words] == 0).all()
 
+        L.warning("Number of words dropped because they were at the start of a time "
+                  "series: %d", (~touched_words).sum())
+
         # Finally, filter out words which never had data computed.
         word_ids = word_ids[touched_words]
         word_lengths = word_lengths[touched_words]
