@@ -147,7 +147,6 @@ class NaturalLanguageStimulus:
         candidate_phoneme_voc.fill_(self.pad_phoneme_id)
 
         phon2idx = {p: i for i, p in enumerate(self.phonemes)}
-        import ipdb; ipdb.set_trace()
         for idx, candidate in self.candidate_vocabulary:
             phoneme_seq = torch.tensor([phon2idx[phon] for phon in candidate])
             candidate_phoneme_voc[idx, :len(phoneme_seq)] = phoneme_seq[:max_phonemes]
