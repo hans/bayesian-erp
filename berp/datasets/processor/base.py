@@ -218,8 +218,6 @@ class NaturalLanguageStimulusProcessor(object):
                         if self._clean_word(token_ij))
                     for candidate_i_tokens in word_candidate_token_ids.T
                 ]
-            if word_id == -1:
-                print(word_candidate_strs)
 
             ret_word_ids.append(word_id)
             p_candidates.append(word_p_candidates)
