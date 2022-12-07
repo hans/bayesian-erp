@@ -50,7 +50,9 @@ MaskArray = TensorType[torch.bool]
 
 
 # HACK specific to DKZ/gillis. generalize this feature
-subject_re = re.compile(r"^DKZ_\d/([^/]+)")
+# subject_re = re.compile(r"^DKZ_\d/([^/]+)")
+# HACK specific to heilbron2022
+subject_re = re.compile(r"^[^/]+/sub(\d+)/")
 
 
 @typechecked
