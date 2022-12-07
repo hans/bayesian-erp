@@ -1,0 +1,6 @@
+defaults:
+  - base_eeg_dataset
+
+subset_sensors:
+  - A1
+paths: []

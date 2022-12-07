@@ -1,0 +1,19 @@
+ts_feature_names:
+  - all_words_onset
+  - c_words_onset
+  - c_words_contextual_dissimilarity
+  - all_phons_pitch
+  - all_phons_env_var
+  - all_phons_sg1
+  - all_phons_sg2
+  - all_phons_sg3
+  - all_phons_sg4
+  - all_phons_sg5
+  - all_phons_sg6
+  - all_phons_sg7
+  - all_phons_sg8
+
+variable_feature_names:
+  - recognition_onset
+  - word_frequency
+  - word_surprisal
