@@ -26,18 +26,18 @@ class Vocabulary(object):
 
     def __init__(self):
         self.tok2idx = {}
-        self.idx2tok: List[str] = []
+        self.idx2tok: List[Tuple[Phoneme, ...]] = []
 
     def __len__(self):
         return len(self.idx2tok)
 
-    def __iter__(self) -> Iterator[Tuple[int, str]]:
+    def __iter__(self) -> Iterator[Tuple[int, Tuple[Phoneme, ...]]]:
         return enumerate(self.idx2tok)
     
     def __getitem__(self, key):
         if isinstance(key, (int, np.integer)):
             return self.idx2tok[key]
-        elif isinstance(key, str):
+        elif isinstance(key, tuple):
             return self.tok2idx[key]
         else:
             raise TypeError(f"Invalid key type: {type(key)}")
@@ -45,12 +45,12 @@ class Vocabulary(object):
     def __contains__(self, key):
         if isinstance(key, int):
             return key < len(self.idx2tok)
-        elif isinstance(key, str):
+        elif isinstance(key, tuple):
             return key in self.tok2idx
         else:
             raise TypeError(f"Invalid key type: {type(key)}")
 
-    def add(self, token: str):
+    def add(self, token: Tuple[Phoneme, ...]):
         if token not in self.tok2idx:
             self.tok2idx[token] = len(self.idx2tok)
             self.idx2tok.append(token)
@@ -147,6 +147,7 @@ class NaturalLanguageStimulus:
         candidate_phoneme_voc.fill_(self.pad_phoneme_id)
 
         phon2idx = {p: i for i, p in enumerate(self.phonemes)}
+        import ipdb; ipdb.set_trace()
         for idx, candidate in self.candidate_vocabulary:
             phoneme_seq = torch.tensor([phon2idx[phon] for phon in candidate])
             candidate_phoneme_voc[idx, :len(phoneme_seq)] = phoneme_seq[:max_phonemes]
@@ -157,7 +158,7 @@ class NaturalLanguageStimulus:
             *self.candidate_ids.shape, self.max_n_phonemes)
         return reindexed
 
-    def get_candidate_strs(self, word_idx, top_k=None) -> List[str]:
+    def get_candidate_strs(self, word_idx, top_k=None) -> List[Tuple[Phoneme, ...]]:
         """
         Get string representations for the candidates of the given word.
         """

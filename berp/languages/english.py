@@ -2,6 +2,8 @@
 Defines data and utilities for English processing.
 """
 
+from typing import List, Dict
+
 from collections import Counter
 from functools import cache
 import re
@@ -48,10 +50,10 @@ cmu_ipa_mapping = {
     "AX0": "\u0259",
     "AX1": "\u0259",
     "AX2": "\u0259",
-    "EY": "\u025b\u026a",
-    "EY0": "\u025b\u026a",
-    "EY1": "\u025b\u026a",
-    "EY2": "\u025b\u026a",
+    "EY": "e\u026a",
+    "EY0": "e\u026a",
+    "EY1": "e\u026a",
+    "EY2": "e\u026a",
     "AY": "a\u026a",
     "AY0": "a\u026a",
     "AY1": "a\u026a",
@@ -89,8 +91,8 @@ cmu_ipa_mapping = {
     "N": "n",
     "NG": "\u014b",
     "L": "l",
-    # "R": "r",  # NB condense to /r/, not \u0279
-    "R": "\u0279",
+    "R": "r",  # NB cmudict condenses to /r/, not \u0279
+    # "R": "\u0279",
     "ER": "\u025a",
     "ER0": "\u025a",
     "ER1": "\u025a",
@@ -128,7 +130,7 @@ class CMUPhonemizer:
     )
 
     def __init__(self, mapping_path):
-        self.mapping = {}
+        self.mapping: Dict[str, List[str]] = {}
 
         # Parse into a sequence of sounds (possibly incorporating
         # IPA dipthongs).
@@ -140,16 +142,16 @@ class CMUPhonemizer:
                     pronunciation = self.ipa_stress_length_re.sub("", pronunciation.strip())
                     for pattern, replacement in self.ipa_replacements.items():
                         pronunciation = re.sub(pattern, replacement, pronunciation)
-                    self.mapping[word.lower()] = pronunciation
+                    self.mapping[word.lower()] = tuple(self.ipa_phonemes_re.findall(pronunciation))
 
         self.missing_counter = Counter()
 
     @cache
-    def __call__(self, string):
+    def __call__(self, string) -> List[str]:
         try:
             return self.mapping[string.lower()]
         except KeyError:
             self.missing_counter[string] += 1
 
-            # TODO
-            return string
+            # HACK
+            return self.ipa_phonemes_re.findall(string)

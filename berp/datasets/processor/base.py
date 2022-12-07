@@ -44,7 +44,7 @@ class NaturalLanguageStimulusProcessor(object):
     def __init__(self,
                  phonemes: List[Phoneme],
                  hf_model: str,
-                 phonemizer: Optional[Callable[[str], List[Phoneme]]] = None,
+                 phonemizer: Optional[Callable[[str], Tuple[Phoneme, ...]]] = None,
                  num_candidates: int = 10,
                  batch_size=8,
                  disallowed_re=r"[^a-z]",
@@ -207,9 +207,6 @@ class NaturalLanguageStimulusProcessor(object):
                         "Some candidate had probability zero for all tokens in this word. "
                         f"Need a new candidate sampling strategy. word id {word_id}")
             else:
-                # Aggregate, ignoring potential disallowed tokens.
-                word_p_token[~word_p_token.isfinite()] = 0
-                word_p_candidates = word_p_token.sum(dim=0)
                 # DUMB just take the first token which isn't disallowed. We really should be
                 # computing/aggregating into entire words here, using a more intelligent
                 # beam search method.
@@ -218,6 +215,10 @@ class NaturalLanguageStimulusProcessor(object):
                         if self._clean_word(token_ij))
                     for candidate_i_tokens in word_candidate_token_ids.T
                 ]
+
+            # Aggregate, ignoring potential disallowed tokens.
+            word_p_token[~word_p_token.isfinite()] = 0
+            word_p_candidates = word_p_token.sum(dim=0)
 
             ret_word_ids.append(word_id)
             p_candidates.append(word_p_candidates)
@@ -229,7 +230,7 @@ class NaturalLanguageStimulusProcessor(object):
     def get_candidate_ids(self, candidate_strs: List[List[str]],
                           max_num_phonemes: int,
                           candidate_vocabulary: Vocabulary,
-                          ground_truth_phonemes: Optional[List[List[Phoneme]]] = None,
+                          ground_truth_phonemes: Optional[List[Tuple[Phoneme, ...]]] = None,
                           ) -> Tuple[TensorType[N_W, N_C, N_P, torch.long],
                                      TensorType[N_W, int]]:
         """
@@ -241,7 +242,7 @@ class NaturalLanguageStimulusProcessor(object):
                 should correspond to the ground-truth word.
             max_num_phonemes: 
             candidate_vocabulary: Provisional vocabulary of candidate word
-                strings.
+                sequences.
             ground_truth_phonemes: Phoneme sequences for the ground-truth
                 words. If not provided, standard phonemizer is used.
 
@@ -271,7 +272,7 @@ class NaturalLanguageStimulusProcessor(object):
                 if j == 0:
                     word_lengths.append(len(phonemes))
 
-                candidate_id = candidate_vocabulary.add("".join(phonemes))
+                candidate_id = candidate_vocabulary.add(tuple(phonemes))
                 candidates_i.append(candidate_id)
 
             # NB we're currently letting duplicates pass in here, because
