@@ -86,40 +86,40 @@ rule align_with_tokens:
         """
 
 
-# rule fetch_frequency_data:
-#     input:
-#         HTTP.remote("ugent.be/pp/experimentele-psychologie/en/research/documents/subtlexus/subtlexus2.zip")
-#     output:
-#         "data/frequency/subtlexus2.csv"
-#     shell:
-#         "unzip -p {input} SUBTLEXus74286wordstextversion.txt > {output}"
+rule fetch_frequency_data:
+    input:
+        HTTP.remote("ugent.be/pp/experimentele-psychologie/en/research/documents/subtlexus/subtlexus2.zip")
+    output:
+        "data/frequency/subtlexus2.csv"
+    shell:
+        "unzip -p {input} SUBTLEXus74286wordstextversion.txt > {output}"
 
 
-# # Run a language model on the resulting aligned text inputs and generate a
-# # NaturalLanguageStimulus, representing word- and phoneme-level prior predictive
-# # distributions.
-# rule run_language_modeling:
-#     input:
-#         tokenized = "data/tokenized/{model}/{story_name}.txt",
-#         aligned_words = "data/aligned/{model}/{story_name}/word.csv",
-#         aligned_phonemes = "data/aligned/{model}/{story_name}/phoneme.csv",
+# Run a language model on the resulting aligned text inputs and generate a
+# NaturalLanguageStimulus, representing word- and phoneme-level prior predictive
+# distributions.
+rule run_language_modeling:
+    input:
+        tokenized = "data/tokenized/{model}/{story_name}.txt",
+        aligned_words = "data/aligned/{model}/{story_name}/word.csv",
+        aligned_phonemes = "data/aligned/{model}/{story_name}/phoneme.csv",
 
-#         cmu_ipa_dict = HTTP.remote("github.com/menelik3/cmudict-ipa/raw/master/cmudict-0.7b-ipa.txt"),
-#         frequency_data = "data/frequency/subtlexus2.csv"
-#     output:
-#         stimulus = "data/stimulus/{model}/{story_name}.pkl"
-#     shell:
-#         """
-#         papermill scripts/meg-masc/run_language_model.ipynb /dev/null \
-#             -p tokenized_path {input.tokenized} \
-#             -p aligned_words_path {input.aligned_words} \
-#             -p aligned_phonemes_path {input.aligned_phonemes} \
-#             -p cmu_ipa_dict_path {input.cmu_ipa_dict} \
-#             -p vocab_path {input.frequency_data} \
-#             -p story_name {wildcards.story_name} \
-#             -p model {wildcards.model} \
-#             -p output_path {output.stimulus}
-#         """
+        cmu_ipa_dict = HTTP.remote("github.com/menelik3/cmudict-ipa/raw/master/cmudict-0.7b-ipa.txt"),
+        frequency_data = "data/frequency/subtlexus2.csv"
+    output:
+        stimulus = "data/stimulus/{model}/{story_name}.pkl"
+    shell:
+        """
+        papermill scripts/meg-masc/run_language_model.ipynb /dev/null \
+            -p tokenized_path {input.tokenized} \
+            -p aligned_words_path {input.aligned_words} \
+            -p aligned_phonemes_path {input.aligned_phonemes} \
+            -p cmu_ipa_dict_path {input.cmu_ipa_dict} \
+            -p vocab_path {input.frequency_data} \
+            -p story_name {wildcards.story_name} \
+            -p model {wildcards.model} \
+            -p output_path {output.stimulus}
+        """
 
 
 # # Compute alignments of different stimulus presentations/recording sessions, so

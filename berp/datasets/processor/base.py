@@ -199,21 +199,27 @@ class NaturalLanguageStimulusProcessor(object):
             word_candidate_token_ids = candidate_token_ids[word_mask]
 
             if (~word_p_token.isfinite()).all(dim=0).any():
-                raise RuntimeError(
-                    "Some candidate had probability zero for all tokens in this word. "
-                    f"Need a new candidate sampling strategy. word id {word_id}")
-
-            # Aggregate, ignoring potential disallowed tokens.
-            word_p_token[~word_p_token.isfinite()] = 0
-            word_p_candidates = word_p_token.sum(dim=0)
-            # DUMB just take the first token which isn't disallowed. We really should be
-            # computing/aggregating into entire words here, using a more intelligent
-            # beam search method.
-            word_candidate_strs = [
-                next(token_ij for token_ij in self._tokenizer.convert_ids_to_tokens(candidate_i_tokens)
-                     if self._clean_word(token_ij))
-                for candidate_i_tokens in word_candidate_token_ids.T
-            ]
+                if word_id == -1:
+                    # Doesn't matter -- this word is being discarded. Just append some dummy data.
+                    word_candidate_strs = ["" for _ in range(self.num_candidates)]
+                else:
+                    raise RuntimeError(
+                        "Some candidate had probability zero for all tokens in this word. "
+                        f"Need a new candidate sampling strategy. word id {word_id}")
+            else:
+                # Aggregate, ignoring potential disallowed tokens.
+                word_p_token[~word_p_token.isfinite()] = 0
+                word_p_candidates = word_p_token.sum(dim=0)
+                # DUMB just take the first token which isn't disallowed. We really should be
+                # computing/aggregating into entire words here, using a more intelligent
+                # beam search method.
+                word_candidate_strs = [
+                    next(token_ij for token_ij in self._tokenizer.convert_ids_to_tokens(candidate_i_tokens)
+                        if self._clean_word(token_ij))
+                    for candidate_i_tokens in word_candidate_token_ids.T
+                ]
+            if word_id == -1:
+                print(word_candidate_strs)
 
             ret_word_ids.append(word_id)
             p_candidates.append(word_p_candidates)
@@ -370,6 +376,11 @@ class NaturalLanguageStimulusProcessor(object):
             batch_token_idxs = torch.arange(i * max_len, min(len(tokens) - 1, (i + self.batch_size) * max_len))
             batch_word_ids = token_to_word[batch_token_idxs]
 
+            # If there are no matches in this batch, quit now. This may happen when
+            # subsets of the token input are provided to this method in sequence.
+            if (batch_word_ids == nonword_id).all():
+                continue
+
             # TODO for BPE models, we really should keep predicting each candidate until we
             # reach a BPE boundary. Otherwise the candidates are likely to be subwords,
             # while the ground truth word is a longer full word. This will bork the
@@ -416,6 +427,9 @@ class NaturalLanguageStimulusProcessor(object):
             assert batch_num_samples == len(retained_word_ids)
             assert batch_p_candidates.shape[0] == batch_num_samples
             assert batch_word_lengths.shape[0] == batch_num_samples
+
+            if batch_num_samples == 0:
+                continue
 
             # Get target indices in contiguous output arrays. (NB word IDs are not
             # contiguous.)
