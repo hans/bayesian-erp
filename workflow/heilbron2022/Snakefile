@@ -27,12 +27,12 @@ model = config["language_modeling"]["model"]
 #   `task`, `subject`, `session`. This matches the Berp standard, where subject-session-level
 #   data are categorized within stimulus.
 
-# Read specified subjects/runs for loading
-SUBJECTS, RUNS = config['subjects'], config['runs']
+SUBJECTS, STORIES, RUNS = config['subjects'], config['stories'], config['runs']
 
 
 wildcard_constraints:
     subject = "\d+",
+    story_name = "[^./]+",
     run = "\d+",
 
 
@@ -107,7 +107,8 @@ rule run_language_modeling:
         cmu_ipa_dict = HTTP.remote("github.com/menelik3/cmudict-ipa/raw/master/cmudict-0.7b-ipa.txt"),
         frequency_data = "data/frequency/subtlexus2.csv"
     output:
-        stimulus_dir = directory("data/stimulus/{model}/{story_name}")
+        stimulus_dir = directory("data/stimulus/{model}/{story_name}"),
+        stimuli = expand("data/stimulus/{{model}}/{{story_name}}/run{run}.pkl", run=RUNS)
     shell:
         """
         papermill scripts/heilbron2022/run_language_model.ipynb /dev/null \
@@ -148,11 +149,97 @@ rule produce_dataset:
         """
 
 
-# # Average EEG response time series for collection of aligned subject-session datasets.
-# rule produce_average_dataset:
-#     input:
-#         datasets = expand("data/dataset/{model}/{story_name}/{subject}/{session}.pkl",
-#                           subject=SUBJECTS, session=SESSIONS, allow_missing=True)
-#     output:
-#         dataset = "data/dataset/{model}/{story_name}/average.pkl"
-#     script: "{root_dir}/scripts/meg-masc/average_datasets.py"
+def hydra_param(obj):
+    """
+    Prepare the given object for use as a Hydra CLI override.
+    """
+    if isinstance(obj, snakemake.io.Namedlist):
+        obj = list(obj)
+    return yaml.safe_dump(obj, default_flow_style=True, width=float("inf")).strip()
+
+
+# Fit a "base baseline" model which does not include any variable-onset features (no
+# word surprisal or word frequency).
+rule fit_base_baseline_model:
+    input:
+        datasets = expand(
+            "data/dataset/{{model}}/{story_name}/sub{subject}/run{run}.pkl",
+            subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
+        stimuli = expand(
+            "data/stimulus/{{model}}/{story_name}/run{run}.pkl",
+            story_name=STORIES, run=RUNS, allow_missing=True)
+
+    params:
+        berp_model = "trf"
+    output:
+        trace = directory("results/{model}/base_trf")
+
+    run:
+        dataset_path_str = hydra_param(input.datasets)
+
+        stimulus_dict = {
+            f"{Path(stimulus).parent.name}/{Path(stimulus).stem}": stimulus
+            for stimulus in input.stimuli
+        }
+        stimulus_dict_str = hydra_param(stimulus_dict)
+
+        dataset_spec = f"heilbron"
+        cv_spec = config["fit"]["cv_strategy"][params.berp_model]
+
+        shell("""
+        export PYTHONPATH=.
+        python scripts/fit_em.py \
+            model={params.berp_model} \
+            features=heilbron \
+            'features.variable_feature_names=[]' \
+            dataset={dataset_spec} \
+            'dataset.paths={dataset_path_str}' \
+            +dataset.stimulus_paths='{stimulus_dict_str}' \
+            cv={cv_spec} \
+            solver=adam \
+            hydra.run.dir={output.trace}
+        """)
+
+
+rule fit_baseline_model:
+    input:
+        datasets = expand(
+            "data/dataset/{{model}}/{story_name}/sub{subject}/run{run}.pkl",
+            subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
+        stimuli = expand(
+            "data/stimulus/{{model}}/{story_name}/run{run}.pkl",
+            story_name=STORIES, run=RUNS, allow_missing=True),
+
+        baseline_model = "results/{model}/base_trf"
+
+    params:
+        berp_model = "trf"
+    output:
+        trace = directory("results/{model}/trf")
+
+    run:
+        dataset_path_str = hydra_param(input.datasets)
+
+        stimulus_dict = {
+            f"{Path(stimulus).parent.name}/{Path(stimulus).stem}": stimulus
+            for stimulus in input.stimuli
+        }
+        stimulus_dict_str = hydra_param(stimulus_dict)
+
+        dataset_spec = f"heilbron"
+        cv_spec = config["fit"]["cv_strategy"][params.berp_model]
+
+        shell("""
+        export PYTHONPATH=.
+        python scripts/fit_em.py \
+            model={params.berp_model} \
+            baseline_model_path={input.baseline_model} \
+            features=heilbron \
+            'features.variable_feature_names=[word_frequency, word_surprisal]' \
+            dataset={dataset_spec} \
+            'dataset.paths={dataset_path_str}' \
+            +dataset.stimulus_paths='{stimulus_dict_str}' \
+            cv={cv_spec} \
+            solver=adam \
+            hydra.run.dir={output.trace}
+        """)

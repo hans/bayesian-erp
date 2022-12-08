@@ -6,4 +6,5 @@ predictor_patterns:
   - word_frequency
   - word_surprisal
   - "word onsets_0"
+  - "words_onset"
   - recognition_onset
