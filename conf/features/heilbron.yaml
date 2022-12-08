@@ -1,4 +1,5 @@
 ts_feature_names:
+  - intercept
   - all_words_onset
   - c_words_onset
   - c_words_contextual_dissimilarity
