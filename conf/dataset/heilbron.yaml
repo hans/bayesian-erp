@@ -1,6 +1,8 @@
 defaults:
   - base_eeg_dataset
 
+normalize_X_ts: false
+normalize_X_variable: false
 subset_sensors:
   - A1
 paths: []
