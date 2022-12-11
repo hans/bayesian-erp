@@ -2,11 +2,15 @@
 Defines data and utilities for English processing.
 """
 
-from typing import List, Dict
+from typing import List, Dict, Tuple
 
 from collections import Counter
 from functools import cache
 import re
+
+import pandas as pd
+from tqdm.auto import tqdm
+
 
 # Maps CMU dict pronunciation elements to IPA as used in Heilbron 2022 annotations.
 cmu_ipa_mapping = {
@@ -115,6 +119,26 @@ cmudict_overrides = {
     "PROJECTING": "p ɹ ʌ dʒ ɛ k t ɪ ŋ",
     "PROJECTED": "p ɹ ʌ dʒ ɛ k t ʌ d",
 
+    # Genuine variation, but align with Heilbron. Or sometimes pick our preferred
+    # Def want to prefer to have the same number of phonemes as Heilbron, so that
+    # we can align with existing TextGrid annotations
+    "WITHOUT": "w ɪ ð aʊ t",
+    "AN": "ʌ n",
+    "BEEN": "b ɪ n",
+    "THAT": "ð æ t",
+    "TO": "t u",
+    "ALWAYS": "ɔ l w eɪ z",
+    "CARRY": "k æ ɹ i",
+    "EITHER": "aɪ ð ɚ",
+    "OR": "ɚ",
+    "FLOUR": "f l aʊ ɹ",
+    "HANDS": "h æ n z",
+    "AS": "ɛ z",
+    "WITH": "w ɪ θ",
+    "EVERY": "ɛ v ɹ i",
+    "FOR": "f ɚ",
+    "BECAUSE": "b ɪ k ʌ z",
+
     # Missing pronunciation, but needed for Old Man and the Sea.
     "SALAO": "s æ l ɑ u",
     "FURLED": "f ɚ l d",
@@ -160,50 +184,35 @@ cmudict_overrides = {
 ipa_chars = set(cmu_ipa_mapping.values())
 
 
-class CMUPhonemizer:
-
-    ipa_stress_length_re = re.compile(r"[ˈˌːˑ]")
-    """Match unwanted stress/length markers"""
-
-    dict_line_re = re.compile(r"(\w+)\t([^,]+)(?:,.*)?$")
-    """Pattern to extract information from each dict line"""
-
-    ipa_replacements = {
-        r"ɝ": "ɚ",
-    }
-    """
-    Modifications to make to the IPA annotation in the CMUdict IPA version
-    in order to align with Heilbron& annotation.
-    """
+class Phonemizer:
 
     # Sort diphthongs first so that re greedily picks these when matching
-    ipa_phonemes_re = re.compile(
-        "|".join(sorted(set(cmu_ipa_mapping.values()), key=len, reverse=True))
-    )
+    ipa_phonemes = set(cmu_ipa_mapping.values())
+    ipa_phonemes_pat = "|".join(sorted(ipa_phonemes, key=len, reverse=True))
+    ipa_phonemes_re = re.compile(ipa_phonemes_pat)
+    valid_ipa_re = re.compile(r"^(?:" + ipa_phonemes_pat + r")+$")
 
-    def __init__(self, mapping_path):
-        self.mapping: Dict[str, List[str]] = {}
+    def __init__(self, mapping_df: pd.DataFrame):
+        self.mapping: Dict[str, Tuple[str, ...]] = {}
 
         # Parse into a sequence of sounds (possibly incorporating
         # IPA dipthongs).
-        with open(mapping_path, 'r') as f:
-            for line in f:
-                matches = self.dict_line_re.findall(line)
-                if matches:
-                    word, pronunciation = matches[0]
-                    pronunciation = self.ipa_stress_length_re.sub("", pronunciation.strip())
-                    for pattern, replacement in self.ipa_replacements.items():
-                        pronunciation = re.sub(pattern, replacement, pronunciation)
-                    self.mapping[word.lower()] = tuple(self.ipa_phonemes_re.findall(pronunciation))
+        # Take the first pronunciation idx for each word.
+        mapping_df = mapping_df.sort_values(["word", "pronunciation_idx"])
+        for word, pronunciation_rows in tqdm(mapping_df.groupby("word")):
+            pronunciation = tuple(pronunciation_rows.pronunciation.iloc[0].split(" "))
+            for phon in pronunciation:
+                assert phon in self.ipa_phonemes, phon
+            self.mapping[word.lower()] = pronunciation
 
         self.missing_counter = Counter()
 
     @cache
-    def __call__(self, string) -> List[str]:
+    def __call__(self, string) -> Tuple[str, ...]:
         try:
             return self.mapping[string.lower()]
         except KeyError:
             self.missing_counter[string] += 1
 
             # HACK
-            return self.ipa_phonemes_re.findall(string)
+            return tuple(self.ipa_phonemes_re.findall(string))
