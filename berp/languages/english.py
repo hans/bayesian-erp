@@ -104,6 +104,59 @@ cmu_ipa_mapping = {
     "Y": "j"
 }
 
+cmudict_overrides = {
+    # I just don't agree with the default, sorry
+    "WAS": "w ʌ z",
+    "WIND": "w ɪ n d",  # default is  waInd ???
+    "PERMANENT": "p ɚ m ʌ n ʌ n t",
+    "WAITED": "w ɛɪ t ɪ d",
+    "USUALLY": "j u ʒ ʌ l i",
+    "OCCASIONAL": "ʌ k ɛɪ ʒ ʌ n ʌ l",
+    "PROJECTING": "p ɹ ʌ dʒ ɛ k t ɪ ŋ",
+    "PROJECTED": "p ɹ ʌ dʒ ɛ k t ʌ d",
+
+    # Missing pronunciation, but needed for Old Man and the Sea.
+    "SALAO": "s æ l ɑ u",
+    "FURLED": "f ɚ l d",
+    "CREASED": "k ɹ i s t",
+    "EROSIONS": "ɪ ɹ oʊ ʒ ʌ n z",
+    "FISHLESS": "f ɪ ʃ l ʌ s",
+    "BUDSHIELDS": "b ʌ d ʃ i l d z",
+    "FIBERED": "f aɪ b ɚ d",
+    "PERICO": "p v ɹ ɪ k oʊ",
+    "BAREFOOTED": "b ɛ ɹ f ʊ t ʌ d",
+    "HATUEY": "h æ t j ʌ i",
+    "SISLER'S": "s ɪ s l ɚ z",
+    "JOTA": "h oʊ t ʌ",
+    "VA": "v ɑ",
+    "OAKUM": "oʊ k ʌ m",
+    "HARBOURS": "h ɑ ɹ b ɚ z",
+    "ROADSTEADS": "ɹ oʊ d s t ɛ d z",
+    "URINATED": "j ɚ ʌ n ɛɪ t ɪ d",
+    "MANOLIN": "m æ n ʌ l ɪ n",
+    "PEBBLED": "p ɛ b ʌ l d",
+    "MOTORBOATS": "m oʊ t ɚ b oʊ t z",
+    "ALBACORES": "æ l b ʌ k ɔ ɹ z",
+    "INEFFECTUALLY": "ɪ n ʌ f ɛ k tʃ u ʌ l i",
+    "WELTS": "w ɛ l t z",
+    "FALSEST": "f ɑ l s ʌ s t",
+    "CARAPACED": "k ɛ ɹ ʌ p ɛɪ s t",
+    "GRIPPES": "g ɹ ɪ p s",
+    "TUNA'S": "t u n ʌ z",
+    "UNINTELLIGENT": "ʌ n ɪ n t ɛ l ʌ dʒ ʌ n t",
+    "SARDINE'S": "s ɑ ɹ d i n z",
+    "BITT": "b ɪ t",
+    "PHOSPHORESCENT": "f ɑ s f ʌ ɹ ɛ s ʌ n t",
+    "GAFFED": "g æ f t",
+    "TREACHERIES": "t ɹ ɛ tʃ ɚ i s",
+    "GUNWALE": "g ʌ n w ɛɪ l",
+    "CARDEL": "k ɑ ɹ d ʌ l", # TODO typo in annotation? should be "cordel" right?
+    "BROADBILL": "b ɹ ɔ d b ɪ l",
+    "COAGULATED": "k oʊ æ g j ʌ l ɛɪ t ʌ d",
+    "WINDLESS": "w ɪ n d l ʌ s",
+    "LONGITUDINALLY": "l ɑ n dʒ ʌ t u d ʌ n ʌ l i",
+}
+
 ipa_chars = set(cmu_ipa_mapping.values())
 
 
