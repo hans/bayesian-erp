@@ -726,17 +726,21 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
         """
         recognition_points, recognition_times = self.get_recognition_times(dataset, params)
 
+        # TODO refactor: lots of overlapping logic with other pre_transform_single impls
         # Generate lag mask given zero-ing rules.
         lag_mask = torch.ones(out.shape[2], dtype=torch.bool)
         lag_mask[:self.variable_trf_zero_left] = False
         if self.variable_trf_zero_right != 0:
             lag_mask[-self.variable_trf_zero_right:] = False
 
-        scatter_variable(
-            dataset, recognition_times,
-            out=out, out_weight=float(out_weight),
-            lag_mask=lag_mask,
-            variable_features=self.variable_feature_names)
+        recognition_times_samp = time_to_sample(recognition_times, self.encoder.sfreq)
+        _, X_variable = self._get_features(dataset)
+
+        feature_start_idx = self.n_ts_features
+        scatter_add(torch.narrow(out, 1, feature_start_idx, X_variable.shape[1]),
+                    target_samples=recognition_times_samp,
+                    target_values=X_variable,
+                    lag_mask=lag_mask)
     
     def pre_transform(self, dataset: BerpDataset) -> Tuple[TRFDesignMatrix, MaskArray]:
         primed = self._get_cache_for_dataset(dataset)
