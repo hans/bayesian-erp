@@ -1,6 +1,7 @@
 from copy import deepcopy
 from dataclasses import replace
 import pickle
+import re
 from typing import List, Tuple
 
 import numpy as np
@@ -24,6 +25,9 @@ from berp.util import time_to_sample
 
 # Avoid saving lots of spurious tensorboard events files
 Tensorboard.disable()
+
+
+subject_re = re.compile(r"DKZ_\d/([^/]+)")
 
 
 @pytest.fixture(scope="session")
@@ -141,7 +145,8 @@ def group_em_estimator(synth_params: ModelParameters, dataset: BerpDataset,
                        model_param_grid: List[ModelParameters]):
     pipeline = GroupBerpTRFForwardPipeline(trf, params=model_param_grid,
         ts_feature_names=dataset.ts_feature_names,
-        variable_feature_names=dataset.variable_feature_names)
+        variable_feature_names=dataset.variable_feature_names,
+        encoder_key_re=subject_re)
     ret = BerpTRFEMEstimator(pipeline)
 
     # Prime the pipeline with two datasets.
@@ -162,6 +167,7 @@ def group_fixed_estimator(synth_params: ModelParameters, dataset: BerpDataset,
         trf,
         ts_feature_names=dataset.ts_feature_names,
         variable_feature_names=dataset.variable_feature_names,
+        encoder_key_re=subject_re,
         threshold=synth_params.threshold,
         confusion=synth_params.confusion,
         lambda_=synth_params.lambda_,
@@ -180,6 +186,7 @@ def group_cannon_estimator(synth_params: ModelParameters, dataset: BerpDataset,
         trf,
         ts_feature_names=dataset.ts_feature_names,
         variable_feature_names=dataset.variable_feature_names,
+        encoder_key_re=subject_re,
         threshold=synth_params.threshold,
         confusion=synth_params.confusion,
         lambda_=synth_params.lambda_,
@@ -204,6 +211,7 @@ def test_variable_trf_zero_overflow(trf: TemporalReceptiveField, dataset: BerpDa
             trf,
             ts_feature_names=dataset.ts_feature_names,
             variable_feature_names=dataset.variable_feature_names,
+            encoder_key_re=subject_re,
             params=[PartiallyObservedModelParameters()],
             variable_trf_zero_left=left_zero,
             variable_trf_zero_right=right_zero
@@ -378,8 +386,10 @@ class TestGroupVanilla:
         kwargs = dict(tmin=0, tmax=2, sfreq=nested.sample_rate,
                       alpha=0, n_outputs=nested.n_sensors) | kwargs
         trf = TemporalReceptiveField(**kwargs)
-        trf_pipe = GroupVanillaTRFForwardPipeline(encoder=trf, ts_feature_names=nested.ts_feature_names,
-                                                  variable_feature_names=nested.variable_feature_names)
+        trf_pipe = GroupVanillaTRFForwardPipeline(
+            encoder=trf, ts_feature_names=nested.ts_feature_names,
+            encoder_key_re=subject_re,
+            variable_feature_names=nested.variable_feature_names)
         trf_pipe.prime(nested)
         return trf_pipe
 

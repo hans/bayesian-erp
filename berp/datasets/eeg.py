@@ -20,7 +20,7 @@ def load_eeg_dataset(paths: List[str],
                      special_normalize_variable_intercept: bool = False,
                      stimulus_paths: Optional[Dict[str, str]] = None,
                      device: Optional[str] = None,
-                     ) -> NestedBerpDataset:
+                     **kwargs) -> NestedBerpDataset:
     # If stimulus data is stored separately, load this first.
     stimulus_data: Dict[str, NaturalLanguageStimulus] = {}
     if stimulus_paths is not None:

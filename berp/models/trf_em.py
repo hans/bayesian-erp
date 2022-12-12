@@ -49,12 +49,6 @@ Responsibilities = TensorType[P, is_probability]
 MaskArray = TensorType[torch.bool]
 
 
-# HACK specific to DKZ/gillis. generalize this feature
-# subject_re = re.compile(r"^DKZ_\d/([^/]+)")
-# HACK specific to heilbron2022
-subject_re = re.compile(r"^[^/]+/sub(\d+)/")
-
-
 @typechecked
 def scatter_add(design_matrix: TRFDesignMatrix,
                 target_samples: TensorType[B, torch.long],
@@ -303,8 +297,22 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
     def __init__(self, encoder: Encoder,
                  ts_feature_names: List[str],
                  variable_feature_names: List[str],
+                 encoder_key_re: Union[str, re.Pattern[str]],
                  device: Optional[str] = None,
                  **kwargs):
+        """
+        Args:
+            encoder: The encoder model to use for each subject.
+                Will be cloned for each subject.
+            ts_feature_names: Names of time series features to draw from
+                dataset.
+            variable_feature_names: Names of variable onset features to draw
+                from dataset.
+            encoder_key_re: Regular expression to match subject IDs in dataset.
+                Datasets with matching IDs will be sent to the same encoder.
+                The regular expression should have a single capture group.
+            device: Torch device
+        """
         self.encoder = encoder
 
         # Names of distinct time series / variable onset features in the
@@ -312,6 +320,8 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
         # features (e.g. interaction features).
         self.ts_feature_names = ts_feature_names
         self.variable_feature_names = variable_feature_names
+
+        self.encoder_key_re = re.compile(encoder_key_re)
 
         self.device = device
 
@@ -402,8 +412,7 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
         Compute a key by which this dataset should be mapped with others to
         a single encoder. (most intuitively this should be e.g. a subject ID.)
         """
-        # TODO specific to Gillis
-        match = subject_re.match(dataset.name)
+        match = self.encoder_key_re.match(dataset.name)
         if match is None:
             raise RuntimeError(dataset.name)
         return match.group(1)
@@ -623,6 +632,7 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
     def __init__(self, encoder: Encoder,
                  ts_feature_names: List[str],
                  variable_feature_names: List[str],
+                 encoder_key_re: Union[str, re.Pattern[str]],
 
                  params: List[ModelParameters],
                  param_weights: Optional[Responsibilities] = None,
@@ -652,7 +662,7 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
                 of the learned encoder time series to have zero values, for those encoder
                 features which are variable-onset.
         """
-        super().__init__(encoder, ts_feature_names, variable_feature_names,
+        super().__init__(encoder, ts_feature_names, variable_feature_names, encoder_key_re,
                          **kwargs)
 
         self.params = params
@@ -773,6 +783,7 @@ class GroupBerpFixedTRFForwardPipeline(GroupBerpTRFForwardPipeline):
     def __init__(self, encoder: Encoder,
                  ts_feature_names: List[str],
                  variable_feature_names: List[str],
+                 encoder_key_re: Union[str, re.Pattern[str]],
 
                  threshold: torch.Tensor,
                  confusion: torch.Tensor,
@@ -791,6 +802,7 @@ class GroupBerpFixedTRFForwardPipeline(GroupBerpTRFForwardPipeline):
 
         super().__init__(encoder,
             ts_feature_names, variable_feature_names,
+            encoder_key_re,
             self.params,
             scatter_point=scatter_point,
             prior_scatter_index=prior_scatter_index,
@@ -827,6 +839,7 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
     def __init__(self, encoder: Encoder,
                  ts_feature_names: List[str],
                  variable_feature_names: List[str],
+                 encoder_key_re: Union[str, re.Pattern[str]],
 
                  threshold: torch.Tensor,
                  confusion: torch.Tensor,
@@ -842,6 +855,7 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
                  variable_trf_zero_right: int = 0,
                  **kwargs):
         super().__init__(encoder, ts_feature_names, variable_feature_names,
+                         encoder_key_re,
                          threshold, confusion, lambda_,
                          scatter_point=scatter_point,
                          prior_scatter_index=prior_scatter_index,

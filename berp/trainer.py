@@ -51,6 +51,7 @@ class Trainer:
     def prepare_models(self):
         self.model: GroupTRFForwardPipeline = hydra.utils.call(
             self.cfg.model,
+            encoder_key_re=self.cfg.dataset.encoder_key_re,
             features=self.cfg.features,
             optim=self.cfg.solver,
             phonemes=self.dataset.phonemes,
