@@ -107,3 +107,5 @@ def reestimate_trf_coefficients(est, dataset, params_dir, splitter, viz_cfg: Viz
                                     predictor_match_patterns=viz_cfg.predictor_patterns)
         fig.savefig(params_dir / f"encoder_coefs.{key}.png")
         tb.add_figure(f"encoder_coefs/{key}", fig)
+
+    return coef_df
