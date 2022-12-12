@@ -606,14 +606,13 @@ class NestedBerpDataset(object):
         Merge contiguous subdatasets in this summary.
         """
 
-        descriptions = [(x.name, x.global_slice_indices, len(x)) for x in self]
+        descriptions = [(x.base_name, x.global_slice_indices, len(x)) for x in self]
         merged = []
         for name, slice_bounds, length in descriptions:
             if slice_bounds is None:
                 merged.append((name, (0, length)))
                 continue
 
-            name = name.split("/")[0]
             start, end = slice_bounds
             if merged and merged[-1][0] == name and merged[-1][1][1] == start:
                 merged[-1] = (name, (merged[-1][1][0], end))
