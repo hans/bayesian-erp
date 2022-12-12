@@ -6,7 +6,7 @@ load it, construct two nested models, and do a single fit.
 from pathlib import Path
 import os
 import sys
-from typing import cast
+from typing import cast, Tuple
 
 from hydra import initialize, compose
 from omegaconf import OmegaConf
@@ -17,6 +17,8 @@ from berp.config import Config
 from berp.tensorboard import Tensorboard
 from berp.trainer import Trainer
 
+from .conftest import IntegrationHarness
+
 
 # Avoid saving lots of spurious tensorboard events files
 @pytest.fixture
@@ -25,17 +27,20 @@ def disable_tensorboard():
 
 
 @pytest.mark.parametrize("device", [None, "cpu", "cuda"])
-def test_integration(device, tmp_path, disable_tensorboard):
+def test_integration(device, tmp_path,
+                     integration_harness: IntegrationHarness,
+                     disable_tensorboard):
     if not torch.cuda.is_available() and device == "cuda":
         pytest.skip("CUDA not available")
 
     with initialize(version_base=None, config_path="../../conf"):
-        harness_path = str(Path(__file__).parent)
         overrides = [
-            f"dataset.paths=['{harness_path}/DKZ_1.microaverage.pkl']",
-            f"+dataset.stimulus_paths={{DKZ_1:'{harness_path}/DKZ_1.pkl'}}",
+            f"dataset={integration_harness.dataset_spec}",
+            f"dataset.paths=['{integration_harness.dataset_path}']",
+            f"+dataset.stimulus_paths={{{integration_harness.stimulus_name}:'{integration_harness.stimulus_path}'}}",
             "model=trf-berp-fixed",
-            f"model.confusion_path='{harness_path}/confusion_matrix.npz'",
+            f"model.confusion_path='{integration_harness.confusion_path}'",
+            f"features={integration_harness.features_spec}",
         ]
 
         if device is not None:
