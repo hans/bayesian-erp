@@ -7,7 +7,8 @@ import yaml
 import hydra
 import numpy as np
 import optuna
-from sklearn.base import clone
+from sklearn.base import clone, BaseEstimator
+import torch
 
 from berp.config import Config
 from berp.cv import OptunaSearchCV
@@ -21,6 +22,20 @@ from berp.viz.trf_em import reestimate_trf_coefficients, checkpoint_model
 
 
 L = logging.getLogger(__name__)
+
+
+# Install custom YAML representer to avoid representer errors with
+# Python objects in safe_dump
+yaml.SafeDumper.yaml_representers[None] = lambda self, data: \
+    yaml.representer.SafeRepresenter.represent_str(
+        self,
+        repr(data),
+    )
+tensor_representer = lambda self, data: \
+    yaml.representer.SafeRepresenter.represent_str(self,
+        f"tensor of type {data.dtype}, shape {data.shape}")
+yaml.SafeDumper.yaml_representers[torch.Tensor] = tensor_representer
+yaml.SafeDumper.yaml_representers[np.ndarray] = tensor_representer
 
 
 class Trainer:
@@ -56,7 +71,9 @@ class Trainer:
             optim=self.cfg.solver,
             phonemes=self.dataset.phonemes,
             n_outputs=self.dataset.n_sensors)
-        yaml.dump(self.model.get_params(), sys.stdout)
+
+        # Dump model parameters to stdout, but avoid dumping all the torch values.
+        yaml.safe_dump(self.model.get_params(), sys.stdout)
 
         # Before splitting datasets, prime model pipeline with full data.
         self.model.prime(self.dataset)
