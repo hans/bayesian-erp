@@ -56,7 +56,8 @@ rule tokenize:
     output: "data/tokenized/{model}/{story_name}.txt"
     shell:
         """
-        papermill scripts/heilbron2022/tokenize.ipynb /dev/null \
+        papermill --log-output \
+            scripts/heilbron2022/tokenize.ipynb /dev/null \
             -p model {wildcards.model} \
             -p input_path {input} \
             -p output_path {output}
@@ -77,7 +78,8 @@ rule align_with_tokens:
         aligned_phonemes = "data/aligned/{model}/{story_name}/phoneme.csv"
     shell:
         """
-        papermill scripts/heilbron2022/align_with_tokens.ipynb /dev/null \
+        papermill --log-output \
+            scripts/heilbron2022/align_with_tokens.ipynb /dev/null \
             -p presentation_words_path {input.presentation_words} \
             -p presentation_phonemes_path {input.presentation_phonemes} \
             -p tokenized_path {input.tokenized} \
@@ -95,6 +97,40 @@ rule fetch_frequency_data:
         "unzip -p {input} SUBTLEXus74286wordstextversion.txt > {output}"
 
 
+# Prepare IPA pronunciation dictionary by loading CMUdict and performing an automatic
+# conversion.
+rule fetch_and_convert_cmudict:
+    input:
+        HTTP.remote("raw.githubusercontent.com/Alexir/CMUdict/master/cmudict-0.7b")
+    output:
+        "data/cmudict_ipa.csv"
+    shell:
+        """
+        papermill --log-output \
+            scripts/heilbron2022/convert_cmudict.ipynb /dev/null \
+            -p input_path {input} \
+            -p output_path {output}
+        """
+
+
+# Fetch raw confusion data from
+# Cutler, A., Weber, A., Smits, R. & Cooper, N. (2004).
+# Patterns of English phoneme confusions by native and non-native listeners.
+# Journal of the Acoustical Society of America, 116, 3668-3678.
+rule fetch_confusion_data:
+    input:
+        consonants = HTTP.remote("www.mpi.nl/world/persons/private/anne/AEcons.zip"),
+        vowels = HTTP.remote("www.mpi.nl/world/persons/private/anne/AEvowel.zip")
+    output:
+        consonants = "data/confusion_cutler2004/consonants.xls",
+        vowels = "data/confusion_cutler2004/vowels.xls"
+    shell:
+        """
+        unzip -p {input.consonants} AECons.xls > {output.consonants}
+        unzip -p {input.vowels} AEVowe.xls > {output.vowels}
+        """
+
+
 # Run a language model on the resulting aligned text inputs and generate a
 # NaturalLanguageStimulus, representing word- and phoneme-level prior predictive
 # distributions.
@@ -104,14 +140,15 @@ rule run_language_modeling:
         aligned_words = "data/aligned/{model}/{story_name}/word.csv",
         aligned_phonemes = "data/aligned/{model}/{story_name}/phoneme.csv",
 
-        cmu_ipa_dict = HTTP.remote("github.com/menelik3/cmudict-ipa/raw/master/cmudict-0.7b-ipa.txt"),
+        cmu_ipa_dict = "data/cmudict_ipa.csv",
         frequency_data = "data/frequency/subtlexus2.csv"
     output:
         stimulus_dir = directory("data/stimulus/{model}/{story_name}"),
         stimuli = expand("data/stimulus/{{model}}/{{story_name}}/run{run}.pkl", run=RUNS)
     shell:
         """
-        papermill scripts/heilbron2022/run_language_model.ipynb /dev/null \
+        papermill --log-output \
+            scripts/heilbron2022/run_language_model.ipynb /dev/null \
             -p tokenized_path {input.tokenized} \
             -p aligned_words_path {input.aligned_words} \
             -p aligned_phonemes_path {input.aligned_phonemes} \
@@ -137,7 +174,8 @@ rule produce_dataset:
 
     shell:
         """
-        papermill scripts/heilbron2022/produce_dataset.ipynb /dev/null \
+        papermill --log-output \
+            scripts/heilbron2022/produce_dataset.ipynb /dev/null \
             -p story_name {wildcards.story_name} \
             -p subject {wildcards.subject} \
             -p run {wildcards.run} \
@@ -239,6 +277,74 @@ rule fit_baseline_model:
             dataset={dataset_spec} \
             'dataset.paths={dataset_path_str}' \
             +dataset.stimulus_paths='{stimulus_dict_str}' \
+            cv={cv_spec} \
+            solver=adam \
+            hydra.run.dir={output.trace}
+        """)
+
+
+rule prepare_confusion:
+    input:
+        stimulus = lambda _: take_first(
+            "data/stimulus/{model}/{story_name}/run{run}.pkl",
+            story_name=STORIES, run=RUNS, model=[config["language_modeling"]["model"]]),
+
+        confusion_consonants = "data/confusion_cutler2004/consonants.xls",
+        confusion_vowels = "data/confusion_cutler2004/vowels.xls"
+    output:
+        confusion = "data/confusion.npz"
+
+    shell:
+        """
+        export PYTHONPATH=.
+        papermill --log-output \
+            scripts/heilbron2022/prepare_confusion.ipynb /dev/null \
+            -p stimulus_path {input.stimulus} \
+            -p data_consonants {input.confusion_consonants} \
+            -p data_vowels {input.confusion_vowels} \
+            -p output_path {output.confusion}
+        """
+
+
+rule fit_model:
+    input:
+        datasets = expand(
+            "data/dataset/{{model}}/{story_name}/sub{subject}/run{run}.pkl",
+            subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
+        stimuli = expand(
+            "data/stimulus/{{model}}/{story_name}/run{run}.pkl",
+            story_name=STORIES, run=RUNS, allow_missing=True),
+
+        baseline_model = "results/{model}/trf",
+
+        confusion = "data/confusion.npz"
+
+    output:
+        trace = directory("results/{model}/{berp_model}")
+
+    run:
+        dataset_path_str = hydra_param(input.datasets)
+
+        stimulus_dict = {
+            f"{Path(stimulus).parent.name}/{Path(stimulus).stem}": stimulus
+            for stimulus in input.stimuli
+        }
+        stimulus_dict_str = hydra_param(stimulus_dict)
+
+        dataset_spec = f"heilbron"
+        cv_spec = config["fit"]["cv_strategy"][wildcards.berp_model]
+
+        shell("""
+        export PYTHONPATH=.
+        python scripts/fit_em.py \
+            model={wildcards.berp_model} \
+            baseline_model_path={input.baseline_model} \
+            features=heilbron \
+            'features.variable_feature_names=[recognition_onset, word_frequency, word_surprisal]' \
+            dataset={dataset_spec} \
+            'dataset.paths={dataset_path_str}' \
+            +dataset.stimulus_paths='{stimulus_dict_str}' \
+            model.confusion_path={input.confusion} \
             cv={cv_spec} \
             solver=adam \
             hydra.run.dir={output.trace}
