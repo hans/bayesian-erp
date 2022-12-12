@@ -127,7 +127,7 @@ cmudict_overrides = {
     "BEEN": "b ɪ n",
     "THAT": "ð æ t",
     "TO": "t u",
-    "ALWAYS": "ɔ l w eɪ z",
+    "ALWAYS": "ɔ l w ɛɪ z",
     "CARRY": "k æ ɹ i",
     "EITHER": "aɪ ð ɚ",
     "OR": "ɚ",

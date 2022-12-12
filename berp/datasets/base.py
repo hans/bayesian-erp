@@ -180,7 +180,7 @@ class BerpDataset:
         return self.p_candidates.shape[1]
     
     @property
-    def phoneme_onsets_global(self) -> TensorType[B, N_P, float, is_positive]:
+    def phoneme_onsets_global(self) -> TensorType[B, N_P, float, is_nonnegative]:
         """
         Onset of each phoneme within each word in seconds, relative to the start of
         the time series.
@@ -188,7 +188,7 @@ class BerpDataset:
         return self.word_onsets[:, None] + self.phoneme_onsets
 
     @property
-    def phoneme_offsets(self) -> TensorType[B, N_P, float, is_positive]:
+    def phoneme_offsets(self) -> TensorType[B, N_P, float, is_nonnegative]:
         """
         Offset of each phoneme within each word in seconds, relative to the onset of
         the word.
@@ -199,7 +199,7 @@ class BerpDataset:
         ], 1)
 
     @property
-    def phoneme_offsets_global(self) -> TensorType[B, N_P, float, is_positive]:
+    def phoneme_offsets_global(self) -> TensorType[B, N_P, float, is_nonnegative]:
         """
         Offset of each phoneme within each word in seconds, relative to the start of
         the time series.
