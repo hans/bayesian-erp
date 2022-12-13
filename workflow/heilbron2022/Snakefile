@@ -1,3 +1,4 @@
+from collections import defaultdict
 from pathlib import Path
 import itertools
 import re
@@ -34,6 +35,7 @@ wildcard_constraints:
     subject = "\d+",
     story_name = "[^./]+",
     run = "\d+",
+    model = "[^/]+(?:/[^/]+){0,1}"
 
 
 def take_first(expr, **wildcards):
@@ -186,14 +188,86 @@ rule produce_dataset:
             -p output_path {output.dataset}
         """
 
-
 def hydra_param(obj):
     """
-    Prepare the given object for use as a Hydra CLI override.
+    Prepare the given object for use as a Hydra CLI / YAML override.
     """
     if isinstance(obj, snakemake.io.Namedlist):
         obj = list(obj)
     return yaml.safe_dump(obj, default_flow_style=True, width=float("inf")).strip()
+
+
+def make_stimulus_dict(stimulus_paths, include_parent=False):
+    """
+    Generate stimulus dict mapping stimulus name -> stimulus path
+    from the given stimulus paths.
+    """
+    return {
+        (f"{Path(stimulus).parent.name}/{Path(stimulus).stem}" if include_parent
+         else f"{Path(stimulus).stem}"): stimulus
+        for stimulus in stimulus_paths
+    }
+
+
+# Produce a single BerpDataset per subject, concatenating runs.
+# Hack, we do this in a single rule execution per model/story because
+# the script writes to a single shared output stimulus, and snakemake doesn't
+# like that, and I don't have the time to restructure things right now.
+rule produce_concatenated_datasets:
+    input:
+        datasets = expand(
+            "data/dataset/{{model}}/{{story_name}}/sub{subject}/run{run}.pkl",
+            subject=SUBJECTS, run=RUNS, allow_missing=True),
+        stimuli = expand(
+            "data/stimulus/{{model}}/{{story_name}}/run{run}.pkl",
+            run=RUNS, allow_missing=True)
+
+    output:
+        merged_dataset = expand(
+            "data/dataset/{{model}}/{{story_name}}/sub{subject}.pkl",
+            subject=SUBJECTS),
+        merged_stimulus = "data/stimulus/{model}/{story_name}.pkl"
+
+    run:
+        run_re = re.compile(r"run(\d+)")
+        subject_re = re.compile(r"sub(\d+)")
+        grouped_datasets = defaultdict(list)
+        for dataset in input.datasets:
+            subject = int(subject_re.search(dataset).group(1))
+            run = int(run_re.search(dataset).group(1))
+            grouped_datasets[subject].append((run, dataset))
+
+        # Sort by run number
+        grouped_datasets = {s: sorted(rds) for s, rds in grouped_datasets.items()}
+
+        # Check that we have the same number of runs for each subject
+        assert len(set(len(rds) for rds in grouped_datasets.values())) == 1
+
+        base_params = {
+            "datasets": None,
+            "stimuli": make_stimulus_dict(input.stimuli),
+            "target_dataset_name": None,
+            "target_stimulus_name": wildcards.story_name,
+
+            "out_dataset": None,
+            "out_stimulus": output.merged_stimulus,
+            "check_stimulus": Path(output.merged_stimulus).exists(),
+            "save_stimulus": True,
+        }
+
+        for subject, datasets in grouped_datasets.items():
+            params = base_params | {
+                "datasets": [ds for _, ds in datasets],
+                "target_dataset_name": f"{wildcards.story_name}/sub{subject}",
+
+                "out_dataset": next(iter(path for path in output.merged_dataset if f"sub{subject}" in path)),
+            }
+
+            shell(f"""
+            papermill --log-output \
+                scripts/heilbron2022/concatenate_datasets.ipynb /dev/null \
+                -y "{yaml.safe_dump(params)}"
+            """)
 
 
 # Fit a "base baseline" model which does not include any variable-onset features (no
@@ -201,11 +275,11 @@ def hydra_param(obj):
 rule fit_base_baseline_model:
     input:
         datasets = expand(
-            "data/dataset/{{model}}/{story_name}/sub{subject}/run{run}.pkl",
-            subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
+            "data/dataset/{{model}}/{story_name}/sub{subject}.pkl",
+            subject=SUBJECTS, story_name=STORIES, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/{story_name}/run{run}.pkl",
-            story_name=STORIES, run=RUNS, allow_missing=True)
+            "data/stimulus/{{model}}/{story_name}.pkl",
+            story_name=STORIES, allow_missing=True)
 
     params:
         berp_model = "trf"
@@ -215,10 +289,7 @@ rule fit_base_baseline_model:
     run:
         dataset_path_str = hydra_param(input.datasets)
 
-        stimulus_dict = {
-            f"{Path(stimulus).parent.name}/{Path(stimulus).stem}": stimulus
-            for stimulus in input.stimuli
-        }
+        stimulus_dict = make_stimulus_dict(input.stimuli)
         stimulus_dict_str = hydra_param(stimulus_dict)
 
         dataset_spec = f"heilbron"
@@ -242,11 +313,11 @@ rule fit_base_baseline_model:
 rule fit_baseline_model:
     input:
         datasets = expand(
-            "data/dataset/{{model}}/{story_name}/sub{subject}/run{run}.pkl",
-            subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
+            "data/dataset/{{model}}/{story_name}/sub{subject}.pkl",
+            subject=SUBJECTS, story_name=STORIES, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/{story_name}/run{run}.pkl",
-            story_name=STORIES, run=RUNS, allow_missing=True),
+            "data/stimulus/{{model}}/{story_name}.pkl",
+            story_name=STORIES, allow_missing=True),
 
         baseline_model = "results/{model}/base_trf"
 
@@ -258,10 +329,7 @@ rule fit_baseline_model:
     run:
         dataset_path_str = hydra_param(input.datasets)
 
-        stimulus_dict = {
-            f"{Path(stimulus).parent.name}/{Path(stimulus).stem}": stimulus
-            for stimulus in input.stimuli
-        }
+        stimulus_dict = make_stimulus_dict(input.stimuli)
         stimulus_dict_str = hydra_param(stimulus_dict)
 
         dataset_spec = f"heilbron"
@@ -286,8 +354,8 @@ rule fit_baseline_model:
 rule prepare_confusion:
     input:
         stimulus = lambda _: take_first(
-            "data/stimulus/{model}/{story_name}/run{run}.pkl",
-            story_name=STORIES, run=RUNS, model=[config["language_modeling"]["model"]]),
+            "data/stimulus/{model}/{story_name}.pkl",
+            story_name=STORIES, model=[config["language_modeling"]["model"]]),
 
         confusion_consonants = "data/confusion_cutler2004/consonants.xls",
         confusion_vowels = "data/confusion_cutler2004/vowels.xls"
@@ -309,11 +377,11 @@ rule prepare_confusion:
 rule fit_model:
     input:
         datasets = expand(
-            "data/dataset/{{model}}/{story_name}/sub{subject}/run{run}.pkl",
-            subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
+            "data/dataset/{{model}}/{story_name}/sub{subject}.pkl",
+            subject=SUBJECTS, story_name=STORIES, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/{story_name}/run{run}.pkl",
-            story_name=STORIES, run=RUNS, allow_missing=True),
+            "data/stimulus/{{model}}/{story_name}.pkl",
+            story_name=STORIES, allow_missing=True),
 
         baseline_model = "results/{model}/trf",
 
@@ -325,10 +393,7 @@ rule fit_model:
     run:
         dataset_path_str = hydra_param(input.datasets)
 
-        stimulus_dict = {
-            f"{Path(stimulus).parent.name}/{Path(stimulus).stem}": stimulus
-            for stimulus in input.stimuli
-        }
+        stimulus_dict = make_stimulus_dict(input.stimuli)
         stimulus_dict_str = hydra_param(stimulus_dict)
 
         dataset_spec = f"heilbron"

@@ -1,9 +1,12 @@
 defaults:
   - base_eeg_dataset
 
-encoder_key_re: "^[^/]+/sub(\\d+)/"
+encoder_key_re: "^[^/]+/sub(\\d+)"
 normalize_X_ts: false
 normalize_X_variable: false
 subset_sensors:
   - A1
+  - A2
+  - B1
+  - D15
 paths: []
