@@ -28,6 +28,10 @@ class Vocabulary(object):
         self.tok2idx = {}
         self.idx2tok: List[Tuple[Phoneme, ...]] = []
 
+    def __eq__(self, other):
+        return isinstance(other, Vocabulary) and \
+            self.idx2tok == other.idx2tok
+
     def __len__(self):
         return len(self.idx2tok)
 
@@ -121,6 +125,29 @@ class NaturalLanguageStimulus:
     """
     Vocabulary of candidate words referred to by `candidate_ids`.
     """
+
+    def __eq__(self, other):
+        if not isinstance(other, NaturalLanguageStimulus):
+            return False
+
+        return (
+            self.name == other.name
+            and self.phonemes == other.phonemes
+            and self.pad_phoneme_id == other.pad_phoneme_id
+            and torch.all(self.word_ids == other.word_ids)
+            and torch.all(self.word_lengths == other.word_lengths)
+            and torch.allclose(self.word_features, other.word_features)
+            and self.word_feature_names == other.word_feature_names
+            and len(self.phoneme_features) == len(other.phoneme_features)
+            and all(
+                torch.allclose(f1, f2)
+                for f1, f2 in zip(self.phoneme_features, other.phoneme_features)
+            )
+            and self.phoneme_feature_names == other.phoneme_feature_names
+            and torch.allclose(self.p_candidates, other.p_candidates)
+            and torch.all(self.candidate_ids == other.candidate_ids)
+            and self.candidate_vocabulary == other.candidate_vocabulary
+        )
 
     @property
     def max_n_phonemes(self):
