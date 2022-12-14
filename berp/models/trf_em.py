@@ -891,6 +891,35 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
                 "Encoder should have N + 1 sets of variable-onset features, for N quantiles"
 
     @typechecked
+    def _fit_recognition_quantiles(self, dataset: NestedBerpDataset
+                                   ) -> None:
+        """
+        Estimate recognition time quantiles for all words in a training set.
+        Returns `n_quantiles + 1` list of edges for quantile bins.
+        """
+        if len(self.params) != 1:
+            raise NotImplementedError()
+        
+        # Compute local recognition times (relative to word onset)
+        all_recognition_times = torch.cat([
+            self.get_recognition_times(ds, self.params[0])[1] - ds.word_onsets
+            for ds in dataset.datasets
+        ])
+
+        L.info(f"Computing recognition quantiles from dataset of {len(all_recognition_times)} words.")
+        self.recognition_quantile_edges_ = torch.quantile(
+            all_recognition_times, torch.linspace(0, 1, self.n_quantiles + 1))
+        assert len(self.recognition_quantile_edges_) == self.n_quantiles + 1
+
+        # These quantile assignments need to generalize to new datasets which might have more negative
+        # minimum recognition times or more maximum recognition times. So account for this by setting
+        # left and right quantile boundaries to -inf and inf, respectively.
+        self.recognition_quantile_edges_[0] = -torch.inf
+        self.recognition_quantile_edges_[-1] = torch.inf
+
+        L.info("Recognition quantile edges: %s", self.recognition_quantile_edges_.cpu().numpy())
+
+    @typechecked
     def _get_recognition_quantiles(self,
                                    dataset: BerpDataset,
                                    params: ModelParameters
@@ -905,19 +934,7 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
         local_recognition_times = recognition_times - dataset.word_onsets
 
         if not hasattr(self, "recognition_quantile_edges_") or self.recognition_quantile_edges_ is None:
-            # Estimator has not yet been fit.
-            L.info(f"Computing recognition quantiles from dataset of {len(local_recognition_times)} words.")
-            self.recognition_quantile_edges_ = torch.quantile(
-                local_recognition_times, torch.linspace(0, 1, self.n_quantiles + 1))
-            assert len(self.recognition_quantile_edges_) == self.n_quantiles + 1
-
-            # These quantile assignments need to generalize to new datasets which might have more negative
-            # minimum recognition times or more maximum recognition times. So account for this by setting
-            # left and right quantile boundaries to -inf and inf, respectively.
-            self.recognition_quantile_edges_[0] = -torch.inf
-            self.recognition_quantile_edges_[-1] = torch.inf
-
-            L.info("Recognition quantile edges: %s", self.recognition_quantile_edges_.cpu().numpy())
+            raise RuntimeError("Recognition quantile bins have not been estimated. Stop.")            
         
         # NB we have N+1 buckets and at least one value will be assigned to the extreme left
         # bucket (the minimum value). Clamp output such that we have N buckets instead.
@@ -984,10 +1001,10 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
         self._check_shapes(dataset)
         return super().pre_transform_expanded(dataset)
 
-    def fit(self, *args, **kwargs) -> "GroupBerpCannonTRFForwardPipeline":
-        # Set sentinel to re-fit recognition quantiles.
-        self.recognition_quantile_edges_ = None
-        super().fit(*args, **kwargs)
+    def fit(self, dataset: NestedBerpDataset, y=None) -> "GroupBerpCannonTRFForwardPipeline":
+        # First re-estimate recognition quantiles on the union of all datasets.
+        self._fit_recognition_quantiles(dataset)
+        super().fit(dataset, y=y)
 
     def partial_fit(self, *args, **kwargs):
         raise NotImplementedError()
