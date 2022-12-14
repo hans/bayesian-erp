@@ -904,7 +904,7 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
         recognition_points, recognition_times = self.get_recognition_times(dataset, params)
         local_recognition_times = recognition_times - dataset.word_onsets
 
-        if not hasattr(self, "recognition_quantiles_") or self.recognition_quantile_edges_ is None:
+        if not hasattr(self, "recognition_quantile_edges_") or self.recognition_quantile_edges_ is None:
             # Estimator has not yet been fit.
             L.info(f"Computing recognition quantiles from dataset of {len(local_recognition_times)} words.")
             self.recognition_quantile_edges_ = torch.quantile(

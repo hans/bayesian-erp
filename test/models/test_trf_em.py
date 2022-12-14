@@ -384,8 +384,15 @@ class TestGroupCannon:
         dataset.name = "DKZ_1/subj1"
         group_cannon_estimator.prime(dataset)
 
+        assert not hasattr(group_cannon_estimator, "recognition_quantile_edges_")
         group_cannon_estimator.fit(NestedBerpDataset([dataset]))
-        group_cannon_estimator.predict(NestedBerpDataset([dataset]))
+        assert group_cannon_estimator.recognition_quantile_edges_ is not None
+        edges = group_cannon_estimator.recognition_quantile_edges_.clone()
+
+        dataset.phoneme_onsets = dataset.phoneme_onsets + 0.1
+        group_cannon_estimator.predict(dataset)
+        torch.testing.assert_allclose(edges, group_cannon_estimator.recognition_quantile_edges_,
+            msg="Quantile edges should not be re-fit when predicting")
 
 
 class TestGroupVanilla:
