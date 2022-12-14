@@ -900,23 +900,36 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
 
         Returns a tensor mapping each word to a quantile index `[0, n_quantiles)`.
         """
+
         recognition_points, recognition_times = self.get_recognition_times(dataset, params)
-
-        # Bin words by recognition time.
         local_recognition_times = recognition_times - dataset.word_onsets
-        recognition_quantiles = torch.quantile(
-            local_recognition_times, torch.linspace(0, 1, self.n_quantiles + 1))
 
-        L.warning("Recognition quantiles: %s", recognition_quantiles.numpy())
+        if not hasattr(self, "recognition_quantiles_") or self.recognition_quantile_edges_ is None:
+            # Estimator has not yet been fit.
+            L.info(f"Computing recognition quantiles from dataset of {len(local_recognition_times)} words.")
+            self.recognition_quantile_edges_ = torch.quantile(
+                local_recognition_times, torch.linspace(0, 1, self.n_quantiles + 1))
+            assert len(self.recognition_quantile_edges_) == self.n_quantiles + 1
+
+            # These quantile assignments need to generalize to new datasets which might have more negative
+            # minimum recognition times or more maximum recognition times. So account for this by setting
+            # left and right quantile boundaries to -inf and inf, respectively.
+            self.recognition_quantile_edges_[0] = -torch.inf
+            self.recognition_quantile_edges_[-1] = torch.inf
+
+            L.info("Recognition quantile edges: %s", self.recognition_quantile_edges_.cpu().numpy())
         
         # NB we have N+1 buckets and at least one value will be assigned to the extreme left
         # bucket (the minimum value). Clamp output such that we have N buckets instead.
         # We could equivalently bucketize with `right=True` and then clamp on `[0, n_quantiles)`.
         recognition_bins = torch.clamp(
-            torch.bucketize(local_recognition_times, recognition_quantiles),
+            torch.bucketize(local_recognition_times, self.recognition_quantile_edges_),
             1, self.n_quantiles)
         assert (recognition_bins > 0).all()
         recognition_bins -= 1
+
+        L.info("Recognition bin distribution: %s",
+            recognition_bins.bincount(minlength=self.n_quantiles).cpu().numpy())
 
         return recognition_bins
 
@@ -929,6 +942,7 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
         Run word recognition logic for the given dataset and parameters,
         producing a regression design matrix. Operates in-place.
         """
+        # Get recognition quantile assignments for each word in the dataset.
         recognition_quantiles = self._get_recognition_quantiles(dataset, params)
 
         # Generate lag mask given zero-ing rules.
@@ -969,6 +983,14 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
     def pre_transform_expanded(self, dataset: BerpDataset) -> Iterator[Tuple[TRFDesignMatrix, np.ndarray]]:
         self._check_shapes(dataset)
         return super().pre_transform_expanded(dataset)
+
+    def fit(self, *args, **kwargs) -> "GroupBerpCannonTRFForwardPipeline":
+        # Set sentinel to re-fit recognition quantiles.
+        self.recognition_quantile_edges_ = None
+        super().fit(*args, **kwargs)
+
+    def partial_fit(self, *args, **kwargs):
+        raise NotImplementedError()
 
 
 class GroupVanillaTRFForwardPipeline(GroupTRFForwardPipeline):

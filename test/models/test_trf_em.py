@@ -378,6 +378,14 @@ class TestGroupCannon:
                 expected_features
             )
 
+    def test_fit(self,
+                 group_cannon_estimator: trf_em.GroupBerpCannonTRFForwardPipeline,
+                 dataset: BerpDataset):
+        dataset.name = "DKZ_1/subj1"
+        group_cannon_estimator.prime(dataset)
+
+        group_cannon_estimator.fit(NestedBerpDataset([dataset]))
+        group_cannon_estimator.predict(NestedBerpDataset([dataset]))
 
 
 class TestGroupVanilla:
