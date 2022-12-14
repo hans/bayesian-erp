@@ -351,6 +351,12 @@ rule fit_baseline_model:
         """)
 
 
+def validate_wildcards_for_confusion(wildcards):
+    if wildcards.model != config["language_modeling"]["model"]:
+        raise ValueError(f"config.language_modeling.model is {config['language_modeling']['model']}, but wildcards.model is {wildcards.model}. "
+                          "Change YAML config or wildcards to match.")
+
+
 rule prepare_confusion:
     input:
         stimulus = lambda _: take_first(
@@ -386,6 +392,11 @@ rule fit_model:
         baseline_model = "results/{model}/trf",
 
         confusion = "data/confusion.npz"
+
+    params:
+        # HACK: enforce consistency between wildcards and config
+        # I know this is un-Snakemake-y but it's the way things are for now
+        validate_wildcards_for_confusion
 
     output:
         trace = directory("results/{model}/{berp_model}")
