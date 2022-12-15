@@ -1215,7 +1215,8 @@ class BerpTRFEMEstimator(BaseEstimator):
 
 
 def load_confusion_parameters(
-    confusion_path: str, dataset_phonemes: List[str]) -> torch.Tensor:
+    confusion_path: str, dataset_phonemes: List[str],
+    smooth=False) -> torch.Tensor:
     confusion = np.load(confusion_path)
     
     # Set of phonemes should be superset of dataset phonemes
@@ -1233,7 +1234,8 @@ def load_confusion_parameters(
     assert confusion_matrix.shape == (len(dataset_phonemes), len(dataset_phonemes))
 
     # Smooth.
-    confusion_matrix += 1.
+    if smooth:
+        confusion_matrix += 1.
 
     # Normalize. Each column should be a probability distribution.
     confusion_matrix /= confusion_matrix.sum(axis=0, keepdims=True) + 1e-5
