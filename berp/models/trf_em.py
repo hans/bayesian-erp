@@ -971,8 +971,11 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
         word_onset_samples = time_to_sample(dataset.word_onsets, dataset.sample_rate)
         _, X_variable = self._get_features(dataset)
 
+        assert X_variable.shape[1] == len(self.variable_feature_names)
+        n_variable_features = X_variable.shape[1]
+
         # All bins use the first surprisal feature.
-        target_0 = torch.narrow(out, 1, self.n_ts_features, dataset.n_variable_features)
+        target_0 = torch.narrow(out, 1, self.n_ts_features, n_variable_features)
         scatter_add(target_0,
                     target_samples=word_onset_samples,
                     target_values=X_variable,
@@ -981,12 +984,12 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
         for rec_bin_i in range(self.n_quantiles):
             mask = recognition_quantiles == rec_bin_i
 
-            feature_start_idx = self.n_ts_features + (rec_bin_i + 1) * dataset.n_variable_features
+            feature_start_idx = self.n_ts_features + (rec_bin_i + 1) * n_variable_features
             samples, values = word_onset_samples[mask], X_variable[mask]
 
             # Pass just the slice of `out` that should be updated. NB `torch.narrow`
             # never returns a copy.
-            target_i = torch.narrow(out, 1, feature_start_idx, dataset.n_variable_features)
+            target_i = torch.narrow(out, 1, feature_start_idx, n_variable_features)
 
             scatter_add(target_i,
                         target_samples=samples,
