@@ -406,8 +406,8 @@ def validate_wildcards_for_confusion(wildcards):
 rule prepare_confusion:
     input:
         stimulus = lambda _: take_first(
-            "data/stimulus/{model}/{story_name}.pkl",
-            story_name=STORIES, model=[config["language_modeling"]["model"]]),
+            "data/stimulus/{model}/{story_name}/run{run}.pkl",
+            story_name=STORIES, run=RUNS, model=[config["language_modeling"]["model"]]),
 
         confusion_consonants = "data/confusion_cutler2004/consonants.xls",
         confusion_vowels = "data/confusion_cutler2004/vowels.xls"
