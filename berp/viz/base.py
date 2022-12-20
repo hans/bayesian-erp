@@ -36,16 +36,18 @@ def epoch_ts(data: TensorType["n_samples", "n_sensors", float],
         epoch_data_left_idx = samp_i + epoch_shift_left
         epoch_data = data[max(0, epoch_data_left_idx):samp_i + epoch_shift_right].clone()
 
-        # Baseline
-        if baseline:
-            epoch_data -= epoch_data[baseline_window_left:baseline_window_right].mean(axis=0)
-        
+        # Pad
         if epoch_data.shape[0] < epoch_n_samples:
             # pad with NaNs
             pad_left = max(0, -epoch_data_left_idx)
             pad_right = epoch_n_samples - (epoch_data.shape[0] + pad_left)
             epoch_data = np.pad(epoch_data, ((pad_left, pad_right), (0, 0)),
                                 mode="constant", constant_values=np.nan)
+
+        # Baseline
+        if baseline:
+            # print("Baseline", np.nanmean(epoch_data[baseline_window_left:baseline_window_right], axis=0))
+            epoch_data -= np.nanmean(epoch_data[baseline_window_left:baseline_window_right], axis=0)
 
         epochs[i] = epoch_data
 
