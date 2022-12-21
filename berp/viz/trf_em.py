@@ -2,6 +2,7 @@ import logging
 import pickle
 from typing import Optional
 
+import numpy as np
 import pandas as pd
 from sklearn.base import clone
 import torch
@@ -87,8 +88,12 @@ def reestimate_trf_coefficients(est, dataset, params_dir, splitter, viz_cfg: Viz
     predictor_names = ts_predictor_names + variable_predictor_names
     coef_dfs = []
 
-    for i, (train, test) in enumerate(tqdm(splitter.split(dataset), total=splitter.n_splits,
-                                           desc="Re-estimating TRF coefficients", unit="fold")):
+    if splitter is None:
+        fold_list = [(np.arange(len(dataset.flat_idxs)), None)]
+    else:
+        fold_list = list(splitter.split(dataset))
+
+    for i, (train, _) in enumerate(tqdm(fold_list, desc="Re-estimating TRF coefficients", unit="fold")):
         est_i = clone(est)
         est_i.fit(dataset[train])
 

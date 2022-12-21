@@ -88,7 +88,8 @@ class Trainer:
         Prepare a callback function for Optuna search which sends results
         to Tensorboard.
         """
-        viz_splitter = KFold(n_splits=self.cfg.cv.n_inner_folds)
+        # DEV: don't do k-fold estimation for viz.
+        viz_splitter = None
         def tb_callback(study, trial):
             tb = Tensorboard.instance()
             tb.global_step += 1
