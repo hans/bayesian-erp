@@ -1,8 +1,5 @@
 ts_feature_names:
   # - intercept
-  - all_words_onset
-  - c_words_onset
-  - c_words_contextual_dissimilarity
   - all_phons_pitch
   - all_phons_env_var
   - all_phons_sg1
@@ -13,6 +10,8 @@ ts_feature_names:
   - all_phons_sg6
   - all_phons_sg7
   - all_phons_sg8
+  - word_onset
+  - phoneme_onset
 
 variable_feature_names:
   - recognition_onset
