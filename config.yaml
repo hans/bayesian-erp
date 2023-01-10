@@ -53,6 +53,9 @@ datasets:
   heilbron2022:
 
     subjects:
+      - 14
+      - 15
+      - 16
       - 17
       - 18
       - 19
@@ -80,8 +83,8 @@ datasets:
       - 19
 
     language_modeling:
-      model: gpt2
-      n_candidates: 20000
+      model: distilgpt2
+      n_candidates: 10000
 
 language_modeling:
   model: distilgpt2
