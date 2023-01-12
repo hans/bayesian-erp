@@ -389,7 +389,7 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
         else:
             return cache.get_cache_for(dataset)
 
-    def prime(self, dataset: Union[BerpDataset, NestedBerpDataset]):
+    def prime(self, dataset: Dataset):
         """
         Prepare caching pipelines for each subdataset of the given dataset.
         """
@@ -1008,6 +1008,7 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
         # First re-estimate recognition quantiles on the union of all datasets.
         self._fit_recognition_quantiles(dataset)
         super().fit(dataset, y=y)
+        return self
 
     def partial_fit(self, *args, **kwargs):
         raise NotImplementedError()
