@@ -7,4 +7,6 @@ predictor_patterns:
   - word_surprisal
   - "word onsets_0"
   - "words_onset"
+  - "word_onset"
+  - "phoneme_onset"
   - recognition_onset
