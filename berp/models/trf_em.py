@@ -429,7 +429,7 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
 
     def _set_encoder(self, key: str, encoder: Encoder):
         self.encoders_[key] = encoder
-        self._prepare_params_scatter("encoder", list(self.encoders_.values()))
+        self._prepare_params_scatter("encoder", [self.encoder] + list(self.encoders_.values()))
 
     def _get_or_create_encoder(self, dataset: BerpDataset) -> Encoder:
         try:
