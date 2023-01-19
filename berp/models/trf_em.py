@@ -502,7 +502,7 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
         return dataset.get_features(
             ts=self.ts_feature_names, variable=self.variable_feature_names)
 
-    def _fit(self, encoder: Encoder, datasets: List[BerpDataset]):
+    def _prepare_trf_Xy(self, datasets: List[BerpDataset]) -> Tuple[TRFDesignMatrix, TRFResponse]:
         design_matrices, Ys = [], []
         for d in datasets:
             design_matrix, _ = self.pre_transform(d)
@@ -511,6 +511,10 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
 
         design_matrix = torch.cat(design_matrices, dim=0)
         Y = torch.cat(Ys, dim=0)
+        return design_matrix, Y
+
+    def _fit(self, encoder: Encoder, datasets: List[BerpDataset]):
+        design_matrix, Y = self._prepare_trf_Xy(datasets)
         encoder.fit(design_matrix, Y)
 
     def fit(self, dataset: NestedBerpDataset, y=None) -> "GroupTRFForwardPipeline":
