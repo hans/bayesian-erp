@@ -120,13 +120,15 @@ class TemporalReceptiveField(BaseEstimator):
         lhs = X_est.T @ X_est
         rhs = X_est.T @ Y
         if self.alpha is None:
-            self.coef_ = torch.linalg.lstsq(lhs, rhs).solution
+            pass
         elif self.alpha.ndim == 0:
             ridge = self.alpha * torch.eye(lhs.shape[0]).to(lhs)
-            self.coef_ = torch.linalg.lstsq(lhs + ridge, rhs).solution
+            lhs += ridge
         else:
             ridge = torch.diag(self.alpha.repeat_interleave(self.n_features_)).to(lhs)
-            self.coef_ = torch.linalg.lstsq(lhs + ridge, rhs).solution
+            lhs += ridge
+            
+        self.coef_ = torch.linalg.lstsq(lhs, rhs, driver="gels").solution
 
         # Reshape resulting coefficients
         self.coef_ = self.coef_.reshape((self.n_features_, self.n_delays_, self.n_outputs))
