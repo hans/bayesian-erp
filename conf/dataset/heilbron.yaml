@@ -2,8 +2,8 @@ defaults:
   - base_eeg_dataset
 
 encoder_key_re: "^[^/]+/sub(\\d+)"
-normalize_X_ts: false
-normalize_X_variable: false
+normalize_X_ts: false  # already normalized in export code
+normalize_X_variable: true
 subset_sensors:
   - A1
   - A2
