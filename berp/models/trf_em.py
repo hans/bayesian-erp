@@ -1036,6 +1036,10 @@ class GroupVanillaTRFForwardPipeline(GroupTRFForwardPipeline):
 
     def pre_transform(self, dataset: BerpDataset) -> Tuple[TRFDesignMatrix, np.ndarray]:
         primed = self._get_cache_for_dataset(dataset)
+
+        # Ensure variable-onset features are zeroed out.
+        feature_start_idx = self.n_ts_features
+        primed.design_matrix[:, feature_start_idx:, :] = 0.
         
         # Fine to not clone cached values -- they are constant.
         self._scatter(dataset, primed.design_matrix)
