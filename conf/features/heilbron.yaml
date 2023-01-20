@@ -10,6 +10,7 @@ ts_feature_names:
   - all_phons_sg6
   - all_phons_sg7
   - all_phons_sg8
+  - all_phons_surprisals
   - word_onset
   - phoneme_onset
 
