@@ -3,7 +3,8 @@ defaults:
 
 encoder_key_re: "^[^/]+/sub(\\d+)"
 normalize_X_ts: false  # already normalized in export code
-normalize_X_variable: true
+normalize_X_variable: true  # not already normalized in data prep pipeline
+normalize_Y: true  # already normalized in export code
 subset_sensors:
   - A1
   - A2
