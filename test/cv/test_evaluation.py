@@ -26,12 +26,12 @@ class TestBaselinedScorer:
 
         X = MagicMock(spec=NestedBerpDataset, n_sensors=n_sensors, datasets=[])
 
-        scorer = BaselinedScorer(baseline_model)
+        scorer = BaselinedScorer(baseline_model, aggregation_fn=np.max)
         ret = scorer(estimator, X)
         assert isinstance(ret, np.floating)
-        assert ret == np.mean(scores - baseline_scores)
+        np.testing.assert_allclose(ret, np.mean(np.max(scores - baseline_scores, axis=-1)))
 
-        scorer = BaselinedScorer(baseline_model, aggregation_fn=lambda x: x)
+        scorer = BaselinedScorer(baseline_model, aggregation_fn=lambda x, **kwargs: x)
         ret = scorer(estimator, X)
-        assert isinstance(ret, np.ndarray)
-        np.testing.assert_allclose(ret, scores - baseline_scores)
+        assert isinstance(ret, np.floating)
+        np.testing.assert_allclose(ret, np.mean(scores - baseline_scores))

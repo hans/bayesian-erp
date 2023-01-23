@@ -351,6 +351,7 @@ class TestGroupCannon:
         Test that the Cannon pipeline works
         """
         params = group_cannon_estimator.params[0]
+        group_cannon_estimator._fit_recognition_quantiles(NestedBerpDataset([dataset]))
         quantiles = group_cannon_estimator._get_recognition_quantiles(dataset, params)
 
         assert quantiles.min() >= 0

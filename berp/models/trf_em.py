@@ -885,7 +885,7 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
         ]
         return ts_predictor_names, variable_predictor_names
 
-    def _check_shapes(self, dataset: Union[BerpDataset, NestedBerpDataset]):
+    def _check_shapes(self, dataset: Dataset):
         if not hasattr(self.encoder, "n_features_"):
             return
 
@@ -894,20 +894,20 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
             assert self.encoder.n_features_ == dataset.n_ts_features + (self.n_quantiles + 1) * dataset.n_variable_features, \
                 "Encoder should have N + 1 sets of variable-onset features, for N quantiles"
 
-    @typechecked
-    def _fit_recognition_quantiles(self, dataset: NestedBerpDataset
-                                   ) -> None:
+    def _fit_recognition_quantiles(self, dataset: Dataset) -> None:
         """
         Estimate recognition time quantiles for all words in a training set.
         Returns `n_quantiles + 1` list of edges for quantile bins.
         """
         if len(self.params) != 1:
             raise NotImplementedError()
+
+        datasets = dataset.datasets if isinstance(dataset, NestedBerpDataset) else [dataset]
         
         # Compute local recognition times (relative to word onset)
         all_recognition_times = torch.cat([
             self.get_recognition_times(ds, self.params[0])[1] - ds.word_onsets
-            for ds in dataset.datasets
+            for ds in datasets
         ])
 
         L.info(f"Computing recognition quantiles from dataset of {len(all_recognition_times)} words.")
