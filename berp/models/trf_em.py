@@ -912,7 +912,7 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
 
         L.info(f"Computing recognition quantiles from dataset of {len(all_recognition_times)} words.")
         self.recognition_quantile_edges_ = torch.quantile(
-            all_recognition_times, torch.linspace(0, 1, self.n_quantiles + 1))
+            all_recognition_times, torch.linspace(0, 1, self.n_quantiles + 1).to(all_recognition_times.device))
         assert len(self.recognition_quantile_edges_) == self.n_quantiles + 1
 
         # These quantile assignments need to generalize to new datasets which might have more negative
@@ -949,7 +949,7 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
         assert (recognition_bins > 0).all()
         recognition_bins -= 1
 
-        L.info("Recognition bin distribution: %s",
+        L.debug("Recognition bin distribution: %s",
             recognition_bins.bincount(minlength=self.n_quantiles).cpu().numpy())
 
         return recognition_bins
