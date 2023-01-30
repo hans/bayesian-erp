@@ -1,5 +1,5 @@
 n_outer_folds: 4
-n_inner_folds: 8
+n_inner_folds: 4
 
 n_trials: 500
 
@@ -13,7 +13,7 @@ params:
   encoder__alpha:
     type: float
     low: 1e2
-    high: 1e6
+    high: 1e5
     log: true
     # shape: [129]
 
