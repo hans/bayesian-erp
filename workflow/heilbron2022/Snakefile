@@ -292,7 +292,8 @@ def run_base_baseline(input, wildcards, params, output, add_stimuli_parent_dir=F
         +dataset.stimulus_paths='{stimulus_dict_str}' \
         cv={cv_spec} \
         solver=adam \
-        hydra.run.dir={output.trace}
+        hydra.run.dir={output.trace} \
+        model.device=cuda dataset.device=cuda
     """)
 
 
@@ -345,7 +346,6 @@ def run_baseline(input, wildcards, params, output, add_stimuli_parent_dir=False)
     export PYTHONPATH=.
     python scripts/fit_em.py \
         model={params.berp_model} \
-        baseline_model_path={input.baseline_model} \
         features=heilbron \
         'features.variable_feature_names=[word_frequency, word_surprisal]' \
         dataset={dataset_spec} \
@@ -353,7 +353,8 @@ def run_baseline(input, wildcards, params, output, add_stimuli_parent_dir=False)
         +dataset.stimulus_paths='{stimulus_dict_str}' \
         cv={cv_spec} \
         solver=adam \
-        hydra.run.dir={output.trace}
+        hydra.run.dir={output.trace} \
+        model.device=cuda dataset.device=cuda
     """)
 
 
@@ -439,7 +440,6 @@ def run_berp(input, wildcards, params, output, add_stimuli_parent_dir=False):
     export PYTHONPATH=.
     python scripts/fit_em.py \
         model={wildcards.berp_model} \
-        baseline_model_path={input.baseline_model} \
         features=heilbron \
         'features.variable_feature_names=[recognition_onset, word_frequency, word_surprisal]' \
         dataset={dataset_spec} \
@@ -448,7 +448,8 @@ def run_berp(input, wildcards, params, output, add_stimuli_parent_dir=False):
         model.confusion_path={input.confusion} \
         cv={cv_spec} \
         solver=adam \
-        hydra.run.dir={output.trace}
+        hydra.run.dir={output.trace} \
+        model.device=cuda dataset.device=cuda
     """)
 
 
@@ -500,3 +501,78 @@ rule fit_model:
 
     run:
         run_berp(input, wildcards, params, output, add_stimuli_parent_dir=True)
+
+
+def run_berp_cannon(input, wildcards, params, output, add_stimuli_parent_dir=False):
+    dataset_path_str = hydra_param(input.datasets)
+
+    stimulus_dict = make_stimulus_dict(input.stimuli, include_parent=add_stimuli_parent_dir)
+    stimulus_dict_str = hydra_param(stimulus_dict)
+
+    dataset_spec = f"heilbron"
+    cv_spec = config["fit"]["cv_strategy"][wildcards.berp_model]
+
+    shell("""
+    export PYTHONPATH=.
+    python scripts/fit_em.py \
+        model={wildcards.berp_model} \
+        model.n_quantiles={wildcards.n_quantiles} \
+        features=heilbron \
+        'features.variable_feature_names=[recognition_onset, word_frequency, word_surprisal]' \
+        dataset={dataset_spec} \
+        'dataset.paths={dataset_path_str}' \
+        +dataset.stimulus_paths='{stimulus_dict_str}' \
+        model.confusion_path={input.confusion} \
+        cv={cv_spec} \
+        solver=adam \
+        hydra.run.dir={output.trace} \
+        model.device=cuda dataset.device=cuda
+    """)
+
+
+rule fit_cannon_model:
+    input:
+        datasets = expand(
+            "data/dataset/{{model}}/{story_name}/sub{subject}/run{run}.pkl",
+            subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
+        stimuli = expand(
+            "data/stimulus/{{model}}/{story_name}/run{run}.pkl",
+            story_name=STORIES, run=RUNS, allow_missing=True),
+
+        confusion = "data/confusion.npz"
+
+    params:
+        # HACK: enforce consistency between wildcards and config
+        # I know this is un-Snakemake-y but it's the way things are for now
+        validate_wildcards_for_confusion
+
+    output:
+        trace = directory("results_cannon/{model}/{berp_model}_{n_quantiles}quantiles")
+
+    run:
+        run_berp_cannon(input, wildcards, params, output, add_stimuli_parent_dir=True)
+
+
+# Can't figure out why `fit_cannon_model` won't apply to this, just forcing it for now
+rule fit_vanilla_cannon_model:
+    input:
+        datasets = expand(
+            "data/dataset/{{model}}/{story_name}/sub{subject}/run{run}.pkl",
+            subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
+        stimuli = expand(
+            "data/stimulus/{{model}}/{story_name}/run{run}.pkl",
+            story_name=STORIES, run=RUNS, allow_missing=True),
+
+        confusion = "data/confusion.npz"
+
+    params:
+        # HACK: enforce consistency between wildcards and config
+        # I know this is un-Snakemake-y but it's the way things are for now
+        validate_wildcards_for_confusion
+
+    output:
+        trace = directory("results_cannon/{model}/trf-cannon_{n_quantiles}quantiles")
+
+    run:
+        wildcards.berp_model = "trf-cannon"
+        run_berp_cannon(input, wildcards, params, output, add_stimuli_parent_dir=True)

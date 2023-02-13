@@ -97,10 +97,24 @@ class BerpTRFFixedModelConfig(BerpTRFModelConfig):
 class BerpCannonTRFModelConfig(BerpTRFModelConfig):
 
     threshold: float = 0.5
+    lambda_: float = 1.0
     n_quantiles: int = 3
 
     type: str = "trf-berp-cannon"
     _target_: str = "berp.models.trf_em.BerpTRFCannon"
+
+
+@dataclass
+class VanillaCannonTRFModelConfig(BerpTRFModelConfig):
+
+    confusion_path = "flat"
+
+    threshold: float = 0.5
+    lambda_: float = 1.0
+    n_quantiles: int = 3
+
+    type: str = "trf-vanilla-cannon"
+    _target_: str = "berp.models.trf_em.VanillaCannonTRF"
 
 
 @dataclass
@@ -150,6 +164,7 @@ class FeatureConfig:
 cs = ConfigStore.instance()
 cs.store(group=GROUP, name="base_trf", node=TRFModelConfig)
 cs.store(group=GROUP, name="base_trf_pipeline", node=TRFPipelineConfig)
+cs.store(group=GROUP, name="base_trf_vanilla_cannon", node=VanillaCannonTRFModelConfig)
 cs.store(group=GROUP, name="base_trf_em", node=BerpTRFEMModelConfig)
 cs.store(group=GROUP, name="base_trf_berp_fixed", node=BerpTRFFixedModelConfig)
 cs.store(group=GROUP, name="base_trf_berp_cannon", node=BerpCannonTRFModelConfig)

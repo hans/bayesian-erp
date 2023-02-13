@@ -1051,6 +1051,65 @@ class GroupVanillaTRFForwardPipeline(GroupTRFForwardPipeline):
         return primed.design_matrix, primed.validation_mask
 
 
+class GroupVanillaCannonTRFForwardPipeline(GroupBerpCannonTRFForwardPipeline):
+    """
+    Degenerate/vanilla form of the cannon pipeline, in which words are split
+    based on surprisal (prior probability) rather than on inferred
+    recognition time.
+    """
+
+    def _fit_recognition_quantiles(self, dataset: Dataset) -> None:
+        """
+        Estimate recognition time quantiles for all words in a training set.
+        Returns `n_quantiles + 1` list of edges for quantile bins.
+        """
+
+        datasets = dataset.datasets if isinstance(dataset, NestedBerpDataset) else [dataset]
+
+        all_surprisals = torch.cat([dataset.p_candidates[:, 0] for dataset in datasets])
+
+        L.info(f"Computing surprisal quantiles from dataset of {len(all_surprisals)} words.")
+        self.recognition_quantile_edges_ = torch.quantile(
+            all_surprisals, torch.linspace(0, 1, self.n_quantiles + 1).to(all_surprisals.device))
+        assert len(self.recognition_quantile_edges_) == self.n_quantiles + 1
+
+        # These quantile assignments need to generalize to new datasets which might have more negative
+        # minimum recognition times or more maximum recognition times. So account for this by setting
+        # left and right quantile boundaries to -inf and inf, respectively.
+        self.recognition_quantile_edges_[0] = -torch.inf
+        self.recognition_quantile_edges_[-1] = torch.inf
+
+        L.info("Recognition quantile edges: %s", self.recognition_quantile_edges_.cpu().numpy())
+
+    @typechecked
+    def _get_recognition_quantiles(self,
+                                   dataset: BerpDataset,
+                                   params: ModelParameters
+                                   ) -> TensorType[B, torch.long]:
+        """
+        Compute assignments mapping each word to a recognition-time quantile.
+
+        Returns a tensor mapping each word to a quantile index `[0, n_quantiles)`.
+        """
+
+        if not hasattr(self, "recognition_quantile_edges_") or self.recognition_quantile_edges_ is None:
+            raise RuntimeError("Recognition quantile bins have not been estimated. Stop.")            
+        
+        # NB we have N+1 buckets and at least one value will be assigned to the extreme left
+        # bucket (the minimum value). Clamp output such that we have N buckets instead.
+        # We could equivalently bucketize with `right=True` and then clamp on `[0, n_quantiles)`.
+        recognition_bins = torch.clamp(
+            torch.bucketize(dataset.p_candidates[:, 0], self.recognition_quantile_edges_),
+            1, self.n_quantiles)
+        assert (recognition_bins > 0).all()
+        recognition_bins -= 1
+
+        L.debug("Recognition bin distribution: %s",
+            recognition_bins.bincount(minlength=self.n_quantiles).cpu().numpy())
+
+        return recognition_bins
+
+
 class BerpTRFEMEstimator(BaseEstimator):
     """
     Jointly estimate parameters of a Berp model using expectation maximization.
@@ -1257,7 +1316,9 @@ def load_confusion_parameters(
 
 def prepare_or_create_confusion(confusion_path: Optional[str],
                                 phonemes: List[str]) -> torch.Tensor:
-    if confusion_path is not None:
+    if confusion_path == "flat":
+        confusion = torch.full((len(phonemes), len(phonemes)), 1. / len(phonemes))
+    elif confusion_path is not None:
         confusion = load_confusion_parameters(
             to_absolute_path(confusion_path), phonemes)
     else:
@@ -1350,6 +1411,7 @@ def BerpTRFFixed(trf: TemporalReceptiveField,
 def BerpTRFCannon(trf: TemporalReceptiveField,
                   features: FeatureConfig,
                   threshold: torch.Tensor,
+                  lambda_: torch.Tensor,
                   n_quantiles: int,
                   n_outputs: int,
                   phonemes: List[str],
@@ -1364,7 +1426,38 @@ def BerpTRFCannon(trf: TemporalReceptiveField,
         variable_feature_names=list(features.variable_feature_names),
         threshold=torch.as_tensor(threshold),
         confusion=prepare_or_create_confusion(confusion_path, phonemes),
-        lambda_=torch.tensor(1.),
+        lambda_=lambda_,
+        n_quantiles=n_quantiles,
+        **kwargs,
+    )
+
+    if pretrained_pipeline_paths is not None:
+        pipeline = update_with_pretrained_paths(pipeline, pretrained_pipeline_paths)
+
+    return pipeline
+
+
+def VanillaCannonTRF(trf: TemporalReceptiveField,
+                     features: FeatureConfig,
+                     threshold: torch.Tensor,
+                     lambda_: torch.Tensor,
+                     n_quantiles: int,
+                     n_outputs: int,
+                     phonemes: List[str],
+                     confusion_path: Optional[str] = None,
+                     pretrained_pipeline_paths: Optional[List[str]] = None,
+                     **kwargs) -> GroupVanillaCannonTRFForwardPipeline:
+    # NB the vanilla cannon subclasses a berp class, so we have a bunch of dummy
+    # parameters here. this is fine
+    trf.set_params(n_outputs=n_outputs)
+
+    pipeline = GroupVanillaCannonTRFForwardPipeline(
+        trf,
+        ts_feature_names=list(features.ts_feature_names),
+        variable_feature_names=list(features.variable_feature_names),
+        threshold=torch.as_tensor(threshold),
+        confusion=prepare_or_create_confusion(confusion_path, phonemes),
+        lambda_=lambda_,
         n_quantiles=n_quantiles,
         **kwargs,
     )

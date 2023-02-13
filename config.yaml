@@ -91,6 +91,7 @@ language_modeling:
 
 fit:
   cv_strategy:
-    trf-berp-fixed: search_alpha_threshold_lambda_priorscatter
+    trf-berp-fixed: search_alpha_threshold_lambda_priorscatter_window
     trf-berp-cannon: search_alpha_threshold_lambda_priorscatter
     trf: search_alpha
+    trf-cannon: search_alpha
