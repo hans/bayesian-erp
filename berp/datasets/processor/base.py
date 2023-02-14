@@ -80,10 +80,20 @@ class NaturalLanguageStimulusProcessor(object):
 
         # Pre-compute mask of allowed tokens (== which have content after cleaning)
         self.disallowed_re = disallowed_re
-        self.vocab_mask = torch.ones(self._tokenizer.vocab_size, dtype=torch.bool)
+        self.vocab_mask = torch.ones(self.vocab_size, dtype=torch.bool)
         for token, idx in self._tokenizer.vocab.items():  # type: ignore
             if self._clean_word(token) == "":
                 self.vocab_mask[idx] = False
+
+    @property
+    def vocab_size(self):
+        # Some models (e.g. GPT-J) have a larger vocabulary embedding space than the
+        # tokenizer, in order to play nice with hardware. Use that if present in order
+        # to avoid indexing errors.
+        if hasattr(self._model.config, "vocab_size"):
+            return self._model.config.vocab_size
+        else:
+            return self._tokenizer.vocab_size
 
     def _clean_word(self, word: str) -> str:
         return re.sub(self.disallowed_re, "", word.lower())
