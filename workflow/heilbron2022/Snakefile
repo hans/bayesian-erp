@@ -35,7 +35,8 @@ wildcard_constraints:
     subject = "\d+",
     story_name = "[^./]+",
     run = "\d+",
-    model = "[^/]+(?:/[^/]+){0,1}"
+    model = "[^/]+(?:/[^/]+){0,1}",
+    n_candidates = "\d+"
 
 
 def take_first(expr, **wildcards):
@@ -145,8 +146,8 @@ rule run_language_modeling:
         cmu_ipa_dict = "data/cmudict_ipa.csv",
         frequency_data = "data/frequency/subtlexus2.csv"
     output:
-        stimulus_dir = directory("data/stimulus/{model}/{story_name}"),
-        stimuli = expand("data/stimulus/{{model}}/{{story_name}}/run{run}.pkl", run=RUNS)
+        stimulus_dir = directory("data/stimulus/{model}/n{n_candidates}/{story_name}"),
+        stimuli = expand("data/stimulus/{{model}}/n{{n_candidates}}/{{story_name}}/run{run}.pkl", run=RUNS)
     shell:
         """
         papermill --log-output \
@@ -158,7 +159,7 @@ rule run_language_modeling:
             -p vocab_path {input.frequency_data} \
             -p story_name {wildcards.story_name} \
             -p model {wildcards.model} \
-            -p n_candidates {config[language_modeling][n_candidates]} \
+            -p n_candidates {wildcards.n_candidates} \
             -p output_dir {output.stimulus_dir}
         """
 
@@ -169,11 +170,11 @@ rule produce_dataset:
         aligned_words = "data/aligned/{model}/{story_name}/word.csv",
         aligned_phonemes = "data/aligned/{model}/{story_name}/phoneme.csv",
 
-        stimulus = "data/stimulus/{model}/{story_name}/run{run}.pkl",
+        stimulus = "data/stimulus/{model}/n{n_candidates}/{story_name}/run{run}.pkl",
 
         run_Xy = "data/run_Xy/{story_name}/sub{subject}/run{run}.h5"
     output:
-        dataset = "data/dataset/{model}/{story_name}/sub{subject}/run{run}.pkl"
+        dataset = "data/dataset/{model}/n{n_candidates}/{story_name}/sub{subject}/run{run}.pkl"
 
     shell:
         """
@@ -301,16 +302,16 @@ def run_base_baseline(input, wildcards, params, output, add_stimuli_parent_dir=F
 rule fit_base_baseline_model_concatenated:
     input:
         datasets = expand(
-            "data/dataset/{{model}}/{story_name}/sub{subject}.pkl",
+            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}.pkl",
             subject=SUBJECTS, story_name=STORIES, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/{story_name}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}.pkl",
             story_name=STORIES, allow_missing=True)
 
     params:
         berp_model = "trf"
     output:
-        trace = directory("results_concatenated/{model}/base_trf")
+        trace = directory("results_concatenated/{model}/n{n_candidates}/base_trf")
 
     run:
         run_base_baseline(input, wildcards, params, output, add_stimuli_parent_dir=False)
@@ -319,16 +320,16 @@ rule fit_base_baseline_model_concatenated:
 rule fit_base_baseline_model:
     input:
         datasets = expand(
-            "data/dataset/{{model}}/{story_name}/sub{subject}/run{run}.pkl",
+            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
             subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/{story_name}/run{run}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True)
 
     params:
         berp_model = "trf"
     output:
-        trace = directory("results/{model}/base_trf")
+        trace = directory("results/{model}/n{n_candidates}/base_trf")
 
     run:
         run_base_baseline(input, wildcards, params, output, add_stimuli_parent_dir=True)
@@ -382,18 +383,18 @@ rule fit_baseline_model_concatenated:
 rule fit_baseline_model:
     input:
         datasets = expand(
-            "data/dataset/{{model}}/{story_name}/sub{subject}/run{run}.pkl",
+            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
             subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/{story_name}/run{run}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True),
 
-        baseline_model = "results/{model}/base_trf"
+        baseline_model = "results/{model}/n{n_candidates}/base_trf"
 
     params:
         berp_model = "trf"
     output:
-        trace = directory("results/{model}/trf")
+        trace = directory("results/{model}/n{n_candidates}/trf")
 
     run:
         run_baseline(input, wildcards, params, output, add_stimuli_parent_dir=True)
@@ -408,8 +409,10 @@ def validate_wildcards_for_confusion(wildcards):
 rule prepare_confusion:
     input:
         stimulus = lambda _: take_first(
-            "data/stimulus/{model}/{story_name}/run{run}.pkl",
-            story_name=STORIES, run=RUNS, model=[config["language_modeling"]["model"]]),
+            "data/stimulus/{model}/n{n_candidates}/{story_name}/run{run}.pkl",
+            story_name=STORIES, run=RUNS,
+            model=[config["language_modeling"]["model"]],
+            n_candidates=[config["language_modeling"]["n_candidates"]]),
 
         confusion_consonants = "data/confusion_cutler2004/consonants.xls",
         confusion_vowels = "data/confusion_cutler2004/vowels.xls"
@@ -457,13 +460,13 @@ def run_berp(input, wildcards, params, output, add_stimuli_parent_dir=False):
 rule fit_model_concatenated:
     input:
         datasets = expand(
-            "data/dataset/{{model}}/{story_name}/sub{subject}.pkl",
+            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}.pkl",
             subject=SUBJECTS, story_name=STORIES, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/{story_name}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}.pkl",
             story_name=STORIES, allow_missing=True),
 
-        baseline_model = "results_concatenated/{model}/trf",
+        baseline_model = "results_concatenated/{model}/n{n_candidates}/trf",
 
         confusion = "data/confusion.npz"
 
@@ -473,7 +476,7 @@ rule fit_model_concatenated:
         validate_wildcards_for_confusion
 
     output:
-        trace = directory("results_concatenated/{model}/{berp_model}")
+        trace = directory("results_concatenated/{model}/n{n_candidates}/{berp_model}")
 
     run:
         run_berp(input, wildcards, params, output, add_stimuli_parent_dir=False)
@@ -482,13 +485,13 @@ rule fit_model_concatenated:
 rule fit_model:
     input:
         datasets = expand(
-            "data/dataset/{{model}}/{story_name}/sub{subject}/run{run}.pkl",
+            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
             subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/{story_name}/run{run}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True),
 
-        baseline_model = "results/{model}/trf",
+        baseline_model = "results/{model}/n{n_candidates}/trf",
 
         confusion = "data/confusion.npz"
 
@@ -498,7 +501,7 @@ rule fit_model:
         validate_wildcards_for_confusion
 
     output:
-        trace = directory("results/{model}/{berp_model}")
+        trace = directory("results/{model}/n{n_candidates}/{berp_model}")
 
     run:
         run_berp(input, wildcards, params, output, add_stimuli_parent_dir=True)
@@ -534,10 +537,10 @@ def run_berp_cannon(input, wildcards, params, output, add_stimuli_parent_dir=Fal
 rule fit_cannon_model:
     input:
         datasets = expand(
-            "data/dataset/{{model}}/{story_name}/sub{subject}/run{run}.pkl",
+            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
             subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/{story_name}/run{run}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True),
 
         confusion = "data/confusion.npz"
@@ -548,7 +551,7 @@ rule fit_cannon_model:
         validate_wildcards_for_confusion
 
     output:
-        trace = directory("results_cannon/{model}/{berp_model}_{n_quantiles}quantiles")
+        trace = directory("results_cannon/{model}/n{n_candidates}/{berp_model}_{n_quantiles}quantiles")
 
     run:
         run_berp_cannon(input, wildcards, params, output, add_stimuli_parent_dir=True)
@@ -558,10 +561,10 @@ rule fit_cannon_model:
 rule fit_vanilla_cannon_model:
     input:
         datasets = expand(
-            "data/dataset/{{model}}/{story_name}/sub{subject}/run{run}.pkl",
+            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
             subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/{story_name}/run{run}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True),
 
         confusion = "data/confusion.npz"
@@ -572,7 +575,7 @@ rule fit_vanilla_cannon_model:
         validate_wildcards_for_confusion
 
     output:
-        trace = directory("results_cannon/{model}/trf-cannon_{n_quantiles}quantiles")
+        trace = directory("results_cannon/{model}/n{n_candidates}/trf-cannon_{n_quantiles}quantiles")
 
     run:
         wildcards.berp_model = "trf-cannon"
