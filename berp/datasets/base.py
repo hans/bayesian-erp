@@ -337,10 +337,16 @@ class BerpDataset:
         self.word_lengths = stimulus.word_lengths.to(ref_tensor.device)
         self.candidate_phonemes = stimulus.candidate_phonemes
 
-    def subset_sensors(self, sensors: Union[List[int], List[str]]) -> None:
+    def subset_sensors(self, sensors: Union[List[int], List[str]], on_missing="warn") -> None:
         """
         Subset sensors in response variable. Operates in place.
+
+        `on_missing` should be one of "warn", "raise", or "ignore". Triggered when a sensor name
+        is passed but the dataset does not contain this sensor name.
         """
+        if on_missing not in ["warn", "raise", "ignore"]:
+            raise ValueError(f"on_missing must be one of 'warn', 'raise', or 'ignore'. Got {on_missing}.")
+
         sensor_idxs, sensor_names = [], []
         for sensor in sensors:
             if isinstance(sensor, int):
@@ -357,7 +363,12 @@ class BerpDataset:
                 try:
                     sensor_idx = self.sensor_names.index(sensor)
                 except ValueError:
-                    raise ValueError(f"Sensor name {sensor} not found.")
+                    if on_missing == "warn":
+                        L.warn(f"Sensor name {sensor} not found.")
+                    elif on_missing == "raise":
+                        raise ValueError(f"Sensor name {sensor} not found.")
+                    elif on_missing == "ignore":
+                        pass
                 else:
                     sensor_idxs.append(self.sensor_names.index(sensor))
                     sensor_names.append(sensor)
@@ -621,12 +632,12 @@ class NestedBerpDataset(object):
 
         return f"NestedBerpDataset({', '.join(f'{name}[{start}:{end}]' for name, (start, end) in merged)})"
 
-    def subset_sensors(self, sensors: List[int]) -> None:
+    def subset_sensors(self, sensors: List[int], on_missing="warn") -> None:
         """
         Subset sensors in response variable. Operates in place.
         """
         for ds in self.datasets:
-            ds.subset_sensors(sensors)
+            ds.subset_sensors(sensors, on_missing=on_missing)
 
     def average_sensors(self) -> None:
         """

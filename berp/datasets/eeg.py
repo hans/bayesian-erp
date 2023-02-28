@@ -35,7 +35,7 @@ def load_eeg_dataset(paths: List[str],
             if stimulus_data is not None:
                 ds.add_stimulus(stimulus_data[ds.stimulus_name])
             if subset_sensors is not None:
-                ds.subset_sensors(list(subset_sensors))
+                ds.subset_sensors(list(subset_sensors), on_missing="warn")
             datasets.append(ds)
 
     dataset = NestedBerpDataset(datasets)
