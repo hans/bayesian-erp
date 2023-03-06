@@ -27,3 +27,7 @@ results
 *.npy
 *.hdf5
 *.h5
+
+*.sh
+slurm-*.out
+events.*
