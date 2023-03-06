@@ -1,5 +1,5 @@
 n_outer_folds: 4
-n_inner_folds: 8
+n_inner_folds: 4
 n_trials: 500
 
 param_sampler:
@@ -11,8 +11,8 @@ sensor_aggregation_fn: max
 params:
   encoder__alpha:
     type: float
-    low: 1e4
-    high: 1e6
+    low: 1e2
+    high: 1e5
     log: true
     # shape: [129]
 
@@ -37,9 +37,9 @@ params:
   variable_trf_zero_left:
     type: int
     low: 0
-    high: 36
+    high: 35
 
   variable_trf_zero_right:
     type: int
     low: 0
-    high: 36
+    high: 35

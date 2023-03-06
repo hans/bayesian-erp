@@ -1,7 +1,7 @@
-defaults:
-  - base_trf_berp_cannon
+# A Cannon model which relies only on a prior (flat likelihood).
 
-type: trf-berp-cannon
+defaults:
+  - base_trf_vanilla_cannon
 
 trf:
   tmin: 0
@@ -10,7 +10,6 @@ trf:
   n_outputs: 64
   alpha: 1
 
-threshold: 0.5
 n_quantiles: 3
 
 scatter_point: 0.5

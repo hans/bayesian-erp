@@ -83,15 +83,17 @@ datasets:
       - 19
 
     language_modeling:
-      model: distilgpt2
+      model: EleutherAI/gpt-neo-2.7B
       n_candidates: 10000
 
 language_modeling:
   model: distilgpt2
+  n_candidates: 10000
 
 fit:
   cv_strategy:
     trf-berp-fixed: search_alpha_threshold_lambda_priorscatter_window
     trf-berp-cannon: search_alpha_threshold_lambda_priorscatter
     trf: search_alpha
+    trf_t1: search_alpha
     trf-cannon: search_alpha
