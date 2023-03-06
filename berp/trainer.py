@@ -92,6 +92,9 @@ class Trainer:
         viz_splitter = None
         def tb_callback(study, trial):
             tb = Tensorboard.instance()
+            if tb._disabled:
+                return
+
             tb.global_step += 1
             if study.best_trial.number == trial.number:
                 for param, value in trial.params.items():

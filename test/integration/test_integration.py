@@ -41,6 +41,7 @@ def test_integration(device, tmp_path,
             "model=trf-berp-fixed",
             f"model.confusion_path='{integration_harness.confusion_path}'",
             f"features={integration_harness.features_spec}",
+            "cv.n_trials=2",
         ]
 
         if device is not None:
@@ -56,3 +57,5 @@ def test_integration(device, tmp_path,
         trainer = Trainer(cfg)
 
         trainer.model.pre_transform(trainer.dataset.datasets[0])
+
+        trainer.fit()

@@ -38,6 +38,8 @@ def load_eeg_dataset(paths: List[str],
                 ds.subset_sensors(list(subset_sensors), on_missing="warn")
             datasets.append(ds)
 
+            import ipdb; ipdb.set_trace()
+
     dataset = NestedBerpDataset(datasets)
 
     def norm_ts(tensor, add_zeros=None):

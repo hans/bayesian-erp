@@ -24,6 +24,10 @@ T, S = DIMS.T, DIMS.S
 Phoneme = str
 intQ = Optional[Union[int, np.integer]]
 
+# Stimulus information should always be stored on CPU. It's giant, and compute time relative to
+# regression computations is negligible.
+STIMULUS_DEVICE = torch.device("cpu")
+
 
 @typechecked
 @dataclass
@@ -305,17 +309,18 @@ class BerpDataset:
         """
         Convert all tensors to torch tensors.
         """
-        self.word_onsets = torch.as_tensor(self.word_onsets, dtype=dtype).to(device)
-        self.word_offsets = torch.as_tensor(self.word_offsets, dtype=dtype).to(device)
-        self.phoneme_onsets = torch.as_tensor(self.phoneme_onsets, dtype=dtype).to(device)
         self.X_ts = torch.as_tensor(self.X_ts, dtype=dtype).to(device)
         self.X_variable = torch.as_tensor(self.X_variable, dtype=dtype).to(device)
         self.Y = torch.as_tensor(self.Y, dtype=dtype).to(device)
 
+        self.word_onsets = torch.as_tensor(self.word_onsets, dtype=dtype).to(STIMULUS_DEVICE)
+        self.word_offsets = torch.as_tensor(self.word_offsets, dtype=dtype).to(STIMULUS_DEVICE)
+        self.phoneme_onsets = torch.as_tensor(self.phoneme_onsets, dtype=dtype).to(STIMULUS_DEVICE)
+
         if self.p_candidates is not None:
-            self.p_candidates = torch.as_tensor(self.p_candidates, dtype=dtype).to(device)
-            self.word_lengths = torch.as_tensor(self.word_lengths).to(device)
-            self.candidate_phonemes = torch.as_tensor(self.candidate_phonemes).to(device)
+            self.p_candidates = torch.as_tensor(self.p_candidates, dtype=dtype).to(STIMULUS_DEVICE)
+            self.word_lengths = torch.as_tensor(self.word_lengths).to(STIMULUS_DEVICE)
+            self.candidate_phonemes = torch.as_tensor(self.candidate_phonemes).to(STIMULUS_DEVICE)
 
         return self
 
@@ -333,8 +338,8 @@ class BerpDataset:
         # Reference tensor for dtype/device
         ref_tensor = self.word_onsets
 
-        self.p_candidates = stimulus.p_candidates.to(ref_tensor)
-        self.word_lengths = stimulus.word_lengths.to(ref_tensor.device)
+        self.p_candidates = stimulus.p_candidates.to(STIMULUS_DEVICE, dtype=ref_tensor.dtype)
+        self.word_lengths = stimulus.word_lengths.to(STIMULUS_DEVICE)
         self.candidate_phonemes = stimulus.candidate_phonemes
 
     def subset_sensors(self, sensors: Union[List[int], List[str]], on_missing="warn") -> None:
