@@ -305,13 +305,14 @@ class BerpDataset:
         if self.variable_feature_names is not None:
             assert len(self.variable_feature_names) == self.n_variable_features
 
-    def ensure_torch(self, device: Optional[str] = None, dtype=torch.float32) -> BerpDataset:
+    def ensure_torch(self, device: Optional[str] = None, dtype=torch.float32,
+                     ts_dtype=torch.float32) -> BerpDataset:
         """
         Convert all tensors to torch tensors.
         """
-        self.X_ts = torch.as_tensor(self.X_ts, dtype=dtype).to(device)
-        self.X_variable = torch.as_tensor(self.X_variable, dtype=dtype).to(device)
-        self.Y = torch.as_tensor(self.Y, dtype=dtype).to(device)
+        self.X_ts = torch.as_tensor(self.X_ts, dtype=ts_dtype).to(device)
+        self.X_variable = torch.as_tensor(self.X_variable, dtype=ts_dtype).to(device)
+        self.Y = torch.as_tensor(self.Y, dtype=ts_dtype).to(device)
 
         self.word_onsets = torch.as_tensor(self.word_onsets, dtype=dtype).to(STIMULUS_DEVICE)
         self.word_offsets = torch.as_tensor(self.word_offsets, dtype=dtype).to(STIMULUS_DEVICE)

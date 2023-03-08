@@ -26,6 +26,9 @@ class DatasetConfig:
 @dataclass
 class EEGDatasetConfig(DatasetConfig):
 
+    dtype: str = "float32"
+    ts_dtype: str = "float32"
+
     subset_sensors: Optional[List[str]] = None
     """
     Optionally load just a subset of the dataset sensors. Each element

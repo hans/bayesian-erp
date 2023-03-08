@@ -20,7 +20,16 @@ def load_eeg_dataset(paths: List[str],
                      special_normalize_variable_intercept: bool = False,
                      stimulus_paths: Optional[Dict[str, str]] = None,
                      device: Optional[str] = None,
+                     dtype: Optional[str] = "float32",
+                     ts_dtype: Optional[str] = "float32",
                      **kwargs) -> NestedBerpDataset:
+    if dtype not in ["float16", "float32", "float64"]:
+        raise ValueError(f"Invalid dtype: {dtype}")
+    if ts_dtype not in ["float16", "float32", "float64"]:
+        raise ValueError(f"Invalid ts_dtype: {ts_dtype}")
+    dtype = getattr(torch, dtype)
+    ts_dtype = getattr(torch, ts_dtype)
+
     # If stimulus data is stored separately, load this first.
     stimulus_data: Dict[str, NaturalLanguageStimulus] = {}
     if stimulus_paths is not None:

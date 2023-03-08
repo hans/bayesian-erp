@@ -226,6 +226,7 @@ def make_dummy_design_matrix(dataset: BerpDataset, delayer: TRFDelayer,
 
     ts_features, _ = dataset.get_features(ts_predictor_names)
 
+    # Design matrix will be colocated on the same device as the dataset predictors.
     dummy_variable_predictors: TRFPredictors = \
         torch.zeros(dataset.n_samples, n_variable_predictors) \
             .to(ts_features)
