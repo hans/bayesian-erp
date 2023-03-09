@@ -7,6 +7,7 @@ from pathlib import Path
 import os
 import sys
 from typing import cast, Tuple
+import yaml
 
 from hydra import initialize, compose
 from omegaconf import OmegaConf
@@ -25,6 +26,10 @@ from .conftest import IntegrationHarness
 def disable_tensorboard():
     Tensorboard.disable()
 
+    
+def hydra_param(obj):
+    return yaml.safe_dump(obj, default_flow_style=True, width=float("inf")).strip()
+
 
 @pytest.mark.parametrize("device", [None, "cpu", "cuda"])
 def test_integration(device, tmp_path,
@@ -33,11 +38,14 @@ def test_integration(device, tmp_path,
     if not torch.cuda.is_available() and device == "cuda":
         pytest.skip("CUDA not available")
 
+    dataset_paths = [str(path) for path in integration_harness.dataset_paths.values()]
+    stimulus_paths = {run: str(path) for run, path in integration_harness.stimulus_paths.items()}
+
     with initialize(version_base=None, config_path="../../conf"):
         overrides = [
             f"dataset={integration_harness.dataset_spec}",
-            f"dataset.paths=['{integration_harness.dataset_path}']",
-            f"+dataset.stimulus_paths={{{integration_harness.stimulus_name}:'{integration_harness.stimulus_path}'}}",
+            f"dataset.paths={hydra_param(dataset_paths)}",
+            f"+dataset.stimulus_paths={hydra_param(stimulus_paths)}",
             "model=trf-berp-fixed",
             f"model.confusion_path='{integration_harness.confusion_path}'",
             f"features={integration_harness.features_spec}",

@@ -29,7 +29,7 @@ from typeguard import typechecked
 
 from berp.config import FeatureConfig
 from berp.cv import EarlyStopException
-from berp.datasets import BerpDataset, NestedBerpDataset
+from berp.datasets import BerpDataset, NestedBerpDataset, assert_concatenatable
 from berp.models.reindexing_regression import \
     predictive_model, recognition_point_model, recognition_points_to_times, \
     PartiallyObservedModelParameters, ModelParameters
@@ -37,7 +37,7 @@ from berp.models.trf import TemporalReceptiveField, TRFPredictors, \
     TRFDesignMatrix, TRFResponse, TRFDelayer
 from berp.tensorboard import Tensorboard
 from berp.typing import is_probability, DIMS
-from berp.util import time_to_sample
+from berp.util import time_to_sample, cat
 
 L = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ MaskArray = TensorType[torch.bool]
 @typechecked
 def scatter_add(design_matrix: TRFDesignMatrix,
                 target_samples: TensorType[B, torch.long],
-                target_values: TensorType[B, "n_target_features", float],
+                target_values: TensorType[B, "n_target_features"],
                 lag_mask: Optional[TensorType["n_delays", torch.bool]] = None,
                 add=True) -> None:
     """
@@ -440,6 +440,7 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
             L.debug(f"Creating encoder for key {key}")
             enc: Encoder = cast(Encoder, clone(self.encoder))
             enc.set_name(key)
+            enc.output_names = dataset.sensor_names
             self._set_encoder(key, enc)
 
             return self.encoders_[key]
@@ -506,17 +507,22 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
     def _prepare_trf_Xy(self, datasets: List[BerpDataset]) -> Tuple[TRFDesignMatrix, TRFResponse]:
         design_matrices, Ys = [], []
         for d in datasets:
+            assert_concatenatable(d, datasets[0])
+
             design_matrix, _ = self.pre_transform(d)
             design_matrices.append(design_matrix)
             Ys.append(d.Y)
 
-        design_matrix = torch.cat(design_matrices, dim=0)
-        Y = torch.cat(Ys, dim=0)
+        design_matrix = cat(design_matrices, dim=0)
+        Y = cat(Ys, dim=0)
+
         return design_matrix, Y
 
     def _fit(self, encoder: Encoder, datasets: List[BerpDataset]):
         design_matrix, Y = self._prepare_trf_Xy(datasets)
-        encoder.fit(design_matrix, Y)
+        
+        with torch.no_grad():
+            encoder.fit(design_matrix, Y)
 
     def fit(self, dataset: NestedBerpDataset, y=None) -> "GroupTRFForwardPipeline":
         # Group datasets by encoder and fit jointly.
@@ -1386,13 +1392,10 @@ def make_pipeline(
 def BerpTRFFixed(trf: TemporalReceptiveField,
                  features: FeatureConfig,
                  threshold: torch.Tensor,
-                 n_outputs: int,
                  phonemes: List[str],
                  confusion_path: Optional[str] = None,
                  pretrained_pipeline_paths: Optional[List[str]] = None,
                  **kwargs) -> GroupBerpFixedTRFForwardPipeline:
-    trf.set_params(n_outputs=n_outputs)
-
     pipeline = GroupBerpFixedTRFForwardPipeline(
         trf,
         ts_feature_names=list(features.ts_feature_names),
@@ -1414,13 +1417,10 @@ def BerpTRFCannon(trf: TemporalReceptiveField,
                   threshold: torch.Tensor,
                   lambda_: torch.Tensor,
                   n_quantiles: int,
-                  n_outputs: int,
                   phonemes: List[str],
                   confusion_path: Optional[str] = None,
                   pretrained_pipeline_paths: Optional[List[str]] = None,
                   **kwargs) -> GroupBerpCannonTRFForwardPipeline:
-    trf.set_params(n_outputs=n_outputs)
-
     pipeline = GroupBerpCannonTRFForwardPipeline(
         trf,
         ts_feature_names=list(features.ts_feature_names),
@@ -1443,15 +1443,12 @@ def VanillaCannonTRF(trf: TemporalReceptiveField,
                      threshold: torch.Tensor,
                      lambda_: torch.Tensor,
                      n_quantiles: int,
-                     n_outputs: int,
                      phonemes: List[str],
                      confusion_path: Optional[str] = None,
                      pretrained_pipeline_paths: Optional[List[str]] = None,
                      **kwargs) -> GroupVanillaCannonTRFForwardPipeline:
     # NB the vanilla cannon subclasses a berp class, so we have a bunch of dummy
     # parameters here. this is fine
-    trf.set_params(n_outputs=n_outputs)
-
     pipeline = GroupVanillaCannonTRFForwardPipeline(
         trf,
         ts_feature_names=list(features.ts_feature_names),
@@ -1503,8 +1500,7 @@ def BerpTRFEM(trf: TemporalReceptiveField,
     return BerpTRFEMEstimator(pipeline, **kwargs)
 
 
-def BasicTRF(trf, features: FeatureConfig, n_outputs: int, **kwargs):
-    trf.set_params(n_outputs=n_outputs)
+def BasicTRF(trf, features: FeatureConfig, **kwargs):
     pipeline = GroupVanillaTRFForwardPipeline(
         trf,
         ts_feature_names=list(features.ts_feature_names),

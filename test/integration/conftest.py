@@ -15,31 +15,35 @@ ConfusionData = Dict
 class IntegrationHarnessRequest(NamedTuple):
     workflow: str
     story_name: str
-    subject: str
-    run: Optional[str]
+    datasets: List[Tuple[str, Optional[str], Optional[List[str]]]]
+
     model: str
     features_spec: str
     dataset_spec: str
 
     @property
-    def dataset_path(self):
-        return f"{self.workflow}.{self.story_name}.{self.subject}{'.' + self.run if self.run is not None else ''}.pkl"
+    def dataset_paths(self):
+        return {
+            (subject, run, subset_sensors):
+            Path(f"{self.workflow}.{self.story_name}.{subject}{'.' + run if run is not None else ''}.pkl")
+            for subject, run, subset_sensors in self.datasets
+        }
 
     @property
-    def stimulus_path(self):
-        return f"{self.workflow}.{self.story_name}{'.' + self.run if self.run is not None else ''}.pkl"
+    def stimulus_paths(self):
+        return {run: Path(f"{self.workflow}.{self.story_name}{'.' + run if run is not None else ''}.pkl")
+                for _, run, _ in self.datasets}
 
     @property
     def confusion_path(self):
-        return f"{self.workflow}.confusion.npz"
+        return Path(f"{self.workflow}.confusion.npz")
 
 
 class IntegrationHarness(NamedTuple):
-    dataset_path: Path
-    stimulus_path: Path
+    dataset_paths: Dict[Tuple[str, str], Path]
+    stimulus_paths: Dict[str, Path]
     confusion_path: Path
 
-    stimulus_name: str
     features_spec: str
     dataset_spec: str
 
@@ -48,39 +52,48 @@ class IntegrationHarness(NamedTuple):
         if root_dir is None:
             root_dir = Path(__file__).parent
         
-        dataset_path = root_dir / req.dataset_path
-        stimulus_path = root_dir / req.stimulus_path
+        dataset_paths = {k: root_dir / path for k, path in req.dataset_paths.items()}
+        stimulus_paths = {k: root_dir / path for k, path in req.stimulus_paths.items()}
         confusion_path = root_dir / req.confusion_path
-        if dataset_path.exists() and stimulus_path.exists() and confusion_path.exists():
-            # HACK assumption
-            stim_name = f"{req.story_name}{'/' + req.run if req.run is not None else ''}"
+        for (subject, run, subset_sensors), dataset_path in dataset_paths.items():
+            dataset_path = root_dir / dataset_path
+            stimulus_path = stimulus_paths[run]
+
+            if dataset_path.exists() and stimulus_path.exists() and confusion_path.exists():
+                # HACK assumption
+                stim_name = f"{req.story_name}{'/' + run if run is not None else ''}"
+            else:
+                ds, stim, confusion = make_integration_harness_data(req, subject, run, subset_sensors)
+                stim_name = stim.name
+
+                with open(dataset_path, "wb") as f:
+                    pickle.dump(ds, f)
+                with open(stimulus_path, "wb") as f:
+                    pickle.dump(stim, f)
+                np.savez(req.confusion_path, **confusion)
+
+        if len(stimulus_paths) == 1 and next(iter(stimulus_paths.keys())) is None:
+            stimulus_paths = {req.story_name: next(iter(stimulus_paths.values()))}
         else:
-            ds, stim, confusion = make_integration_harness_data(req)
-            stim_name = stim.name
-
-            with open(dataset_path, "wb") as f:
-                pickle.dump(ds, f)
-            with open(stimulus_path, "wb") as f:
-                pickle.dump(stim, f)
-            np.savez(confusion_path, **confusion)
-
+            stimulus_paths = {f"{req.story_name}/{run}": path for run, path in stimulus_paths.items()}
+                
         return cls(
-            dataset_path=dataset_path,
-            stimulus_path=stimulus_path,
+            dataset_paths=dataset_paths,
+            stimulus_paths=stimulus_paths,
             confusion_path=confusion_path,
-            stimulus_name=stim_name,
             features_spec=req.features_spec,
             dataset_spec=req.dataset_spec)
 
 
 def make_integration_harness_data(
     req: IntegrationHarnessRequest,
+    subject, run, subset_sensors=None,
     retain_samples: int = 1000,
 ) -> Tuple[BerpDataset, NaturalLanguageStimulus, ConfusionData]:
     # Compute paths relative to project root.
     root_dir = Path(__file__).parent.parent.parent
-    dataset_path = root_dir / f"workflow/{req.workflow}/data/dataset/{req.model}/{req.story_name}/{req.subject}{'/' + req.run if req.run is not None else ''}.pkl"
-    stim_path = root_dir / f"workflow/{req.workflow}/data/stimulus/{req.model}/{req.story_name}{'/' + req.run if req.run is not None else ''}.pkl"
+    dataset_path = root_dir / f"workflow/{req.workflow}/data/dataset/{req.model}/{req.story_name}/{subject}{'/' + run if run is not None else ''}.pkl"
+    stim_path = root_dir / f"workflow/{req.workflow}/data/stimulus/{req.model}/{req.story_name}{'/' + run if run is not None else ''}.pkl"
 
     with open(dataset_path, "rb") as f:
         ds: BerpDataset = pickle.load(f)
@@ -88,6 +101,8 @@ def make_integration_harness_data(
         stim: NaturalLanguageStimulus = pickle.load(f)
 
     ds.add_stimulus(stim)
+    if subset_sensors is not None:
+        ds.subset_sensors(subset_sensors)
 
     # Now massively subset data.
     orig_name = ds.name
@@ -131,8 +146,15 @@ def make_integration_harness_data(
 
 
 integration_requests = {
-    "gillis2021": ("gillis2021", "DKZ_1", "microaverage", None, "GroNLP/gpt2-small-dutch", "dkz", "dkz_microaverage"),
-    "heilbron2022": ("heilbron2022", "old-man-and-the-sea", "sub17", "run1", "distilgpt2", "heilbron", "heilbron"),
+    "gillis2021": (
+        "gillis2021", "DKZ_1",
+        [("microaverage", None, None)],
+        "GroNLP/gpt2-small-dutch", "dkz", "dkz_microaverage"),
+    "heilbron2022": (
+        "heilbron2022", "old-man-and-the-sea",
+        [("sub17", "run1", ("B19", "B2")),
+         ("sub18", "run1", ("B2", "A1"))],
+        "distilgpt2/n1000", "heilbron", "heilbron"),
 }
 integration_requests = {k: IntegrationHarnessRequest(*v) for k, v in integration_requests.items()}
 

@@ -26,8 +26,10 @@ TRFResponse = TensorType["n_times", "n_outputs"]
 
 class TemporalReceptiveField(BaseEstimator):
 
-    def __init__(self, tmin, tmax, sfreq, n_outputs,
+    def __init__(self, tmin, tmax, sfreq,
                  optim: Optional[Solver] = None,
+                 n_outputs: Optional[int] = None,
+                 output_names: Optional[List[str]] = None,
                  fit_intercept=False,
                  warm_start=True,
                  alpha=1,
@@ -36,6 +38,7 @@ class TemporalReceptiveField(BaseEstimator):
                  **kwargs):
         self.sfreq = sfreq
         self.n_outputs = n_outputs
+        self.output_names = output_names
 
         self.tmin = tmin
         self.tmax = tmax
@@ -59,6 +62,9 @@ class TemporalReceptiveField(BaseEstimator):
             L.warning(f"Unused arguments: {kwargs}")
 
     def _init_coef(self):
+        if self.n_outputs is None:
+            raise ValueError("n_outputs must be specified before initializing")
+
         self.coef_ = torch.randn(self.n_features_, len(self.delays_),
                                  self.n_outputs) * self.init_scale
 
@@ -75,7 +81,11 @@ class TemporalReceptiveField(BaseEstimator):
         if Y is not None:
             assert X.shape[0] == Y.shape[0]
             assert X.dtype == Y.dtype
-            assert Y.shape[1] == self.n_outputs
+            if self.n_outputs is not None:
+                assert Y.shape[1] == self.n_outputs
+            else:
+                self.n_outputs = Y.shape[1]
+
         # May not be available if we haven't been called with fit() yet.
         if hasattr(self, "n_features_"):
             assert X.shape[1] == self.n_features_

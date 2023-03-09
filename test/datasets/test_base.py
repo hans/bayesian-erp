@@ -7,6 +7,7 @@ from sklearn.model_selection import KFold
 import torch
 
 from berp.datasets.base import BerpDataset, NestedBerpDataset
+from berp.datasets.base import assert_concatenatable, assert_compatible
 from berp.generators.stimulus import RandomStimulusGenerator
 
 
@@ -194,3 +195,18 @@ def test_select_features_drop_all_variable():
     ds2_ts, ds2_variable = dataset.get_features(ts=None, variable=[])
     torch.testing.assert_allclose(ds2_ts, dataset2.X_ts)
     assert ds2_variable.shape == (dataset.n_words, 0)
+
+
+def test_nested_different_sensors():
+    ds = make_dataset()
+
+    ds2 = make_dataset()
+    ds2.Y = ds2.Y[:, 1:]
+    ds2.sensor_names = ["c", "d"]
+
+    assert_compatible(ds, ds2)
+    with pytest.raises(AssertionError):
+        assert_concatenatable(ds, ds2)
+
+    # Shouldn't bork.
+    nested = NestedBerpDataset([ds, ds2])

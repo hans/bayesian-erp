@@ -192,7 +192,7 @@ class NaturalLanguageStimulus:
                 self.candidate_ids[word_idx, :top_k]]
 
 from berp.datasets.processor import NaturalLanguageStimulusProcessor
-from berp.datasets.base import BerpDataset, NestedBerpDataset
+from berp.datasets.base import BerpDataset, NestedBerpDataset, assert_concatenatable
 
 __all__ = [
     "NaturalLanguageStimulusProcessor",

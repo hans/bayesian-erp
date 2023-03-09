@@ -115,7 +115,6 @@ def trf(dataset: BerpDataset, optim):
         tmin=0,
         tmax=0.55,
         sfreq=dataset.sample_rate,
-        n_outputs=dataset.n_sensors,
         optim=optim,
         alpha=1e-2)
 
@@ -400,7 +399,7 @@ class TestGroupVanilla:
 
     def _make_trf_pipe(self, nested: NestedBerpDataset, **kwargs):
         kwargs = dict(tmin=0, tmax=2, sfreq=nested.sample_rate,
-                      alpha=0, n_outputs=nested.n_sensors) | kwargs
+                      alpha=0) | kwargs
         trf = TemporalReceptiveField(**kwargs)
         trf_pipe = GroupVanillaTRFForwardPipeline(
             encoder=trf, ts_feature_names=nested.ts_feature_names,

@@ -19,9 +19,9 @@ class TRFModelConfig(ModelConfig):
     tmin: float
     tmax: float
     sfreq: float
-    n_outputs: int
     alpha: float
 
+    n_outputs: Optional[int] = None
     warm_start: bool = True
     fit_intercept: bool = True
     type: str = "trf"

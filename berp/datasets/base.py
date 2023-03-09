@@ -475,6 +475,9 @@ class NestedBerpDataset(object):
 
     Each element in the resulting dataset corresponds to a fraction of an
     original subject's sub-dataset, `1/n_splits` large.
+
+    Note that sub-datasets can differ in sensor dimensionality, but must
+    have the same number of time series features and variable features.
     """
 
     def __init__(self, datasets: List[BerpDataset], n_splits=2):
@@ -549,11 +552,6 @@ class NestedBerpDataset(object):
     @property
     def n_total_features(self):
         return self.datasets[0].n_total_features
-
-    @property
-    def n_sensors(self):
-        return self.datasets[0].n_sensors
-
     @property
     def ts_feature_names(self):
         return self.datasets[0].ts_feature_names
@@ -665,7 +663,23 @@ class NestedBerpDataset(object):
 
 def assert_compatible(ds1: BerpDataset, ds2: BerpDataset):
     """
-    Assert that the two datasets are compatible for concatenation.
+    Assert that the two datasets are compatible for joining in a single
+    nested dataset.
+    """
+    assert ds1.dtype == ds2.dtype
+    assert ds1.sample_rate == ds2.sample_rate
+    assert ds1.n_ts_features == ds2.n_ts_features
+    assert ds1.n_variable_features == ds2.n_variable_features
+
+    if ds2.ts_feature_names is not None:
+        assert ds2.ts_feature_names == ds1.ts_feature_names
+    if ds2.variable_feature_names is not None:
+        assert ds2.variable_feature_names == ds1.variable_feature_names
+
+
+def assert_concatenatable(ds1: BerpDataset, ds2: BerpDataset):
+    """
+    Assert that the two datasets can be safely and meaningfully concatenated.
     This is possible when they have the same feature set, same number of sensors.
     They DO NOT need to be in response to the same stimulus.
     """
@@ -698,9 +712,9 @@ def average_datasets(datasets: List[BerpDataset], name="average"):
 
     for ds in datasets[1:]:
         ds0 = datasets[0]
-        assert_compatible(ds, ds0)
+        assert_concatenatable(ds, ds0)
 
-        # We need more than compatibility -- the presentations should 
+        # We need more than concatenatability -- the presentations should 
         # all be matched in order to allow for averaging.
         assert torch.allclose(ds.word_onsets, ds0.word_onsets)
         assert torch.allclose(ds.word_offsets, ds0.word_offsets)

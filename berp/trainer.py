@@ -69,8 +69,7 @@ class Trainer:
             encoder_key_re=self.cfg.dataset.encoder_key_re,
             features=self.cfg.features,
             optim=self.cfg.solver,
-            phonemes=self.dataset.phonemes,
-            n_outputs=self.dataset.n_sensors)
+            phonemes=self.dataset.phonemes)
 
         # Dump model parameters to stdout, but avoid dumping all the torch values.
         yaml.safe_dump(self.model.get_params(), sys.stdout)
