@@ -24,9 +24,13 @@ T, S = DIMS.T, DIMS.S
 Phoneme = str
 intQ = Optional[Union[int, np.integer]]
 
-# Stimulus information should always be stored on CPU. It's giant, and compute time relative to
-# regression computations is negligible.
-STIMULUS_DEVICE = torch.device("cpu")
+# Locate the stimulus data on a GPU but not on the first, since this is where
+# some of the model computations are happening.
+if torch.cuda.is_available():
+    # Arbitrary: put 
+    STIMULUS_DEVICE = torch.device("cuda", torch.cuda.device_count() - 1)
+else:
+    STIMULUS_DEVICE = torch.device("cpu")
 
 
 @typechecked
