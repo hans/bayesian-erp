@@ -3,8 +3,8 @@ import pickle
 from typing import *
 
 from hydra.utils import to_absolute_path
-import mne
 import torch
+from torch._utils import _get_all_device_indices, _get_device_index
 
 from berp.datasets import NaturalLanguageStimulus
 from berp.datasets.base import BerpDataset, NestedBerpDataset
@@ -38,9 +38,17 @@ def load_eeg_dataset(paths: List[str],
                 stimulus_data[name] = pickle.load(f)
 
     datasets = []
-    for dataset in paths:
+    for i, dataset in enumerate(paths):
         with open(to_absolute_path(dataset), "rb") as f:
-            ds: BerpDataset = pickle.load(f).ensure_torch(device=device)
+            ds_device = device
+            if ds_device == "cuda":
+                # Distribute across all available GPUs.
+                available_devices = _get_all_device_indices()
+                ds_device_idx = available_devices[i % len(available_devices)]
+                ds_device = str(torch.device("cuda", _get_device_index(ds_device_idx, True)))
+
+            ds: BerpDataset = pickle.load(f).ensure_torch(
+                device=ds_device, dtype=dtype, ts_dtype=ts_dtype)
             if stimulus_data is not None:
                 ds.add_stimulus(stimulus_data[ds.stimulus_name])
             if subset_sensors is not None:
