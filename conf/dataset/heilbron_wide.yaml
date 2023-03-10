@@ -1,0 +1,50 @@
+defaults:
+  - base_eeg_dataset
+
+encoder_key_re: "^[^/]+/sub(\\d+)"
+normalize_X_ts: false  # already normalized in export code
+normalize_X_variable: true  # not already normalized in data prep pipeline
+normalize_Y: false  # already normalized in export code
+subset_sensors:
+  # - B5
+  # - A8
+  # - D20
+  # - D4
+  # - C4
+  # - B23
+
+  # # Cz
+  # - A1
+
+  # C4
+  - B22
+
+  # # T8
+  # - B26
+
+  # C3
+  - D19
+
+  # # T7
+  # - D23
+
+  # Pz
+  - A19
+
+  # # Oz
+  # - A23
+
+  # Fz
+  - C22
+
+  # # Fpz
+  # - C17
+
+  - C10
+  - C32
+  - A7
+  - B4
+paths: []
+
+dtype: float32
+ts_dtype: float16
