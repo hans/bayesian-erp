@@ -232,7 +232,7 @@ class TemporalReceptiveField(BaseEstimator):
 
         with torch.no_grad():
             X = _reshape_for_est(X)
-            coef = self.coef_.reshape((-1, self.n_outputs))
+            coef = self.coef_.reshape((-1, self.n_outputs)).to(X.device)
             Y_pred = X @ coef
 
         if del_coef:
