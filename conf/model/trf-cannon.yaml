@@ -5,7 +5,7 @@ defaults:
 
 trf:
   tmin: 0
-  tmax: 0.5625
+  tmax: 0.75
   sfreq: 128
   alpha: 1
 
