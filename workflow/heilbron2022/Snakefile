@@ -274,13 +274,12 @@ rule produce_concatenated_datasets:
 
 # Fit a "base baseline" model which does not include any variable-onset features (no
 # word surprisal or word frequency).
-def run_base_baseline(input, wildcards, params, output, add_stimuli_parent_dir=False):
+def run_base_baseline(input, wildcards, params, output, add_stimuli_parent_dir=False, dataset_spec="heilbron"):
     dataset_path_str = hydra_param(input.datasets)
 
     stimulus_dict = make_stimulus_dict(input.stimuli, include_parent=add_stimuli_parent_dir)
     stimulus_dict_str = hydra_param(stimulus_dict)
 
-    dataset_spec = f"heilbron"
     cv_spec = config["fit"]["cv_strategy"][params.berp_model]
 
     shell("""
@@ -333,6 +332,24 @@ rule fit_base_baseline_model:
 
     run:
         run_base_baseline(input, wildcards, params, output, add_stimuli_parent_dir=True)
+
+
+rule fit_base_baseline_model_wide:
+    input:
+        datasets = expand(
+            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
+        stimuli = expand(
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            story_name=STORIES, run=RUNS, allow_missing=True),
+
+    params:
+        berp_model = "base_trf"
+    output:
+        trace = directory("results_wide/{model}/n{n_candidates}/base_trf")
+
+    run:
+        run_base_baseline(input, wildcards, params, output, add_stimuli_parent_dir=True, dataset_spec="heilbron_wide")
 
 
 rule fit_base_baseline_model_vart:
@@ -415,6 +432,26 @@ rule fit_baseline_model:
 
     run:
         run_baseline(input, wildcards, params, output, add_stimuli_parent_dir=True)
+
+
+rule fit_baseline_model_wide:
+    input:
+        datasets = expand(
+            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
+        stimuli = expand(
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            story_name=STORIES, run=RUNS, allow_missing=True),
+
+        baseline_model = "results_wide/{model}/n{n_candidates}/base_trf"
+
+    params:
+        berp_model = "trf"
+    output:
+        trace = directory("results_wide/{model}/n{n_candidates}/trf")
+
+    run:
+        run_baseline(input, wildcards, params, output, add_stimuli_parent_dir=True, dataset_spec="heilbron_wide")
 
 
 rule fit_baseline_model_vart:
