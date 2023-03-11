@@ -6,9 +6,11 @@ import yaml
 
 import hydra
 import numpy as np
+from omegaconf import OmegaConf
 import optuna
 from sklearn.base import clone, BaseEstimator
 import torch
+from tqdm.auto import tqdm
 
 from berp.config import Config
 from berp.cv import OptunaSearchCV
@@ -40,36 +42,57 @@ yaml.SafeDumper.yaml_representers[np.ndarray] = tensor_representer
 
 class Trainer:
 
-    def __init__(self, cfg: Config):
+    def __init__(self, cfg: Config, checkpoint_path=None, dataset=None):
         self.cfg = cfg
 
         # Set up Tensorboard singleton instance before instantiating data/model classes.
         tb = hydra.utils.call(cfg.viz.tensorboard)
 
-        self.params_dir = Path("params")
-        self.params_dir.mkdir()
+        root_dir = Path(checkpoint_path if checkpoint_path is not None else ".")
+        self.params_dir = root_dir / Path("params")
 
+        if checkpoint_path is None:
+            # New training run
+            self.params_dir.mkdir(exist_ok=False)
+
+        # Allow preloading/sharing datasets across instances
+        if dataset is None:
+            self.dataset: NestedBerpDataset = hydra.utils.call(self.cfg.dataset)
+            self.dataset.set_n_splits(8)
+        else:
+            self.dataset = dataset
         self.prepare_datasets()
-        self.prepare_models()
-        self.prepare_cv()
+
+        self.prepare_models(checkpoint_path)
+
+    @classmethod
+    def from_checkpoint(cls, checkpoint_path, dataset=None, device=None):
+        cfg = OmegaConf.load(Path(checkpoint_path) / ".hydra" / "config.yaml")
+
+        if device is not None:
+            cfg.dataset.device = device
+            cfg.model.device = device
+
+        return cls(cfg, checkpoint_path, dataset=dataset)
 
     def prepare_datasets(self):
-        self.dataset: NestedBerpDataset = hydra.utils.call(self.cfg.dataset)
-        self.dataset.set_n_splits(8)
-
         # DEV: use a much smaller training set for dev cycle efficiency
         # test_size = 0.75
         # L.warning("Using a teeny training set for dev purposes")
         test_size = .25
         self.data_train, self.data_test = train_test_split(self.dataset, test_size=test_size)
 
-    def prepare_models(self):
-        self.model: GroupTRFForwardPipeline = hydra.utils.call(
-            self.cfg.model,
-            encoder_key_re=self.cfg.dataset.encoder_key_re,
-            features=self.cfg.features,
-            optim=self.cfg.solver,
-            phonemes=self.dataset.phonemes)
+    def prepare_models(self, checkpoint_path):
+        if checkpoint_path is not None:
+            self.model: GroupTRFForwardPipeline = \
+                load_model(checkpoint_path, device=self.cfg.model.device)
+        else:
+            self.model: GroupTRFForwardPipeline = hydra.utils.call(
+                self.cfg.model,
+                encoder_key_re=self.cfg.dataset.encoder_key_re,
+                features=self.cfg.features,
+                optim=self.cfg.solver,
+                phonemes=self.dataset.phonemes)
 
         # Dump model parameters to stdout, but avoid dumping all the torch values.
         yaml.safe_dump(self.model.get_params(), sys.stdout)
@@ -148,13 +171,17 @@ class Trainer:
             callbacks=callbacks,)
 
     def prepare_cv(self):
+        if hasattr(self, "cv"):
+            return
+
         # TODO outer CV
         if len(self.cfg.cv.params) == 0:
             raise ValueError("Only CV grid search supported currently.")
 
         self.cv = self._make_cv(callbacks=[self._make_tb_callback()])
-    
+
     def fit(self):
+        self.prepare_cv()
         self.cv.fit(self.data_train)
 
         # Save study information for all hparam options.
@@ -165,3 +192,40 @@ class Trainer:
 
         # Save best model.
         checkpoint_model(est, self.data_train, self.params_dir, self.cfg.viz)
+
+    def score(self, dataset=None):
+        if dataset is None:
+            dataset = self.data_test
+        return self.model.score_multidimensional(dataset)
+
+
+def load_trainers_from_checkpoints(checkpoint_dirs: List[str],
+                                   device=None) -> List[Trainer]:
+    """
+    Load a collection of `Trainers` for model comparison from the
+    given checkpoint paths. These models should be compatible for
+    evaluation -- that is, they should have been trained on the
+    same training data. This will be checked/asserted during load.
+
+    Returns a list of `Trainer` instances. The dataset/stimulus
+    data is loaded only once in the first `Trainer` instance, and
+    subsequent `Trainer` objects contain references to the same
+    dataset object.
+    """
+
+    trainers = []
+
+    for model_dir in tqdm(checkpoint_dirs, unit="model"):
+        dataset = None if len(trainers) == 0 else trainers[0].dataset
+        if dataset is not None:
+            # Peek at the config and make sure stimulus+dataset setup is compatible.
+            cfg = OmegaConf.load(Path(model_dir) / ".hydra" / "config.yaml")
+            cfg.dataset.device = device
+
+            assert cfg.dataset == trainers[0].cfg.dataset
+        
+        print(f"\n\n===== {model_dir}")
+        trainer = Trainer.from_checkpoint(model_dir, device=device, dataset=dataset)
+        trainers.append(trainer)
+
+    return trainers
