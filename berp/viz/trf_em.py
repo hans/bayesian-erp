@@ -114,3 +114,22 @@ def reestimate_trf_coefficients(est, dataset, params_dir, splitter, viz_cfg: Viz
         tb.add_figure(f"encoder_coefs/{key}", fig)
 
     return coef_df
+
+
+def pipeline_to_dataframe(pipe: GroupTRFForwardPipeline):
+    ts_predictor_names, var_predictor_names = pipe.encoder_predictor_names
+    predictor_names = ts_predictor_names + var_predictor_names
+
+    trf_df = pd.concat([
+        trf_to_dataframe(encoder, predictor_names=predictor_names)
+        for encoder in pipe.encoders_.values()
+    ], names=["subject"], keys=pipe.encoders_.keys()) \
+        .droplevel(1)
+
+    try:
+        sensor_names = next(iter(pipe.encoders_.values())).output_names
+    except AttributeError: pass
+    else:
+        trf_df["sensor_name"] = trf_df.sensor.map(dict(enumerate(sensor_names)))
+
+    return trf_df
