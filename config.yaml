@@ -53,6 +53,19 @@ datasets:
   heilbron2022:
 
     subjects:
+      - 1
+      - 2
+      - 3
+      - 4
+      - 5
+      - 6
+      - 7
+      - 8
+      - 9
+      - 10
+      - 11
+      - 12
+      - 13
       - 14
       - 15
       - 16
@@ -95,5 +108,6 @@ fit:
     trf-berp-fixed: search_alpha_threshold_lambda_priorscatter_window
     trf-berp-cannon: search_alpha_threshold_lambda_priorscatter
     trf: search_alpha
+    base_trf: search_alpha
     trf_t1: search_alpha
     trf-cannon: search_alpha
