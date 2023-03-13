@@ -57,8 +57,12 @@ def cluster_predictor(predictor_df: pd.DataFrame, info=None, adjacency=None,
 
 def plot_cluster_result(result: ClusterResult, trf_sub_df: pd.DataFrame):
     good_cluster_idxs = np.where(result.cluster_p_values < 0.05)[0]
+
+    f, axs = plt.subplots(len(good_cluster_idxs), 1,
+                          figsize=(10, len(good_cluster_idxs) * 3))
+    axs = np.atleast_1d(axs)
     
-    for i_clu, clu_idx in enumerate(tqdm(good_cluster_idxs)):
+    for i_clu, (clu_idx, ax_topo) in enumerate(zip(tqdm(good_cluster_idxs), axs)):
         time_inds, space_inds = np.squeeze(result.clusters[clu_idx])
 
         ch_inds = np.unique(space_inds)
@@ -75,7 +79,7 @@ def plot_cluster_result(result: ClusterResult, trf_sub_df: pd.DataFrame):
         mask[ch_inds, :] = True
 
         # initialize figure
-        fig, ax_topo = plt.subplots(1, 1, figsize=(10, 3))
+        # fig, ax_topo = plt.subplots(1, 1, figsize=(10, 3))
 
         # plot average test statistic and mark significant sensors
         t_evoked = mne.EvokedArray(t_map[:, np.newaxis], result.info, tmin=0)
@@ -112,9 +116,12 @@ def plot_cluster_result(result: ClusterResult, trf_sub_df: pd.DataFrame):
         ax_signals.fill_betweenx((ymin, ymax), sig_times[0], sig_times[-1],
                                  color='orange', alpha=0.3)
 
-        # clean up viz
-        mne.viz.tight_layout(fig=fig)
-        fig.subplots_adjust(bottom=.05)
-        plt.show()
+    predictor_name = trf_sub_df.predictor_name.unique()[0]
+    f.suptitle(predictor_name, fontsize=16)
+
+    # clean up viz
+    mne.viz.tight_layout(fig=f)
+    f.subplots_adjust(bottom=.05)
+    plt.show()
         
     return plt.gcf()

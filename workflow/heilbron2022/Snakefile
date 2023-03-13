@@ -14,6 +14,7 @@ root_dir = Path(workflow.basedir).parent
 meg_masc_dir = workflow.current_basedir
 
 model = config["language_modeling"]["model"]
+montage = "biosemi128"
 
 
 # # Glossary
@@ -36,7 +37,9 @@ wildcard_constraints:
     story_name = "[^./]+",
     run = "\d+",
     model = "[^/]+(?:/[^/]+){0,1}",
-    n_candidates = "\d+"
+    n_candidates = "\d+",
+
+    results_paradigm_label = "[\w_]*"
 
 
 def take_first(expr, **wildcards):
@@ -699,3 +702,23 @@ rule fit_vanilla_cannon_model_wide:
     run:
         wildcards.berp_model = "trf-cannon"
         run_berp_cannon(input, wildcards, params, output, add_stimuli_parent_dir=True, dataset_spec="heilbron_wide")
+
+
+#############
+
+
+rule evaluate_significance:
+    input:
+        "results{results_paradigm_label}/{model}/n{n_candidates}/{model_run_name}"
+
+    output:
+        "stats/{results_paradigm_label}/{model}/n{n_candidates}/{model_run_name}/significance.ipynb"
+
+    shell:
+        """
+        papermill --log-output \
+            "scripts/stats/test coef significance.ipynb" \
+            {output} \
+            -p model_dir {input} \
+            -p montage biosemi128
+        """
