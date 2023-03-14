@@ -13,7 +13,7 @@ params:
   encoder__alpha:
     type: float
     low: 1e4
-    high: 3e4
+    high: 1e5
     log: true
     # shape: [129]
 
