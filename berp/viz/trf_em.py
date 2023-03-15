@@ -1,6 +1,7 @@
 import logging
 import pickle
-from typing import Optional
+import re
+from typing import Optional, List, Dict, Any
 
 import numpy as np
 import pandas as pd
@@ -9,7 +10,7 @@ import torch
 from tqdm import tqdm
 
 from berp.config import VizConfig
-from berp.datasets import BerpDataset, NestedBerpDataset
+from berp.datasets import BerpDataset, NestedBerpDataset, get_metadata
 from berp.models.trf_em import GroupTRFForwardPipeline
 from berp.tensorboard import Tensorboard
 from berp.viz import trf_to_dataframe, plot_trf_coefficients
@@ -133,3 +134,57 @@ def pipeline_to_dataframe(pipe: GroupTRFForwardPipeline):
         trf_df["sensor_name"] = trf_df.sensor.map(dict(enumerate(sensor_names)))
 
     return trf_df
+
+
+def aggregate_cannon_coef_df(df: pd.DataFrame, pipe: GroupTRFForwardPipeline) -> pd.DataFrame:
+    """
+    Combine the coefficients of the given cannon model coefficient dataframe so that
+    we have a single value per variable feature+bin. Concretely, combine the global coefficient
+    with each of the per-bin coefficients for each variable feature.
+
+    The column `quantile` in the resulting dataframe is a zero-based quantile index.
+    """
+    _, var_predictor_names = pipe.encoder_predictor_names
+    combine_features = tuple(set(re.sub("_(\d+)$", "", predictor) for predictor in var_predictor_names))
+
+    coef_df = df.copy()
+    cdf = coef_df[coef_df.predictor_name.str.startswith(combine_features)].reset_index()
+    cdf["base_predictor"] = cdf.predictor_name.str.replace(r"_(\d+)$", "", regex=True)
+    cdf["quantile"] = cdf.predictor_name.str.extract(r"_(\d+)").astype(int)
+    cdf = cdf.set_index(["quantile", "base_predictor",
+                         "subject", "lag", "epoch_time", "sensor"])
+    cdf = cdf.coef + cdf.loc[0].coef
+    cdf = cdf.reset_index()
+    cdf = cdf[cdf["quantile"] != 0]
+    cdf["quantile"] -= 1
+    # Reinstate predictor_name
+    cdf["predictor_name"] = cdf.base_predictor + "_" + (cdf.quantile + 1).astype(str)
+
+    return cdf
+
+
+def get_cannon_posterior_df(pipe: GroupTRFForwardPipeline, ds: Dict[Any, BerpDataset]) -> pd.DataFrame:
+    """
+    Get a word-level long data frame describing word features and cannon posteriors for
+    the given pipeline.
+    """
+    if not hasattr(pipe, "_get_recognition_quantiles"):
+        raise ValueError("pipe is not a cannon pipeline")
+
+    # recognition_times = {}
+    recognition_quantiles = {}
+
+    for key, dataset in tqdm(ds.items(), unit="dataset"):
+        # recognition_times.append(pipe.get_recognition_times(dataset, pipe.params[0])[1].numpy())
+        recognition_quantiles[key] = pipe._get_recognition_quantiles(dataset, pipe.params[0]).numpy()
+
+    df = pd.concat([pd.DataFrame(rqs_i, columns=["recognition_quantile"]).rename_axis("word_idx")
+                    for rqs_i in recognition_quantiles.values()],
+                   keys=recognition_quantiles.keys(), names=["dataset"])
+
+    # Merge in word metadata.
+    metadata_df = pd.concat([get_metadata(ds_i) for ds_i in ds.values()],
+                            keys=ds.keys(), names=["dataset"]) 
+    df = pd.merge(df, metadata_df, left_index=True, right_index=True)
+
+    return df

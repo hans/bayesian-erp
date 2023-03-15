@@ -6,6 +6,7 @@ from pprint import pformat
 from typing import List, Optional, Callable, Dict, Tuple, Union, Iterator, cast
 
 import numpy as np
+import pandas as pd
 import torch
 from torchtyping import TensorType
 from typeguard import typechecked
@@ -728,3 +729,27 @@ def average_datasets(datasets: List[BerpDataset], name="average"):
 
     Y_avg = torch.stack([ds.Y for ds in datasets]).mean(0)
     return replace(datasets[0], Y=Y_avg, name=name)
+
+
+def get_metadata(ds: BerpDataset) -> pd.DataFrame:
+    def get_strs(ds_i, i, ctx=1):
+        phon_strs = ds_i.candidate_phonemes[max(0,i-ctx):i+1, 0, :].numpy()
+        phon_strs = [[ds_i.phonemes[idx] for idx in phon_str] for phon_str in phon_strs]
+        return " ".join("".join(phon_str).replace("_", "") for phon_str in phon_strs)
+
+    data = {
+        "word_length": ds.word_lengths.numpy(),
+        "word_duration": (ds.word_offsets - ds.word_onsets).numpy(),
+        "word_surprisal": ds.p_candidates[:, 0].numpy(),
+        "word_frequency": ds.X_variable[:, ds.variable_feature_names.index("word_frequency")].numpy(),
+        "word_prior_entropy": -(ds.p_candidates * ds.p_candidates.exp()).sum(axis=1).numpy(),
+        "word": [get_strs(ds, idx, ctx=0) for idx in range(len(ds.word_lengths))],
+    }
+    
+    # for phon_t in range(ds_i.max_n_phonemes):
+    #     mask = np.ones(len(ds.word_lengths))
+    #     mask[ds.word_lengths <= phon_t] = np.nan
+        
+    #     data[f"phon_onset_{phon_t}"] = ds.phoneme_onsets[:, phon_t] * mask
+        
+    return pd.DataFrame(data).rename_axis("word_idx")
