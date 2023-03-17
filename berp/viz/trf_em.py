@@ -158,7 +158,7 @@ def aggregate_cannon_coef_df(df: pd.DataFrame, pipe: GroupTRFForwardPipeline) ->
     cdf = cdf[cdf["quantile"] != 0]
     cdf["quantile"] -= 1
     # Reinstate predictor_name
-    cdf["predictor_name"] = cdf.base_predictor + "_" + (cdf.quantile + 1).astype(str)
+    cdf["predictor_name"] = cdf.base_predictor + "_" + (cdf["quantile"] + 1).astype(str)
 
     return cdf
 
