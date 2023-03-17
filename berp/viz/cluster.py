@@ -3,6 +3,7 @@ Statistical tools and visualization tools for spatiotemporal cluster
 analysis.
 """
 
+import logging
 from typing import List, Tuple, NamedTuple, Union
 
 import matplotlib.pyplot as plt
@@ -14,6 +15,8 @@ import seaborn as sns
 from tqdm.auto import tqdm
 
 from berp.viz.trf import plot_trf_coefficients
+
+L = logging.getLogger(__name__)
 
 
 class ClusterResult(NamedTuple):
@@ -57,6 +60,10 @@ def cluster_predictor(predictor_df: pd.DataFrame, info=None, adjacency=None,
 
 def plot_cluster_result(result: ClusterResult, trf_sub_df: pd.DataFrame):
     good_cluster_idxs = np.where(result.cluster_p_values < 0.05)[0]
+
+    if len(good_cluster_idxs) == 0:
+        L.warning("No significant clusters found.")
+        return
 
     f, axs = plt.subplots(len(good_cluster_idxs), 1,
                           figsize=(10, len(good_cluster_idxs) * 3))
@@ -105,6 +112,7 @@ def plot_cluster_result(result: ClusterResult, trf_sub_df: pd.DataFrame):
         title = 'Cluster #{0}, {1} sensor'.format(i_clu + 1, len(ch_inds))
         if len(ch_inds) > 1:
             title += "s (mean)"
+        title += ", p < {:0.3f}".format(result.cluster_p_values[clu_idx])
         
         to_plot = trf_sub_df[trf_sub_df.sensor.isin(ch_inds)]
         plot_trf_coefficients(to_plot, errorbar="se", ax=ax_signals)
