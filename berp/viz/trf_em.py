@@ -171,14 +171,18 @@ def get_cannon_posterior_df(pipe: GroupTRFForwardPipeline, ds: Dict[Any, BerpDat
     if not hasattr(pipe, "_get_recognition_quantiles"):
         raise ValueError("pipe is not a cannon pipeline")
 
+    recognition_points = {}
     recognition_times = {}
     recognition_quantiles = {}
 
     for key, dataset in tqdm(ds.items(), unit="dataset"):
-        recognition_times[key] = (pipe.get_recognition_times(dataset, pipe.params[0])[1] - dataset.word_onsets).numpy()
+        points, times = pipe.get_recognition_times(dataset, pipe.params[0])
+        recognition_points[key] = points.numpy()
+        recognition_times[key] = (times - dataset.word_onsets).numpy()
         recognition_quantiles[key] = pipe._get_recognition_quantiles(dataset, pipe.params[0]).numpy()
 
     df = pd.concat([pd.DataFrame({"recognition_quantile": recognition_quantiles[key],
+                                  "recognition_point": recognition_points[key],
                                   "recognition_time": recognition_times[key]}).rename_axis("word_idx")
                     for key in ds.keys()],
                    keys=recognition_quantiles.keys(), names=["dataset"])
