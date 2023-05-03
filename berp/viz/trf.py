@@ -32,6 +32,7 @@ def plot_trf_coefficients(model_or_df: Union[TemporalReceptiveField, pd.DataFram
                           errorbar=("ci", 95),
                           predictor_names=None,
                           predictor_match_patterns=None,
+                          plot_grids=True,
                           **kwargs) -> plt.Figure:
     if isinstance(model_or_df, TemporalReceptiveField):
         df = trf_to_dataframe(model_or_df, predictor_names=predictor_names)
@@ -56,10 +57,11 @@ def plot_trf_coefficients(model_or_df: Union[TemporalReceptiveField, pd.DataFram
     ax.set_xlabel("Epoch time")
     ax.set_ylabel("TRF coefficient")
 
-    ax.axhline(0, c="gray", alpha=0.3)
-    ax.axvline(0, c="gray", alpha=0.3)
-    ax.axvline(0.3, c="gray", alpha=0.3, linestyle="dashed")
-    ax.axvline(0.5, c="gray", alpha=0.3, linestyle="dashed")
+    if plot_grids:
+        ax.axhline(0, c="gray", alpha=0.3)
+        ax.axvline(0, c="gray", alpha=0.3)
+        ax.axvline(0.3, c="gray", alpha=0.3, linestyle="dashed")
+        ax.axvline(0.5, c="gray", alpha=0.3, linestyle="dashed")
 
     plt.legend(loc=(1.05, 0.1))
 

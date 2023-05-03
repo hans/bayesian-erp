@@ -49,7 +49,7 @@ def load_eeg_dataset(paths: List[str],
 
             ds: BerpDataset = pickle.load(f).ensure_torch(
                 device=ds_device, dtype=dtype, ts_dtype=ts_dtype)
-            if stimulus_data is not None:
+            if ds.stimulus_name in stimulus_data:
                 ds.add_stimulus(stimulus_data[ds.stimulus_name])
             if subset_sensors is not None:
                 ds.subset_sensors(list(subset_sensors), on_missing="warn")

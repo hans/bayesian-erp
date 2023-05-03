@@ -152,7 +152,7 @@ def aggregate_cannon_coef_df(df: pd.DataFrame, pipe: GroupTRFForwardPipeline) ->
     cdf["base_predictor"] = cdf.predictor_name.str.replace(r"_(\d+)$", "", regex=True)
     cdf["quantile"] = cdf.predictor_name.str.extract(r"_(\d+)").astype(int)
     cdf = cdf.set_index(["quantile", "base_predictor",
-                         "subject", "lag", "epoch_time", "sensor"])
+                         "subject", "lag", "epoch_time", "sensor", "sensor_name"])
     cdf = cdf.coef + cdf.loc[0].coef
     cdf = cdf.reset_index()
     cdf = cdf[cdf["quantile"] != 0]
