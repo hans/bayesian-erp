@@ -347,7 +347,7 @@ rule fit_base_baseline_model_wide:
             story_name=STORIES, run=RUNS, allow_missing=True),
 
     params:
-        berp_model = "base_trf"
+        berp_model = "trf"
     output:
         trace = directory("results_wide/{model}/n{n_candidates}/base_trf")
 
@@ -583,6 +583,29 @@ rule fit_model:
         run_berp(input, wildcards, params, output, add_stimuli_parent_dir=True)
 
 
+rule fit_model_wide:
+    input:
+        datasets = expand(
+            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
+        stimuli = expand(
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            story_name=STORIES, run=RUNS, allow_missing=True),
+
+        confusion = "data/confusion.npz"
+
+    params:
+        # HACK: enforce consistency between wildcards and config
+        # I know this is un-Snakemake-y but it's the way things are for now
+        validate_wildcards_for_confusion
+
+    output:
+        trace = directory("results_wide/{model}/n{n_candidates}/{berp_model}")
+
+    run:
+        run_berp(input, wildcards, params, output, add_stimuli_parent_dir=True, dataset_spec="heilbron_wide")
+
+
 def run_berp_cannon(input, wildcards, params, output, add_stimuli_parent_dir=False, dataset_spec="heilbron"):
     dataset_path_str = hydra_param(input.datasets)
 
@@ -722,3 +745,52 @@ rule evaluate_significance:
             -p model_dir {input} \
             -p montage biosemi128
         """
+
+
+# TODO too fancy for right now whatever
+# # Evaluate vs a baseline cannon model with matched stimulus data and matched paradigm
+# rule evaluate_cannon:
+#     input:
+#         model_dir = "results{results_paradigm_label}/{model}/n{n_candidates}/trf-berp-cannon_{model_run_name}",
+#         base_model_dir = "results{results_paradigm_label}/{model}/n{n_candidates}/{base_model}"
+
+#     output:
+#         "stats/{results_paradigm_label}/{model}/n{n_candidates}/trf-berp-cannon_{model_run_name}/generalization_{base_model}.ipynb"
+
+#     run:
+#         paradigm = wildcards.results_paradigm_label.lstrip("_")
+
+#         shell("""
+#         papermill --log-output \
+#             "scripts/evaluate cannon.ipynb \
+#             {output} \
+#             -p workflow heilbron2022 \
+#             -p model {wildcards.model}/n{wildcards.n_candidates} \
+#             -p base_model [{paradigm}, {base_model}] \
+#             -p full_model [{paradigm}, trf-berp-cannon_{model_run_name}]
+#             -p device cpu
+#         """)
+
+
+# # Evaluate vs a baseline model with matched stimulus data and matched paradigm
+# rule evaluate_cannon_baseline:
+#     input:
+#         model_dir = "results{results_paradigm_label}/{model}/n{n_candidates}/{model_run_name}",
+#         base_model_dir = "results_wide/{model}/n{n_candidates}/{base_model}"
+
+#     output:
+#         "stats/{results_paradigm_label}/{model}/n{n_candidates}/{model_run_name}/generalization_{base_model}.ipynb"
+
+#     run:
+#         paradigm = wildcards.results_paradigm_label.lstrip("_")
+
+#         shell("""
+#         papermill --log-output \
+#             "scripts/evaluate cannon.ipynb \
+#             {output} \
+#             -p workflow heilbron2022 \
+#             -p model {wildcards.model}/n{wildcards.n_candidates} \
+#             -p base_model [{paradigm}, {base_model}] \
+#             -p full_model [{paradigm}, trf-berp-cannon_{model_run_name}]
+#             -p device cpu
+#         """)
