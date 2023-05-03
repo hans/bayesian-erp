@@ -132,9 +132,9 @@ class Trainer:
                     est_i, self.data_train, self.params_dir, self.cfg.viz,
                     baseline_model=self.baseline_model)
 
-                reestimate_trf_coefficients(
-                    est_i, self.data_train, self.params_dir, viz_splitter, self.cfg.viz)
-    
+                # reestimate_trf_coefficients(
+                #     est_i, self.data_train, self.params_dir, viz_splitter, self.cfg.viz)
+
         return tb_callback
 
     def _make_cv(self, callbacks: Optional[List[Callable]] = None):
@@ -148,13 +148,13 @@ class Trainer:
         param_distributions = {}
         for name, dist_cfg in cv_cfg.params.items():
             param_distributions.update(hydra.utils.call(dist_cfg, name=name))
-        
+
         sampler = hydra.utils.instantiate(cv_cfg.param_sampler)
         study = optuna.create_study(sampler=sampler, direction="maximize")
 
         aggregation_fn = getattr(np, cv_cfg.sensor_aggregation_fn)
         scoring = BaselinedScorer(self.baseline_model, aggregation_fn=aggregation_fn)
-        
+
         n_trials = cv_cfg.n_trials if len(cv_cfg.params) > 0 else 1
         return OptunaSearchCV(
             estimator=clone(self.model),

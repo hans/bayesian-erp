@@ -93,6 +93,8 @@ class TemporalReceptiveField(BaseEstimator):
         else:
             _, self.n_features_, self.n_delays_ = X.shape
         
+        # TODO when there is a dtype mismatch, this creates a copy. shouldn't
+        # we infer ideal coef dtype from X and Y? and follow suit
         if Y is not None:
             return (torch.as_tensor(X, dtype=torch.float32), 
                     torch.as_tensor(Y, dtype=torch.float32))
@@ -143,8 +145,10 @@ class TemporalReceptiveField(BaseEstimator):
         # Reshape resulting coefficients
         self.coef_ = self.coef_.reshape((self.n_features_, self.n_delays_, self.n_outputs))
 
-        Y_pred = self.predict(X)
-        self.residuals_ = Y_pred - Y
+        # DEV we don't actually need this, not using predictive likelihood
+        # Y_pred = self.predict(X)
+        # self.residuals_ = Y_pred - Y
+
         return self
 
     def _loss_fn(self, X, Y: TRFResponse, include_l2=True) -> Union[torch.Tensor, Tuple[torch.Tensor]]:
