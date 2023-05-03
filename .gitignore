@@ -27,6 +27,8 @@ results
 *.npy
 *.hdf5
 *.h5
+*.mp4
+*.pdf
 
 *.sh
 slurm-*.out
