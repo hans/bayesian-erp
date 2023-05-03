@@ -1,0 +1,31 @@
+n_outer_folds: 4
+n_inner_folds: 4
+
+n_trials: 500
+
+param_sampler:
+  _target_: optuna.samplers.TPESampler
+  multivariate: true
+
+sensor_aggregation_fn: max
+
+params:
+  encoder__alpha:
+    type: float
+    low: 1e2
+    high: 1e5
+    log: true
+    # shape: [129]
+
+  threshold:
+    type: float
+    low: 0.0
+    high: 1.0
+
+  prior_scatter_index:
+    type: categorical
+    choices:
+      - 0
+      - -1
+      - -2
+      - -3
