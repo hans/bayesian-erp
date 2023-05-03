@@ -45,6 +45,7 @@ def test_trf_lookback():
                       [0, 0],
                       [0, 0],
                       [1, -1],
+                      [0, 0],
                       [0, 0]]).float()
 
     trf = TRFPipeline(standardize_X=False, standardize_Y=False,
