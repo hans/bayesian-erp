@@ -384,6 +384,9 @@ class BerpDataset:
                     sensor_idxs.append(self.sensor_names.index(sensor))
                     sensor_names.append(sensor)
 
+        if len(sensor_idxs) == 0:
+            raise ValueError("No matching sensors found.")
+
         self.Y = self.Y[:, sensor_idxs]
         self.sensor_names = sensor_names
 

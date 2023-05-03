@@ -58,6 +58,7 @@ class IntegrationHarness(NamedTuple):
         for (subject, run, subset_sensors), dataset_path in dataset_paths.items():
             dataset_path = root_dir / dataset_path
             stimulus_path = stimulus_paths[run]
+            confusion_path = root_dir / req.confusion_path
 
             if dataset_path.exists() and stimulus_path.exists() and confusion_path.exists():
                 # HACK assumption
@@ -70,7 +71,7 @@ class IntegrationHarness(NamedTuple):
                     pickle.dump(ds, f)
                 with open(stimulus_path, "wb") as f:
                     pickle.dump(stim, f)
-                np.savez(req.confusion_path, **confusion)
+                np.savez(confusion_path, **confusion)
 
         if len(stimulus_paths) == 1 and next(iter(stimulus_paths.keys())) is None:
             stimulus_paths = {req.story_name: next(iter(stimulus_paths.values()))}
@@ -102,7 +103,7 @@ def make_integration_harness_data(
 
     ds.add_stimulus(stim)
     if subset_sensors is not None:
-        ds.subset_sensors(subset_sensors)
+        ds.subset_sensors(list(subset_sensors))
 
     # Now massively subset data.
     orig_name = ds.name

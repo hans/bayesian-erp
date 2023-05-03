@@ -45,6 +45,7 @@ def test_integration(device, tmp_path,
         overrides = [
             f"dataset={integration_harness.dataset_spec}",
             f"dataset.paths={hydra_param(dataset_paths)}",
+            "dataset.subset_sensors=null",  # we have our own special sensor setup in the harness
             f"+dataset.stimulus_paths={hydra_param(stimulus_paths)}",
             "model=trf-berp-fixed",
             f"model.confusion_path='{integration_harness.confusion_path}'",
