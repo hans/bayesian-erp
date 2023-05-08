@@ -1,0 +1,16 @@
+# A Cannon model which relies only on a prior (flat likelihood).
+
+defaults:
+  - base_trf_vanilla_cannon
+
+trf:
+  tmin: 0
+  tmax: 0.75
+  sfreq: 128
+  alpha: 1
+
+n_quantiles: 3
+
+scatter_point: 0.5
+prior_scatter_index: 0
+prior_scatter_point: 0.5

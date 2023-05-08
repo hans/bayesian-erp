@@ -4,8 +4,6 @@ defaults:
 trf:
   type: trf
   tmin: 0
-  tmax: 0.5625
+  tmax: 0.75
   sfreq: 128
   alpha: 1
-  # HACK: unknown for the moment, but will be re-set by code
-  n_outputs: 1

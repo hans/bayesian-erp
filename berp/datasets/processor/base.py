@@ -44,7 +44,7 @@ class NaturalLanguageStimulusProcessor(object):
     def __init__(self,
                  phonemes: List[Phoneme],
                  hf_model: str,
-                 phonemizer: Optional[Callable[[str], List[Phoneme]]] = None,
+                 phonemizer: Optional[Callable[[str], Tuple[Phoneme, ...]]] = None,
                  num_candidates: int = 10,
                  batch_size=8,
                  disallowed_re=r"[^a-z]",
@@ -80,10 +80,20 @@ class NaturalLanguageStimulusProcessor(object):
 
         # Pre-compute mask of allowed tokens (== which have content after cleaning)
         self.disallowed_re = disallowed_re
-        self.vocab_mask = torch.ones(self._tokenizer.vocab_size, dtype=torch.bool)
+        self.vocab_mask = torch.ones(self.vocab_size, dtype=torch.bool)
         for token, idx in self._tokenizer.vocab.items():  # type: ignore
             if self._clean_word(token) == "":
                 self.vocab_mask[idx] = False
+
+    @property
+    def vocab_size(self):
+        # Some models (e.g. GPT-J) have a larger vocabulary embedding space than the
+        # tokenizer, in order to play nice with hardware. Use that if present in order
+        # to avoid indexing errors.
+        if hasattr(self._model.config, "vocab_size"):
+            return self._model.config.vocab_size
+        else:
+            return self._tokenizer.vocab_size
 
     def _clean_word(self, word: str) -> str:
         return re.sub(self.disallowed_re, "", word.lower())
@@ -199,21 +209,26 @@ class NaturalLanguageStimulusProcessor(object):
             word_candidate_token_ids = candidate_token_ids[word_mask]
 
             if (~word_p_token.isfinite()).all(dim=0).any():
-                raise RuntimeError(
-                    "Some candidate had probability zero for all tokens in this word. "
-                    f"Need a new candidate sampling strategy. word id {word_id}")
+                if word_id == -1:
+                    # Doesn't matter -- this word is being discarded. Just append some dummy data.
+                    word_candidate_strs = ["" for _ in range(self.num_candidates)]
+                else:
+                    raise RuntimeError(
+                        "Some candidate had probability zero for all tokens in this word. "
+                        f"Need a new candidate sampling strategy. word id {word_id}")
+            else:
+                # DUMB just take the first token which isn't disallowed. We really should be
+                # computing/aggregating into entire words here, using a more intelligent
+                # beam search method.
+                word_candidate_strs = [
+                    next(token_ij for token_ij in self._tokenizer.convert_ids_to_tokens(candidate_i_tokens)
+                        if self._clean_word(token_ij))
+                    for candidate_i_tokens in word_candidate_token_ids.T
+                ]
 
             # Aggregate, ignoring potential disallowed tokens.
             word_p_token[~word_p_token.isfinite()] = 0
             word_p_candidates = word_p_token.sum(dim=0)
-            # DUMB just take the first token which isn't disallowed. We really should be
-            # computing/aggregating into entire words here, using a more intelligent
-            # beam search method.
-            word_candidate_strs = [
-                next(token_ij for token_ij in self._tokenizer.convert_ids_to_tokens(candidate_i_tokens)
-                     if self._clean_word(token_ij))
-                for candidate_i_tokens in word_candidate_token_ids.T
-            ]
 
             ret_word_ids.append(word_id)
             p_candidates.append(word_p_candidates)
@@ -225,7 +240,7 @@ class NaturalLanguageStimulusProcessor(object):
     def get_candidate_ids(self, candidate_strs: List[List[str]],
                           max_num_phonemes: int,
                           candidate_vocabulary: Vocabulary,
-                          ground_truth_phonemes: Optional[List[List[Phoneme]]] = None,
+                          ground_truth_phonemes: Optional[List[Tuple[Phoneme, ...]]] = None,
                           ) -> Tuple[TensorType[N_W, N_C, N_P, torch.long],
                                      TensorType[N_W, int]]:
         """
@@ -237,7 +252,7 @@ class NaturalLanguageStimulusProcessor(object):
                 should correspond to the ground-truth word.
             max_num_phonemes: 
             candidate_vocabulary: Provisional vocabulary of candidate word
-                strings.
+                sequences.
             ground_truth_phonemes: Phoneme sequences for the ground-truth
                 words. If not provided, standard phonemizer is used.
 
@@ -267,7 +282,7 @@ class NaturalLanguageStimulusProcessor(object):
                 if j == 0:
                     word_lengths.append(len(phonemes))
 
-                candidate_id = candidate_vocabulary.add("".join(phonemes))
+                candidate_id = candidate_vocabulary.add(tuple(phonemes))
                 candidates_i.append(candidate_id)
 
             # NB we're currently letting duplicates pass in here, because
@@ -331,7 +346,7 @@ class NaturalLanguageStimulusProcessor(object):
         # and then batch.
         # TODO overlap for better contextual predictions
         token_ids = self._tokenizer.convert_tokens_to_ids(tokens)
-        max_len = 32  # DEV self._model.config.n_positions
+        max_len = 512  # DEV self._model.config.n_positions
         token_inputs = [token_ids[i:i+max_len]
                         for i in range(0, len(token_ids), max_len)]
 
@@ -369,6 +384,11 @@ class NaturalLanguageStimulusProcessor(object):
             # in the final row.
             batch_token_idxs = torch.arange(i * max_len, min(len(tokens) - 1, (i + self.batch_size) * max_len))
             batch_word_ids = token_to_word[batch_token_idxs]
+
+            # If there are no matches in this batch, quit now. This may happen when
+            # subsets of the token input are provided to this method in sequence.
+            if (batch_word_ids == nonword_id).all():
+                continue
 
             # TODO for BPE models, we really should keep predicting each candidate until we
             # reach a BPE boundary. Otherwise the candidates are likely to be subwords,
@@ -416,6 +436,9 @@ class NaturalLanguageStimulusProcessor(object):
             assert batch_num_samples == len(retained_word_ids)
             assert batch_p_candidates.shape[0] == batch_num_samples
             assert batch_word_lengths.shape[0] == batch_num_samples
+
+            if batch_num_samples == 0:
+                continue
 
             # Get target indices in contiguous output arrays. (NB word IDs are not
             # contiguous.)

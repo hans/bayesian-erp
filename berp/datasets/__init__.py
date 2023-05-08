@@ -26,18 +26,22 @@ class Vocabulary(object):
 
     def __init__(self):
         self.tok2idx = {}
-        self.idx2tok: List[str] = []
+        self.idx2tok: List[Tuple[Phoneme, ...]] = []
+
+    def __eq__(self, other):
+        return isinstance(other, Vocabulary) and \
+            self.idx2tok == other.idx2tok
 
     def __len__(self):
         return len(self.idx2tok)
 
-    def __iter__(self) -> Iterator[Tuple[int, str]]:
+    def __iter__(self) -> Iterator[Tuple[int, Tuple[Phoneme, ...]]]:
         return enumerate(self.idx2tok)
     
     def __getitem__(self, key):
         if isinstance(key, (int, np.integer)):
             return self.idx2tok[key]
-        elif isinstance(key, str):
+        elif isinstance(key, tuple):
             return self.tok2idx[key]
         else:
             raise TypeError(f"Invalid key type: {type(key)}")
@@ -45,12 +49,12 @@ class Vocabulary(object):
     def __contains__(self, key):
         if isinstance(key, int):
             return key < len(self.idx2tok)
-        elif isinstance(key, str):
+        elif isinstance(key, tuple):
             return key in self.tok2idx
         else:
             raise TypeError(f"Invalid key type: {type(key)}")
 
-    def add(self, token: str):
+    def add(self, token: Tuple[Phoneme, ...]):
         if token not in self.tok2idx:
             self.tok2idx[token] = len(self.idx2tok)
             self.idx2tok.append(token)
@@ -122,6 +126,29 @@ class NaturalLanguageStimulus:
     Vocabulary of candidate words referred to by `candidate_ids`.
     """
 
+    def __eq__(self, other):
+        if not isinstance(other, NaturalLanguageStimulus):
+            return False
+
+        return (
+            self.name == other.name
+            and self.phonemes == other.phonemes
+            and self.pad_phoneme_id == other.pad_phoneme_id
+            and torch.all(self.word_ids == other.word_ids)
+            and torch.all(self.word_lengths == other.word_lengths)
+            and torch.allclose(self.word_features, other.word_features)
+            and self.word_feature_names == other.word_feature_names
+            and len(self.phoneme_features) == len(other.phoneme_features)
+            and all(
+                torch.allclose(f1, f2)
+                for f1, f2 in zip(self.phoneme_features, other.phoneme_features)
+            )
+            and self.phoneme_feature_names == other.phoneme_feature_names
+            and torch.allclose(self.p_candidates, other.p_candidates)
+            and torch.all(self.candidate_ids == other.candidate_ids)
+            and self.candidate_vocabulary == other.candidate_vocabulary
+        )
+
     @property
     def max_n_phonemes(self):
         return max(self.word_lengths)
@@ -157,7 +184,7 @@ class NaturalLanguageStimulus:
             *self.candidate_ids.shape, self.max_n_phonemes)
         return reindexed
 
-    def get_candidate_strs(self, word_idx, top_k=None) -> List[str]:
+    def get_candidate_strs(self, word_idx, top_k=None) -> List[Tuple[Phoneme, ...]]:
         """
         Get string representations for the candidates of the given word.
         """
@@ -165,7 +192,8 @@ class NaturalLanguageStimulus:
                 self.candidate_ids[word_idx, :top_k]]
 
 from berp.datasets.processor import NaturalLanguageStimulusProcessor
-from berp.datasets.base import BerpDataset, NestedBerpDataset
+from berp.datasets.base import BerpDataset, NestedBerpDataset, assert_concatenatable, \
+    get_metadata
 
 __all__ = [
     "NaturalLanguageStimulusProcessor",

@@ -1,6 +1,7 @@
 defaults:
   - base_eeg_dataset
 
+encoder_key_re: "DKZ_\\d/([^/]+)"
 subset_sensors:
   - C1
   - Cz

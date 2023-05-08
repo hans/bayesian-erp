@@ -3,8 +3,8 @@ import pickle
 from typing import *
 
 from hydra.utils import to_absolute_path
-import mne
 import torch
+from torch._utils import _get_all_device_indices, _get_device_index
 
 from berp.datasets import NaturalLanguageStimulus
 from berp.datasets.base import BerpDataset, NestedBerpDataset
@@ -20,7 +20,16 @@ def load_eeg_dataset(paths: List[str],
                      special_normalize_variable_intercept: bool = False,
                      stimulus_paths: Optional[Dict[str, str]] = None,
                      device: Optional[str] = None,
-                     ) -> NestedBerpDataset:
+                     dtype: Optional[str] = "float32",
+                     ts_dtype: Optional[str] = "float32",
+                     **kwargs) -> NestedBerpDataset:
+    if dtype not in ["float16", "float32", "float64"]:
+        raise ValueError(f"Invalid dtype: {dtype}")
+    if ts_dtype not in ["float16", "float32", "float64"]:
+        raise ValueError(f"Invalid ts_dtype: {ts_dtype}")
+    dtype = getattr(torch, dtype)
+    ts_dtype = getattr(torch, ts_dtype)
+
     # If stimulus data is stored separately, load this first.
     stimulus_data: Dict[str, NaturalLanguageStimulus] = {}
     if stimulus_paths is not None:
@@ -29,11 +38,21 @@ def load_eeg_dataset(paths: List[str],
                 stimulus_data[name] = pickle.load(f)
 
     datasets = []
-    for dataset in paths:
+    for i, dataset in enumerate(paths):
         with open(to_absolute_path(dataset), "rb") as f:
-            ds = pickle.load(f).ensure_torch(device=device)
-            if stimulus_data is not None:
+            ds_device = device
+            if ds_device == "cuda":
+                # Distribute across all available GPUs.
+                available_devices = _get_all_device_indices()
+                ds_device_idx = available_devices[i % len(available_devices)]
+                ds_device = str(torch.device("cuda", _get_device_index(ds_device_idx, True)))
+
+            ds: BerpDataset = pickle.load(f).ensure_torch(
+                device=ds_device, dtype=dtype, ts_dtype=ts_dtype)
+            if ds.stimulus_name in stimulus_data:
                 ds.add_stimulus(stimulus_data[ds.stimulus_name])
+            if subset_sensors is not None:
+                ds.subset_sensors(list(subset_sensors), on_missing="warn")
             datasets.append(ds)
 
     dataset = NestedBerpDataset(datasets)
@@ -63,8 +82,5 @@ def load_eeg_dataset(paths: List[str],
                                                         add_zeros=n_add_zeros)
             if normalize_Y:
                 ds.Y = norm_ts(ds.Y)
-
-    if subset_sensors is not None:
-        dataset.subset_sensors(list(subset_sensors))
 
     return dataset

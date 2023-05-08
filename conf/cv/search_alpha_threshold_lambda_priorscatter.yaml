@@ -1,5 +1,5 @@
 n_outer_folds: 4
-n_inner_folds: 8
+n_inner_folds: 4
 
 n_trials: 500
 
@@ -13,7 +13,7 @@ params:
   encoder__alpha:
     type: float
     low: 1e4
-    high: 1e6
+    high: 1e5
     log: true
     # shape: [129]
 
@@ -27,6 +27,11 @@ params:
     low: 0.1
     high: 3
 
+  scatter_point:
+    type: float
+    low: 0.0
+    high: 1.0
+
   prior_scatter_index:
     type: categorical
     choices:
@@ -34,3 +39,8 @@ params:
       - -1
       - -2
       - -3
+
+  prior_scatter_point:
+    type: float
+    low: 0.0
+    high: 1.0

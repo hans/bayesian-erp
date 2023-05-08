@@ -12,54 +12,56 @@ from berp.models.trf import TemporalReceptiveField
 
 
 def trf_to_dataframe(model: TemporalReceptiveField,
-                     feature_names: Optional[List[str]] = None) -> pd.DataFrame:
+                     predictor_names: Optional[List[str]] = None) -> pd.DataFrame:
     df_data = []
     for i, feature in enumerate(model.coef_.detach().cpu().numpy()):
         for j, lag in enumerate(feature):
             for k, sensor_coef in enumerate(lag):
                 df_data.append((i, j, k, sensor_coef))
 
-    df = pd.DataFrame(df_data, columns=["feature", "lag", "sensor", "coef"])
+    df = pd.DataFrame(df_data, columns=["predictor", "lag", "sensor", "coef"])
     df["epoch_time"] = df.lag.map(dict(enumerate(model.delays_.numpy() / model.sfreq)))
 
-    if feature_names is not None:
-        df["feature_name"] = df.feature.map(dict(enumerate(feature_names)))
+    if predictor_names is not None:
+        df["predictor_name"] = df.predictor.map(dict(enumerate(predictor_names)))
 
     return df
 
 
 def plot_trf_coefficients(model_or_df: Union[TemporalReceptiveField, pd.DataFrame],
                           errorbar=("ci", 95),
-                          feature_names=None,
-                          feature_match_patterns=None,
+                          predictor_names=None,
+                          predictor_match_patterns=None,
+                          plot_grids=True,
                           **kwargs) -> plt.Figure:
     if isinstance(model_or_df, TemporalReceptiveField):
-        df = trf_to_dataframe(model_or_df, feature_names=feature_names)
+        df = trf_to_dataframe(model_or_df, predictor_names=predictor_names)
     elif isinstance(model_or_df, pd.DataFrame):
         df = model_or_df
     else:
         raise ValueError("Model or dataframe expected")
 
-    if feature_match_patterns is not None and "feature_name" not in df.columns:
-        raise ValueError("feature patterns provided, but no feature names")
+    if predictor_match_patterns is not None and "predictor_name" not in df.columns:
+        raise ValueError("predictor patterns provided, but no predictor names")
 
-    if feature_match_patterns is not None:
-        to_plot = df[df.feature_name.str.contains("|".join(feature_match_patterns), regex=True)]
+    if predictor_match_patterns is not None:
+        to_plot = df[df.predictor_name.str.contains("|".join(predictor_match_patterns), regex=True)]
     else:
         to_plot = df[:]
 
-    hue = "feature_name" if feature_names is not None else "feature"
+    hue = "predictor_name" if predictor_names is not None else "predictor"
     ax = sns.lineplot(data=to_plot.reset_index(),
-                      x="epoch_time", y="coef", hue="feature_name",
+                      x="epoch_time", y="coef", hue="predictor_name",
                       errorbar=errorbar, **kwargs)
 
     ax.set_xlabel("Epoch time")
     ax.set_ylabel("TRF coefficient")
 
-    ax.axhline(0, c="gray", alpha=0.3)
-    ax.axvline(0, c="gray", alpha=0.3)
-    ax.axvline(0.3, c="gray", alpha=0.3, linestyle="dashed")
-    ax.axvline(0.5, c="gray", alpha=0.3, linestyle="dashed")
+    if plot_grids:
+        ax.axhline(0, c="gray", alpha=0.3)
+        ax.axvline(0, c="gray", alpha=0.3)
+        ax.axvline(0.3, c="gray", alpha=0.3, linestyle="dashed")
+        ax.axvline(0.5, c="gray", alpha=0.3, linestyle="dashed")
 
     plt.legend(loc=(1.05, 0.1))
 

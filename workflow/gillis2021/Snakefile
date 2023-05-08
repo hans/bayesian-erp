@@ -3,6 +3,7 @@ import itertools
 import json
 import re
 import yaml
+from typing import Optional, List
 
 from snakemake.remote.HTTP import RemoteProvider as HTTPRemoteProvider
 HTTP = HTTPRemoteProvider()
@@ -214,6 +215,35 @@ def hydra_param(obj):
     return yaml.safe_dump(obj, default_flow_style=True, width=float("inf")).strip()
 
 
+def make_baseline_fit_command(input, output, params, wildcards,
+                              dataset_spec: str,
+                              cv_spec: Optional[str] = None,
+                              variable_features: Optional[List[str]] = None):
+    variable_features_str = json.dumps(variable_features or [])
+    dataset_path_str = hydra_param(input.datasets)
+
+    stimulus_dict = {
+        Path(stimulus).stem: stimulus for stimulus in input.stimuli
+    }
+    stimulus_dict_str = hydra_param(stimulus_dict)
+
+    cv_spec = config["fit"]["cv_strategy"][params.berp_model] if cv_spec is None else cv_spec
+
+    return """
+    export PYTHONPATH=.
+    python scripts/fit_em.py \
+        model={params.berp_model} \
+        features=dkz \
+        'features.variable_feature_names={variable_features_str}' \
+        dataset={dataset_spec} \
+        'dataset.paths={dataset_path_str}' \
+        +dataset.stimulus_paths='{stimulus_dict_str}' \
+        cv={cv_spec} \
+        solver=adam \
+        hydra.run.dir={output.trace}
+    """
+
+
 # Fit a "base baseline" model which does not include any variable-onset features (no
 # word surprisal or word frequency).
 rule fit_base_baseline_model:
@@ -227,8 +257,7 @@ rule fit_base_baseline_model:
             story_name=STORIES, allow_missing=True),
         stimuli = expand(
             "data/stimulus/{{model}}/{story_name}.pkl",
-            story_name=STORIES),
-        confusion = "data/confusion_matrix.npz"
+            story_name=STORIES)
 
     params:
         berp_model = "trf"
@@ -237,29 +266,37 @@ rule fit_base_baseline_model:
         trace = directory("results_{group_average_strategy}average/{model}/base_trf")
 
     run:
-        dataset_path_str = hydra_param(input.datasets)
-
-        stimulus_dict = {
-            Path(stimulus).stem: stimulus for stimulus in input.stimuli
-        }
-        stimulus_dict_str = hydra_param(stimulus_dict)
-
         dataset_spec = f"dkz_{wildcards.group_average_strategy}average"
-        cv_spec = config["fit"]["cv_strategy"][params.berp_model]
+        shell(make_baseline_fit_command(
+            input, output, params, wildcards,
+            dataset_spec=dataset_spec,
+            variable_features=[]))
 
-        shell("""
-        export PYTHONPATH=.
-        python scripts/fit_em.py \
-            model={params.berp_model} \
-            features=dkz \
-            'features.variable_feature_names=[]' \
-            dataset={dataset_spec} \
-            'dataset.paths={dataset_path_str}' \
-            +dataset.stimulus_paths='{stimulus_dict_str}' \
-            cv={cv_spec} \
-            solver=adam \
-            hydra.run.dir={output.trace}
-        """)
+
+rule fit_base_baseline_single_subject_model:
+    input:
+        # DEV: just 2019_C2DNN_1
+        datasets = expand(
+            "data/dataset/{{model}}/{story_name}/{subject}.pkl",
+            story_name=STORIES, subjects=["2019_C2DNN_1"], allow_missing=True),
+        stimuli = expand(
+            "data/stimulus/{{model}}/{story_name}.pkl",
+            story_name=STORIES)
+
+    params:
+        berp_model = "trf"
+
+    output:
+        trace = directory("results/{model}/base_trf")
+
+    run:
+        # technically not a microaverage, but this minimal spec will suffice
+        # to not mess up the data :)
+        dataset_spec = "dkz_microaverage"
+        shell(make_baseline_fit_command(
+            input, output, params, wildcards,
+            dataset_spec=dataset_spec,
+            variable_features=[]))
 
 
 rule fit_baseline_model:

@@ -1,7 +1,7 @@
 n_outer_folds: 4
-n_inner_folds: 8
+n_inner_folds: 4
 
-n_trials: 50
+n_trials: 20
 
 param_sampler:
   _target_: optuna.samplers.TPESampler
@@ -12,8 +12,8 @@ sensor_aggregation_fn: max
 params:
   encoder__alpha:
     type: float
-    low: 1e4
-    high: 1e6
+    low: 1e2
+    high: 1e5
     log: true
     # shape: [129]
 

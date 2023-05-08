@@ -29,7 +29,7 @@ from typeguard import typechecked
 
 from berp.config import FeatureConfig
 from berp.cv import EarlyStopException
-from berp.datasets import BerpDataset, NestedBerpDataset
+from berp.datasets import BerpDataset, NestedBerpDataset, assert_concatenatable
 from berp.models.reindexing_regression import \
     predictive_model, recognition_point_model, recognition_points_to_times, \
     PartiallyObservedModelParameters, ModelParameters
@@ -37,7 +37,7 @@ from berp.models.trf import TemporalReceptiveField, TRFPredictors, \
     TRFDesignMatrix, TRFResponse, TRFDelayer
 from berp.tensorboard import Tensorboard
 from berp.typing import is_probability, DIMS
-from berp.util import time_to_sample
+from berp.util import time_to_sample, cat
 
 L = logging.getLogger(__name__)
 
@@ -49,14 +49,10 @@ Responsibilities = TensorType[P, is_probability]
 MaskArray = TensorType[torch.bool]
 
 
-# HACK specific to DKZ/gillis. generalize this feature
-subject_re = re.compile(r"^DKZ_\d/([^/]+)")
-
-
 @typechecked
 def scatter_add(design_matrix: TRFDesignMatrix,
                 target_samples: TensorType[B, torch.long],
-                target_values: TensorType[B, "n_target_features", float],
+                target_values: TensorType[B, "n_target_features"],
                 lag_mask: Optional[TensorType["n_delays", torch.bool]] = None,
                 add=True) -> None:
     """
@@ -172,6 +168,7 @@ class ForwardPipelineCache:
     design_matrix: TRFDesignMatrix
 
     n_variable_predictors: int
+    ts_feature_names: List[str]
     variable_feature_names: List[str]
     """
     List of variable features drawn from the dataset used to produce
@@ -190,13 +187,10 @@ class ForwardPipelineCache:
         
         n_samples, n_features = self.design_matrix.shape[:2]
 
-        assert n_features - self.n_variable_predictors == dataset.n_ts_features
-        if dataset.variable_feature_names is not None:
-            unknown_features = set(self.variable_feature_names) - set(dataset.variable_feature_names)
+        for feature_list, label in [(dataset.ts_feature_names, "ts"), (dataset.variable_feature_names, "variable")]:
+            unknown_features = set(getattr(self, f"{label}_feature_names")) - set(feature_list)
             if unknown_features:
-                raise ValueError(
-                    f"Dataset {dataset.name} is missing features: {unknown_features}"
-                )
+                raise ValueError(f"Unknown {label} features, missing from dataset {dataset.name}: {unknown_features}")
         
         assert len(dataset) <= n_samples
         if dataset.global_slice_indices is not None:
@@ -221,6 +215,7 @@ class ForwardPipelineCache:
 
 @typechecked
 def make_dummy_design_matrix(dataset: BerpDataset, delayer: TRFDelayer,
+                             ts_predictor_names: Optional[List[str]] = None,
                              n_variable_predictors=None) -> TRFDesignMatrix:
     """
     Prepare a design matrix with time series values inserted, leaving variable-onset values
@@ -228,10 +223,15 @@ def make_dummy_design_matrix(dataset: BerpDataset, delayer: TRFDelayer,
     """
     if n_variable_predictors is None:
         n_variable_predictors = dataset.n_variable_features
+
+    ts_features, _ = dataset.get_features(ts_predictor_names)
+
+    # Design matrix will be colocated on the same device as the dataset predictors.
     dummy_variable_predictors: TRFPredictors = \
         torch.zeros(dataset.n_samples, n_variable_predictors) \
-            .to(dataset.X_ts)
-    dummy_predictors = torch.concat([dataset.X_ts, dummy_variable_predictors], dim=1)
+            .to(ts_features)
+
+    dummy_predictors = torch.concat([ts_features, dummy_variable_predictors], dim=1)
     design_matrix, _ = delayer.transform(dummy_predictors)
     return design_matrix
 
@@ -298,8 +298,22 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
     def __init__(self, encoder: Encoder,
                  ts_feature_names: List[str],
                  variable_feature_names: List[str],
+                 encoder_key_re: Union[str, re.Pattern[str]],
                  device: Optional[str] = None,
                  **kwargs):
+        """
+        Args:
+            encoder: The encoder model to use for each subject.
+                Will be cloned for each subject.
+            ts_feature_names: Names of time series features to draw from
+                dataset.
+            variable_feature_names: Names of variable onset features to draw
+                from dataset.
+            encoder_key_re: Regular expression to match subject IDs in dataset.
+                Datasets with matching IDs will be sent to the same encoder.
+                The regular expression should have a single capture group.
+            device: Torch device
+        """
         self.encoder = encoder
 
         # Names of distinct time series / variable onset features in the
@@ -307,6 +321,8 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
         # features (e.g. interaction features).
         self.ts_feature_names = ts_feature_names
         self.variable_feature_names = variable_feature_names
+
+        self.encoder_key_re = re.compile(encoder_key_re)
 
         self.device = device
 
@@ -350,15 +366,17 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
         return GLOBAL_CACHE[key]
 
     def _build_cache_for_dataset(self, dataset: BerpDataset) -> ForwardPipelineCache:
-        _, variable_predictor_names = self.encoder_predictor_names
+        ts_predictor_names, variable_predictor_names = self.encoder_predictor_names
 
         design_matrix = make_dummy_design_matrix(dataset, self.delayer,
+                ts_predictor_names=ts_predictor_names,
                 n_variable_predictors=len(variable_predictor_names))
 
         return ForwardPipelineCache(
             cache_key=dataset.name,
             design_matrix=design_matrix,
             n_variable_predictors=len(variable_predictor_names),
+            ts_feature_names=self.ts_feature_names,
             variable_feature_names=self.variable_feature_names,
             validation_mask=_make_validation_mask(dataset, 0.1),  # TODO magic number
         )
@@ -372,7 +390,7 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
         else:
             return cache.get_cache_for(dataset)
 
-    def prime(self, dataset: Union[BerpDataset, NestedBerpDataset]):
+    def prime(self, dataset: Dataset):
         """
         Prepare caching pipelines for each subdataset of the given dataset.
         """
@@ -395,8 +413,7 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
         Compute a key by which this dataset should be mapped with others to
         a single encoder. (most intuitively this should be e.g. a subject ID.)
         """
-        # TODO specific to Gillis
-        match = subject_re.match(dataset.name)
+        match = self.encoder_key_re.match(dataset.name)
         if match is None:
             raise RuntimeError(dataset.name)
         return match.group(1)
@@ -413,7 +430,7 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
 
     def _set_encoder(self, key: str, encoder: Encoder):
         self.encoders_[key] = encoder
-        self._prepare_params_scatter("encoder", list(self.encoders_.values()))
+        self._prepare_params_scatter("encoder", [self.encoder] + list(self.encoders_.values()))
 
     def _get_or_create_encoder(self, dataset: BerpDataset) -> Encoder:
         try:
@@ -423,6 +440,7 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
             L.debug(f"Creating encoder for key {key}")
             enc: Encoder = cast(Encoder, clone(self.encoder))
             enc.set_name(key)
+            enc.output_names = dataset.sensor_names
             self._set_encoder(key, enc)
 
             return self.encoders_[key]
@@ -486,16 +504,25 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
         return dataset.get_features(
             ts=self.ts_feature_names, variable=self.variable_feature_names)
 
-    def _fit(self, encoder: Encoder, datasets: List[BerpDataset]):
+    def _prepare_trf_Xy(self, datasets: List[BerpDataset]) -> Tuple[TRFDesignMatrix, TRFResponse]:
         design_matrices, Ys = [], []
         for d in datasets:
+            assert_concatenatable(d, datasets[0])
+
             design_matrix, _ = self.pre_transform(d)
             design_matrices.append(design_matrix)
             Ys.append(d.Y)
 
-        design_matrix = torch.cat(design_matrices, dim=0)
-        Y = torch.cat(Ys, dim=0)
-        encoder.fit(design_matrix, Y)
+        design_matrix = cat(design_matrices, dim=0)
+        Y = cat(Ys, dim=0)
+
+        return design_matrix, Y
+
+    def _fit(self, encoder: Encoder, datasets: List[BerpDataset]):
+        design_matrix, Y = self._prepare_trf_Xy(datasets)
+        
+        with torch.no_grad():
+            encoder.fit(design_matrix, Y)
 
     def fit(self, dataset: NestedBerpDataset, y=None) -> "GroupTRFForwardPipeline":
         # Group datasets by encoder and fit jointly.
@@ -616,6 +643,7 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
     def __init__(self, encoder: Encoder,
                  ts_feature_names: List[str],
                  variable_feature_names: List[str],
+                 encoder_key_re: Union[str, re.Pattern[str]],
 
                  params: List[ModelParameters],
                  param_weights: Optional[Responsibilities] = None,
@@ -645,7 +673,7 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
                 of the learned encoder time series to have zero values, for those encoder
                 features which are variable-onset.
         """
-        super().__init__(encoder, ts_feature_names, variable_feature_names,
+        super().__init__(encoder, ts_feature_names, variable_feature_names, encoder_key_re,
                          **kwargs)
 
         self.params = params
@@ -709,17 +737,21 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
         """
         recognition_points, recognition_times = self.get_recognition_times(dataset, params)
 
+        # TODO refactor: lots of overlapping logic with other pre_transform_single impls
         # Generate lag mask given zero-ing rules.
         lag_mask = torch.ones(out.shape[2], dtype=torch.bool)
         lag_mask[:self.variable_trf_zero_left] = False
         if self.variable_trf_zero_right != 0:
             lag_mask[-self.variable_trf_zero_right:] = False
 
-        scatter_variable(
-            dataset, recognition_times,
-            out=out, out_weight=float(out_weight),
-            lag_mask=lag_mask,
-            variable_features=self.variable_feature_names)
+        recognition_times_samp = time_to_sample(recognition_times, self.encoder.sfreq)
+        _, X_variable = self._get_features(dataset)
+
+        feature_start_idx = self.n_ts_features
+        scatter_add(torch.narrow(out, 1, feature_start_idx, X_variable.shape[1]),
+                    target_samples=recognition_times_samp,
+                    target_values=X_variable,
+                    lag_mask=lag_mask)
     
     def pre_transform(self, dataset: BerpDataset) -> Tuple[TRFDesignMatrix, MaskArray]:
         primed = self._get_cache_for_dataset(dataset)
@@ -727,16 +759,17 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
         acc = clone_count(primed.design_matrix)
         
         # Ensure variable-onset features are zeroed out.
-        feature_start_idx = dataset.n_ts_features
+        feature_start_idx = self.n_ts_features
         acc[:, feature_start_idx:, :] = 0.
 
         for params, weight in zip(self.params, self.param_weights):
             self._pre_transform_single(dataset, params, out=acc, out_weight=weight)
+        
         return acc, primed.validation_mask
 
     def pre_transform_expanded(self, dataset: BerpDataset) -> Iterator[Tuple[TRFDesignMatrix, MaskArray]]:
         primed = self._get_cache_for_dataset(dataset)
-        feature_start_idx = dataset.n_ts_features
+        feature_start_idx = self.n_ts_features
 
         for params in self.params:
             # NB _pre_transform_single operates in place, so we'll reset variable-onset
@@ -765,6 +798,7 @@ class GroupBerpFixedTRFForwardPipeline(GroupBerpTRFForwardPipeline):
     def __init__(self, encoder: Encoder,
                  ts_feature_names: List[str],
                  variable_feature_names: List[str],
+                 encoder_key_re: Union[str, re.Pattern[str]],
 
                  threshold: torch.Tensor,
                  confusion: torch.Tensor,
@@ -783,6 +817,7 @@ class GroupBerpFixedTRFForwardPipeline(GroupBerpTRFForwardPipeline):
 
         super().__init__(encoder,
             ts_feature_names, variable_feature_names,
+            encoder_key_re,
             self.params,
             scatter_point=scatter_point,
             prior_scatter_index=prior_scatter_index,
@@ -819,6 +854,7 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
     def __init__(self, encoder: Encoder,
                  ts_feature_names: List[str],
                  variable_feature_names: List[str],
+                 encoder_key_re: Union[str, re.Pattern[str]],
 
                  threshold: torch.Tensor,
                  confusion: torch.Tensor,
@@ -834,6 +870,7 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
                  variable_trf_zero_right: int = 0,
                  **kwargs):
         super().__init__(encoder, ts_feature_names, variable_feature_names,
+                         encoder_key_re,
                          threshold, confusion, lambda_,
                          scatter_point=scatter_point,
                          prior_scatter_index=prior_scatter_index,
@@ -855,7 +892,7 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
         ]
         return ts_predictor_names, variable_predictor_names
 
-    def _check_shapes(self, dataset: Union[BerpDataset, NestedBerpDataset]):
+    def _check_shapes(self, dataset: Dataset):
         if not hasattr(self.encoder, "n_features_"):
             return
 
@@ -863,6 +900,35 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
         for ds in datasets:
             assert self.encoder.n_features_ == dataset.n_ts_features + (self.n_quantiles + 1) * dataset.n_variable_features, \
                 "Encoder should have N + 1 sets of variable-onset features, for N quantiles"
+
+    def _fit_recognition_quantiles(self, dataset: Dataset) -> None:
+        """
+        Estimate recognition time quantiles for all words in a training set.
+        Returns `n_quantiles + 1` list of edges for quantile bins.
+        """
+        if len(self.params) != 1:
+            raise NotImplementedError()
+
+        datasets = dataset.datasets if isinstance(dataset, NestedBerpDataset) else [dataset]
+        
+        # Compute local recognition times (relative to word onset)
+        all_recognition_times = torch.cat([
+            self.get_recognition_times(ds, self.params[0])[1] - ds.word_onsets
+            for ds in datasets
+        ])
+
+        L.info(f"Computing recognition quantiles from dataset of {len(all_recognition_times)} words.")
+        self.recognition_quantile_edges_ = torch.quantile(
+            all_recognition_times, torch.linspace(0, 1, self.n_quantiles + 1).to(all_recognition_times.device))
+        assert len(self.recognition_quantile_edges_) == self.n_quantiles + 1
+
+        # These quantile assignments need to generalize to new datasets which might have more negative
+        # minimum recognition times or more maximum recognition times. So account for this by setting
+        # left and right quantile boundaries to -inf and inf, respectively.
+        self.recognition_quantile_edges_[0] = -torch.inf
+        self.recognition_quantile_edges_[-1] = torch.inf
+
+        L.info("Recognition quantile edges: %s", self.recognition_quantile_edges_.cpu().numpy())
 
     @typechecked
     def _get_recognition_quantiles(self,
@@ -874,23 +940,24 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
 
         Returns a tensor mapping each word to a quantile index `[0, n_quantiles)`.
         """
+
         recognition_points, recognition_times = self.get_recognition_times(dataset, params)
-
-        # Bin words by recognition time.
         local_recognition_times = recognition_times - dataset.word_onsets
-        recognition_quantiles = torch.quantile(
-            local_recognition_times, torch.linspace(0, 1, self.n_quantiles + 1))
 
-        L.warning("Recognition quantiles: %s", recognition_quantiles.numpy())
+        if not hasattr(self, "recognition_quantile_edges_") or self.recognition_quantile_edges_ is None:
+            raise RuntimeError("Recognition quantile bins have not been estimated. Stop.")            
         
         # NB we have N+1 buckets and at least one value will be assigned to the extreme left
         # bucket (the minimum value). Clamp output such that we have N buckets instead.
         # We could equivalently bucketize with `right=True` and then clamp on `[0, n_quantiles)`.
         recognition_bins = torch.clamp(
-            torch.bucketize(local_recognition_times, recognition_quantiles),
+            torch.bucketize(local_recognition_times, self.recognition_quantile_edges_),
             1, self.n_quantiles)
         assert (recognition_bins > 0).all()
         recognition_bins -= 1
+
+        L.debug("Recognition bin distribution: %s",
+            recognition_bins.bincount(minlength=self.n_quantiles).cpu().numpy())
 
         return recognition_bins
 
@@ -903,6 +970,7 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
         Run word recognition logic for the given dataset and parameters,
         producing a regression design matrix. Operates in-place.
         """
+        # Get recognition quantile assignments for each word in the dataset.
         recognition_quantiles = self._get_recognition_quantiles(dataset, params)
 
         # Generate lag mask given zero-ing rules.
@@ -914,8 +982,11 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
         word_onset_samples = time_to_sample(dataset.word_onsets, dataset.sample_rate)
         _, X_variable = self._get_features(dataset)
 
+        assert X_variable.shape[1] == len(self.variable_feature_names)
+        n_variable_features = X_variable.shape[1]
+
         # All bins use the first surprisal feature.
-        target_0 = torch.narrow(out, 1, dataset.n_ts_features, dataset.n_variable_features)
+        target_0 = torch.narrow(out, 1, self.n_ts_features, n_variable_features)
         scatter_add(target_0,
                     target_samples=word_onset_samples,
                     target_values=X_variable,
@@ -924,12 +995,12 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
         for rec_bin_i in range(self.n_quantiles):
             mask = recognition_quantiles == rec_bin_i
 
-            feature_start_idx = dataset.n_ts_features + (rec_bin_i + 1) * dataset.n_variable_features
+            feature_start_idx = self.n_ts_features + (rec_bin_i + 1) * n_variable_features
             samples, values = word_onset_samples[mask], X_variable[mask]
 
             # Pass just the slice of `out` that should be updated. NB `torch.narrow`
             # never returns a copy.
-            target_i = torch.narrow(out, 1, feature_start_idx, dataset.n_variable_features)
+            target_i = torch.narrow(out, 1, feature_start_idx, n_variable_features)
 
             scatter_add(target_i,
                         target_samples=samples,
@@ -943,6 +1014,15 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
     def pre_transform_expanded(self, dataset: BerpDataset) -> Iterator[Tuple[TRFDesignMatrix, np.ndarray]]:
         self._check_shapes(dataset)
         return super().pre_transform_expanded(dataset)
+
+    def fit(self, dataset: NestedBerpDataset, y=None) -> "GroupBerpCannonTRFForwardPipeline":
+        # First re-estimate recognition quantiles on the union of all datasets.
+        self._fit_recognition_quantiles(dataset)
+        super().fit(dataset, y=y)
+        return self
+
+    def partial_fit(self, *args, **kwargs):
+        raise NotImplementedError()
 
 
 class GroupVanillaTRFForwardPipeline(GroupTRFForwardPipeline):
@@ -959,7 +1039,7 @@ class GroupVanillaTRFForwardPipeline(GroupTRFForwardPipeline):
         recognition_onsets_samp = time_to_sample(recognition_onsets, self.encoder.sfreq)
         _, X_variable = self._get_features(dataset)
 
-        feature_start_idx = dataset.n_ts_features
+        feature_start_idx = self.n_ts_features
         scatter_add(design_matrix[:, feature_start_idx:, :],
                     recognition_onsets_samp,
                     X_variable,
@@ -967,11 +1047,74 @@ class GroupVanillaTRFForwardPipeline(GroupTRFForwardPipeline):
 
     def pre_transform(self, dataset: BerpDataset) -> Tuple[TRFDesignMatrix, np.ndarray]:
         primed = self._get_cache_for_dataset(dataset)
+
+        # Ensure variable-onset features are zeroed out.
+        feature_start_idx = self.n_ts_features
+        primed.design_matrix[:, feature_start_idx:, :] = 0.
         
         # Fine to not clone cached values -- they are constant.
         self._scatter(dataset, primed.design_matrix)
 
         return primed.design_matrix, primed.validation_mask
+
+
+class GroupVanillaCannonTRFForwardPipeline(GroupBerpCannonTRFForwardPipeline):
+    """
+    Degenerate/vanilla form of the cannon pipeline, in which words are split
+    based on surprisal (prior probability) rather than on inferred
+    recognition time.
+    """
+
+    def _fit_recognition_quantiles(self, dataset: Dataset) -> None:
+        """
+        Estimate recognition time quantiles for all words in a training set.
+        Returns `n_quantiles + 1` list of edges for quantile bins.
+        """
+
+        datasets = dataset.datasets if isinstance(dataset, NestedBerpDataset) else [dataset]
+
+        all_surprisals = torch.cat([dataset.p_candidates[:, 0] for dataset in datasets])
+
+        L.info(f"Computing surprisal quantiles from dataset of {len(all_surprisals)} words.")
+        self.recognition_quantile_edges_ = torch.quantile(
+            all_surprisals, torch.linspace(0, 1, self.n_quantiles + 1).to(all_surprisals.device))
+        assert len(self.recognition_quantile_edges_) == self.n_quantiles + 1
+
+        # These quantile assignments need to generalize to new datasets which might have more negative
+        # minimum recognition times or more maximum recognition times. So account for this by setting
+        # left and right quantile boundaries to -inf and inf, respectively.
+        self.recognition_quantile_edges_[0] = -torch.inf
+        self.recognition_quantile_edges_[-1] = torch.inf
+
+        L.info("Recognition quantile edges: %s", self.recognition_quantile_edges_.cpu().numpy())
+
+    @typechecked
+    def _get_recognition_quantiles(self,
+                                   dataset: BerpDataset,
+                                   params: ModelParameters
+                                   ) -> TensorType[B, torch.long]:
+        """
+        Compute assignments mapping each word to a recognition-time quantile.
+
+        Returns a tensor mapping each word to a quantile index `[0, n_quantiles)`.
+        """
+
+        if not hasattr(self, "recognition_quantile_edges_") or self.recognition_quantile_edges_ is None:
+            raise RuntimeError("Recognition quantile bins have not been estimated. Stop.")            
+        
+        # NB we have N+1 buckets and at least one value will be assigned to the extreme left
+        # bucket (the minimum value). Clamp output such that we have N buckets instead.
+        # We could equivalently bucketize with `right=True` and then clamp on `[0, n_quantiles)`.
+        recognition_bins = torch.clamp(
+            torch.bucketize(dataset.p_candidates[:, 0], self.recognition_quantile_edges_),
+            1, self.n_quantiles)
+        assert (recognition_bins > 0).all()
+        recognition_bins -= 1
+
+        L.debug("Recognition bin distribution: %s",
+            recognition_bins.bincount(minlength=self.n_quantiles).cpu().numpy())
+
+        return recognition_bins
 
 
 class BerpTRFEMEstimator(BaseEstimator):
@@ -1150,7 +1293,8 @@ class BerpTRFEMEstimator(BaseEstimator):
 
 
 def load_confusion_parameters(
-    confusion_path: str, dataset_phonemes: List[str]) -> torch.Tensor:
+    confusion_path: str, dataset_phonemes: List[str],
+    smooth=False) -> torch.Tensor:
     confusion = np.load(confusion_path)
     
     # Set of phonemes should be superset of dataset phonemes
@@ -1168,7 +1312,8 @@ def load_confusion_parameters(
     assert confusion_matrix.shape == (len(dataset_phonemes), len(dataset_phonemes))
 
     # Smooth.
-    confusion_matrix += 1.
+    if smooth:
+        confusion_matrix += 1.
 
     # Normalize. Each column should be a probability distribution.
     confusion_matrix /= confusion_matrix.sum(axis=0, keepdims=True) + 1e-5
@@ -1178,7 +1323,9 @@ def load_confusion_parameters(
 
 def prepare_or_create_confusion(confusion_path: Optional[str],
                                 phonemes: List[str]) -> torch.Tensor:
-    if confusion_path is not None:
+    if confusion_path == "flat":
+        confusion = torch.full((len(phonemes), len(phonemes)), 1. / len(phonemes))
+    elif confusion_path is not None:
         confusion = load_confusion_parameters(
             to_absolute_path(confusion_path), phonemes)
     else:
@@ -1245,13 +1392,10 @@ def make_pipeline(
 def BerpTRFFixed(trf: TemporalReceptiveField,
                  features: FeatureConfig,
                  threshold: torch.Tensor,
-                 n_outputs: int,
                  phonemes: List[str],
                  confusion_path: Optional[str] = None,
                  pretrained_pipeline_paths: Optional[List[str]] = None,
                  **kwargs) -> GroupBerpFixedTRFForwardPipeline:
-    trf.set_params(n_outputs=n_outputs)
-
     pipeline = GroupBerpFixedTRFForwardPipeline(
         trf,
         ts_feature_names=list(features.ts_feature_names),
@@ -1271,21 +1415,47 @@ def BerpTRFFixed(trf: TemporalReceptiveField,
 def BerpTRFCannon(trf: TemporalReceptiveField,
                   features: FeatureConfig,
                   threshold: torch.Tensor,
+                  lambda_: torch.Tensor,
                   n_quantiles: int,
-                  n_outputs: int,
                   phonemes: List[str],
                   confusion_path: Optional[str] = None,
                   pretrained_pipeline_paths: Optional[List[str]] = None,
                   **kwargs) -> GroupBerpCannonTRFForwardPipeline:
-    trf.set_params(n_outputs=n_outputs)
-
     pipeline = GroupBerpCannonTRFForwardPipeline(
         trf,
         ts_feature_names=list(features.ts_feature_names),
         variable_feature_names=list(features.variable_feature_names),
         threshold=torch.as_tensor(threshold),
         confusion=prepare_or_create_confusion(confusion_path, phonemes),
-        lambda_=torch.tensor(1.),
+        lambda_=lambda_,
+        n_quantiles=n_quantiles,
+        **kwargs,
+    )
+
+    if pretrained_pipeline_paths is not None:
+        pipeline = update_with_pretrained_paths(pipeline, pretrained_pipeline_paths)
+
+    return pipeline
+
+
+def VanillaCannonTRF(trf: TemporalReceptiveField,
+                     features: FeatureConfig,
+                     threshold: torch.Tensor,
+                     lambda_: torch.Tensor,
+                     n_quantiles: int,
+                     phonemes: List[str],
+                     confusion_path: Optional[str] = None,
+                     pretrained_pipeline_paths: Optional[List[str]] = None,
+                     **kwargs) -> GroupVanillaCannonTRFForwardPipeline:
+    # NB the vanilla cannon subclasses a berp class, so we have a bunch of dummy
+    # parameters here. this is fine
+    pipeline = GroupVanillaCannonTRFForwardPipeline(
+        trf,
+        ts_feature_names=list(features.ts_feature_names),
+        variable_feature_names=list(features.variable_feature_names),
+        threshold=torch.as_tensor(threshold),
+        confusion=prepare_or_create_confusion(confusion_path, phonemes),
+        lambda_=lambda_,
         n_quantiles=n_quantiles,
         **kwargs,
     )
@@ -1330,8 +1500,7 @@ def BerpTRFEM(trf: TemporalReceptiveField,
     return BerpTRFEMEstimator(pipeline, **kwargs)
 
 
-def BasicTRF(trf, features: FeatureConfig, n_outputs: int, **kwargs):
-    trf.set_params(n_outputs=n_outputs)
+def BasicTRF(trf, features: FeatureConfig, **kwargs):
     pipeline = GroupVanillaTRFForwardPipeline(
         trf,
         ts_feature_names=list(features.ts_feature_names),

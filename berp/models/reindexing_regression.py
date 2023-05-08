@@ -129,13 +129,25 @@ def predictive_model(p_candidates: TensorType[B, N_C, is_log_probability],
 
 
 @typechecked
-def recognition_point_model(p_candidates_posterior: TensorType[B, N_P, is_probability],
+def recognition_point_model(p_candidates_posterior: TensorType[B, "num_phonemes_plus_one", is_probability],
                             word_lengths: TensorType[B, torch.long, is_positive],
                             threshold: Probability
                             ) -> TensorType[B, torch.long]:
     """
-    Computes the latent onset / recognition point for each example.
+    Computes the recognition point of the ground-truth word for each example,
+    given incremental posterior probabilities over the ground-truth word as
+    returned by `predictive_model`.
+
+    If a particular example never exceeds the given threshold, the recognition
+    point is set to the final phoneme in the ground-truth word.
+
+    Returns:
+        Recognition point for each example, where `0` corresponds to recognition
+        without perceptual input, and a value `i` corresponds to recognition after
+        observing `i` phonemes.
     """
+
+    assert p_candidates_posterior.shape[1] >= word_lengths.max() + 1
 
     passes_threshold = p_candidates_posterior >= threshold
 
@@ -175,8 +187,7 @@ def recognition_points_to_times(recognition_points: TensorType[B, torch.long],
     Args:
         recognition_points: As returned by `recognition_point_model`. One per word.
             Zero values indicate word is recognized prior to input onset; otherwise
-            a value of `i` indicates recognition occurs at phoneme `i`,
-            one-indexed.
+            a value of `i` indicates recognition occurs after consuming `i` phonemes.
         phoneme_onsets_global: See `BerpDataset`.
         phoneme_offsets_global: See `BerpDataset`.
         word_lengths: Length of each ground-truth word, in phonemes.

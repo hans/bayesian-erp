@@ -1,0 +1,11 @@
+defaults:
+  - base_trf_pipeline
+
+trf:
+  type: trf
+  tmin: 0
+  tmax: 1.0
+  sfreq: 128
+  alpha: 1
+  # HACK: unknown for the moment, but will be re-set by code
+  n_outputs: 1

@@ -6,12 +6,13 @@ from pprint import pformat
 from typing import List, Optional, Callable, Dict, Tuple, Union, Iterator, cast
 
 import numpy as np
+import pandas as pd
 import torch
 from torchtyping import TensorType
 from typeguard import typechecked
 
 from berp.datasets import NaturalLanguageStimulus
-from berp.typing import DIMS, is_log_probability, is_positive, is_nonnegative
+from berp.typing import DIMS, floating, is_log_probability, is_positive, is_nonnegative
 
 L = logging.getLogger(__name__)
 
@@ -23,6 +24,14 @@ T, S = DIMS.T, DIMS.S
 # Type aliases
 Phoneme = str
 intQ = Optional[Union[int, np.integer]]
+
+# Locate the stimulus data on a GPU but not on the first, since this is where
+# some of the model computations are happening.
+if torch.cuda.is_available():
+    # Arbitrary: put 
+    STIMULUS_DEVICE = torch.device("cuda", torch.cuda.device_count() - 1)
+else:
+    STIMULUS_DEVICE = torch.device("cpu")
 
 
 @typechecked
@@ -45,30 +54,30 @@ class BerpDataset:
 
     sample_rate: int
 
-    word_onsets: TensorType[B, float, is_nonnegative]
+    word_onsets: TensorType[B, floating, is_nonnegative]
     """
     Onset of each word in seconds, relative to the start of the sequence.
     """
 
-    word_offsets: TensorType[B, float, is_nonnegative]
+    word_offsets: TensorType[B, floating, is_nonnegative]
     """
     Offset of each word in seconds, relative to the start of the sequence.
     """
 
-    phoneme_onsets: TensorType[B, N_P, float, is_nonnegative]
+    phoneme_onsets: TensorType[B, N_P, floating, is_nonnegative]
     """
     Onset of each phoneme within each word in seconds, relative to the start of
     the corresponding word. Column axis should be padded with 0s.
     """
 
-    X_ts: TensorType[T, N_F_T, float]
+    X_ts: TensorType[T, N_F_T, floating]
 
-    X_variable: TensorType[B, N_F, float]
+    X_variable: TensorType[B, N_F, floating]
     """
     Word-level features whose onset is to be determined by the model.
     """
 
-    Y: TensorType[T, S, float]
+    Y: TensorType[T, S, floating]
     """
     Response data.
     """
@@ -180,7 +189,7 @@ class BerpDataset:
         return self.p_candidates.shape[1]
     
     @property
-    def phoneme_onsets_global(self) -> TensorType[B, N_P, float, is_positive]:
+    def phoneme_onsets_global(self) -> TensorType[B, N_P, floating, is_nonnegative]:
         """
         Onset of each phoneme within each word in seconds, relative to the start of
         the time series.
@@ -188,7 +197,7 @@ class BerpDataset:
         return self.word_onsets[:, None] + self.phoneme_onsets
 
     @property
-    def phoneme_offsets(self) -> TensorType[B, N_P, float, is_positive]:
+    def phoneme_offsets(self) -> TensorType[B, N_P, floating, is_nonnegative]:
         """
         Offset of each phoneme within each word in seconds, relative to the onset of
         the word.
@@ -199,7 +208,7 @@ class BerpDataset:
         ], 1)
 
     @property
-    def phoneme_offsets_global(self) -> TensorType[B, N_P, float, is_positive]:
+    def phoneme_offsets_global(self) -> TensorType[B, N_P, floating, is_nonnegative]:
         """
         Offset of each phoneme within each word in seconds, relative to the start of
         the time series.
@@ -301,21 +310,23 @@ class BerpDataset:
         if self.variable_feature_names is not None:
             assert len(self.variable_feature_names) == self.n_variable_features
 
-    def ensure_torch(self, device: Optional[str] = None, dtype=torch.float32) -> BerpDataset:
+    def ensure_torch(self, device: Optional[str] = None, dtype=torch.float32,
+                     ts_dtype=torch.float32) -> BerpDataset:
         """
         Convert all tensors to torch tensors.
         """
-        self.word_onsets = torch.as_tensor(self.word_onsets, dtype=dtype).to(device)
-        self.word_offsets = torch.as_tensor(self.word_offsets, dtype=dtype).to(device)
-        self.phoneme_onsets = torch.as_tensor(self.phoneme_onsets, dtype=dtype).to(device)
-        self.X_ts = torch.as_tensor(self.X_ts, dtype=dtype).to(device)
-        self.X_variable = torch.as_tensor(self.X_variable, dtype=dtype).to(device)
-        self.Y = torch.as_tensor(self.Y, dtype=dtype).to(device)
+        self.X_ts = torch.as_tensor(self.X_ts, dtype=ts_dtype).to(device)
+        self.X_variable = torch.as_tensor(self.X_variable, dtype=ts_dtype).to(device)
+        self.Y = torch.as_tensor(self.Y, dtype=ts_dtype).to(device)
+
+        self.word_onsets = torch.as_tensor(self.word_onsets, dtype=dtype).to(STIMULUS_DEVICE)
+        self.word_offsets = torch.as_tensor(self.word_offsets, dtype=dtype).to(STIMULUS_DEVICE)
+        self.phoneme_onsets = torch.as_tensor(self.phoneme_onsets, dtype=dtype).to(STIMULUS_DEVICE)
 
         if self.p_candidates is not None:
-            self.p_candidates = torch.as_tensor(self.p_candidates, dtype=dtype).to(device)
-            self.word_lengths = torch.as_tensor(self.word_lengths).to(device)
-            self.candidate_phonemes = torch.as_tensor(self.candidate_phonemes).to(device)
+            self.p_candidates = torch.as_tensor(self.p_candidates, dtype=dtype).to(STIMULUS_DEVICE)
+            self.word_lengths = torch.as_tensor(self.word_lengths).to(STIMULUS_DEVICE)
+            self.candidate_phonemes = torch.as_tensor(self.candidate_phonemes).to(STIMULUS_DEVICE)
 
         return self
 
@@ -333,14 +344,20 @@ class BerpDataset:
         # Reference tensor for dtype/device
         ref_tensor = self.word_onsets
 
-        self.p_candidates = stimulus.p_candidates.to(ref_tensor)
-        self.word_lengths = stimulus.word_lengths.to(ref_tensor.device)
+        self.p_candidates = stimulus.p_candidates.to(STIMULUS_DEVICE, dtype=ref_tensor.dtype)
+        self.word_lengths = stimulus.word_lengths.to(STIMULUS_DEVICE)
         self.candidate_phonemes = stimulus.candidate_phonemes
 
-    def subset_sensors(self, sensors: Union[List[int], List[str]]) -> None:
+    def subset_sensors(self, sensors: Union[List[int], List[str]], on_missing="warn") -> None:
         """
         Subset sensors in response variable. Operates in place.
+
+        `on_missing` should be one of "warn", "raise", or "ignore". Triggered when a sensor name
+        is passed but the dataset does not contain this sensor name.
         """
+        if on_missing not in ["warn", "raise", "ignore"]:
+            raise ValueError(f"on_missing must be one of 'warn', 'raise', or 'ignore'. Got {on_missing}.")
+
         sensor_idxs, sensor_names = [], []
         for sensor in sensors:
             if isinstance(sensor, int):
@@ -357,10 +374,18 @@ class BerpDataset:
                 try:
                     sensor_idx = self.sensor_names.index(sensor)
                 except ValueError:
-                    raise ValueError(f"Sensor name {sensor} not found.")
+                    if on_missing == "warn":
+                        L.warning(f"Sensor name {sensor} not found.")
+                    elif on_missing == "raise":
+                        raise ValueError(f"Sensor name {sensor} not found.")
+                    elif on_missing == "ignore":
+                        pass
                 else:
                     sensor_idxs.append(self.sensor_names.index(sensor))
                     sensor_names.append(sensor)
+
+        if len(sensor_idxs) == 0:
+            raise ValueError("No matching sensors found.")
 
         self.Y = self.Y[:, sensor_idxs]
         self.sensor_names = sensor_names
@@ -458,6 +483,9 @@ class NestedBerpDataset(object):
 
     Each element in the resulting dataset corresponds to a fraction of an
     original subject's sub-dataset, `1/n_splits` large.
+
+    Note that sub-datasets can differ in sensor dimensionality, but must
+    have the same number of time series features and variable features.
     """
 
     def __init__(self, datasets: List[BerpDataset], n_splits=2):
@@ -532,11 +560,6 @@ class NestedBerpDataset(object):
     @property
     def n_total_features(self):
         return self.datasets[0].n_total_features
-
-    @property
-    def n_sensors(self):
-        return self.datasets[0].n_sensors
-
     @property
     def ts_feature_names(self):
         return self.datasets[0].ts_feature_names
@@ -606,14 +629,13 @@ class NestedBerpDataset(object):
         Merge contiguous subdatasets in this summary.
         """
 
-        descriptions = [(x.name, x.global_slice_indices, len(x)) for x in self]
+        descriptions = [(x.base_name, x.global_slice_indices, len(x)) for x in self]
         merged = []
         for name, slice_bounds, length in descriptions:
             if slice_bounds is None:
                 merged.append((name, (0, length)))
                 continue
 
-            name = name.split("/")[0]
             start, end = slice_bounds
             if merged and merged[-1][0] == name and merged[-1][1][1] == start:
                 merged[-1] = (name, (merged[-1][1][0], end))
@@ -622,12 +644,12 @@ class NestedBerpDataset(object):
 
         return f"NestedBerpDataset({', '.join(f'{name}[{start}:{end}]' for name, (start, end) in merged)})"
 
-    def subset_sensors(self, sensors: List[int]) -> None:
+    def subset_sensors(self, sensors: List[int], on_missing="warn") -> None:
         """
         Subset sensors in response variable. Operates in place.
         """
         for ds in self.datasets:
-            ds.subset_sensors(sensors)
+            ds.subset_sensors(sensors, on_missing=on_missing)
 
     def average_sensors(self) -> None:
         """
@@ -649,7 +671,23 @@ class NestedBerpDataset(object):
 
 def assert_compatible(ds1: BerpDataset, ds2: BerpDataset):
     """
-    Assert that the two datasets are compatible for concatenation.
+    Assert that the two datasets are compatible for joining in a single
+    nested dataset.
+    """
+    assert ds1.dtype == ds2.dtype
+    assert ds1.sample_rate == ds2.sample_rate
+    assert ds1.n_ts_features == ds2.n_ts_features
+    assert ds1.n_variable_features == ds2.n_variable_features
+
+    if ds2.ts_feature_names is not None:
+        assert ds2.ts_feature_names == ds1.ts_feature_names
+    if ds2.variable_feature_names is not None:
+        assert ds2.variable_feature_names == ds1.variable_feature_names
+
+
+def assert_concatenatable(ds1: BerpDataset, ds2: BerpDataset):
+    """
+    Assert that the two datasets can be safely and meaningfully concatenated.
     This is possible when they have the same feature set, same number of sensors.
     They DO NOT need to be in response to the same stimulus.
     """
@@ -682,9 +720,9 @@ def average_datasets(datasets: List[BerpDataset], name="average"):
 
     for ds in datasets[1:]:
         ds0 = datasets[0]
-        assert_compatible(ds, ds0)
+        assert_concatenatable(ds, ds0)
 
-        # We need more than compatibility -- the presentations should 
+        # We need more than concatenatability -- the presentations should 
         # all be matched in order to allow for averaging.
         assert torch.allclose(ds.word_onsets, ds0.word_onsets)
         assert torch.allclose(ds.word_offsets, ds0.word_offsets)
@@ -694,3 +732,27 @@ def average_datasets(datasets: List[BerpDataset], name="average"):
 
     Y_avg = torch.stack([ds.Y for ds in datasets]).mean(0)
     return replace(datasets[0], Y=Y_avg, name=name)
+
+
+def get_metadata(ds: BerpDataset) -> pd.DataFrame:
+    def get_strs(ds_i, i, ctx=1):
+        phon_strs = ds_i.candidate_phonemes[max(0,i-ctx):i+1, 0, :].numpy()
+        phon_strs = [[ds_i.phonemes[idx] for idx in phon_str] for phon_str in phon_strs]
+        return " ".join("".join(phon_str).replace("_", "") for phon_str in phon_strs)
+
+    data = {
+        "word_length": ds.word_lengths.numpy(),
+        "word_duration": (ds.word_offsets - ds.word_onsets).numpy(),
+        "word_surprisal": ds.p_candidates[:, 0].numpy(),
+        "word_frequency": ds.X_variable[:, ds.variable_feature_names.index("word_frequency")].numpy(),
+        "word_prior_entropy": -(ds.p_candidates * ds.p_candidates.exp()).sum(axis=1).numpy(),
+        "word": [get_strs(ds, idx, ctx=0) for idx in range(len(ds.word_lengths))],
+    }
+    
+    # for phon_t in range(ds_i.max_n_phonemes):
+    #     mask = np.ones(len(ds.word_lengths))
+    #     mask[ds.word_lengths <= phon_t] = np.nan
+        
+    #     data[f"phon_onset_{phon_t}"] = ds.phoneme_onsets[:, phon_t] * mask
+        
+    return pd.DataFrame(data).rename_axis("word_idx")

@@ -13,11 +13,21 @@ class DatasetConfig:
     paths: List[str]
     stimulus_paths: Dict[str, str]
 
+    encoder_key_re: str
+    """
+    A regular expression to apply on dataset names to determine how
+    subdatasets should be mapped to encoders. Typically, it makes sense
+    to use a regular expression here that picks out the subject ID.
+    """
+
     device: str = "cpu"
 
 
 @dataclass
 class EEGDatasetConfig(DatasetConfig):
+
+    dtype: str = "float32"
+    ts_dtype: str = "float32"
 
     subset_sensors: Optional[List[str]] = None
     """

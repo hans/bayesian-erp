@@ -4,6 +4,7 @@ from typing import Union, List, Tuple
 import numpy as np
 import scipy.signal
 import torch
+from torch.nn.parallel.comm import gather
 from torchtyping import TensorType
 from typeguard import typechecked
 
@@ -67,3 +68,14 @@ def gaussian_window(center: float, width: float,\
     window_data = scipy.signal.windows.gaussian(window_width, width_i)
     window_data = window_data[slice_start: slice_stop]
     return times, window_data
+
+
+def cat(tensors, dim=0, **kwargs):
+    """
+    Concatenate tensors along the given dimension, sensitive to their possibly
+    different device locatins.
+    """
+    if not any(t.is_cuda for t in tensors):
+        return torch.cat(tensors, dim=dim, **kwargs)
+    else:
+        return gather(tensors, dim=dim, **kwargs)

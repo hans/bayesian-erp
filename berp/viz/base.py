@@ -1,3 +1,4 @@
+import logging
 from typing import Optional
 
 import numpy as np
@@ -8,6 +9,8 @@ import torch
 from torchtyping import TensorType  # type: ignore
 
 from berp.datasets import BerpDataset
+
+L = logging.getLogger(__name__)
 
 
 def epoch_ts(data: TensorType["n_samples", "n_sensors", float],
@@ -26,18 +29,25 @@ def epoch_ts(data: TensorType["n_samples", "n_sensors", float],
 
     epochs = np.empty((len(epoch_points), epoch_n_samples, n_sensors))
     for i, samp_i in enumerate(tqdm(epoch_points)):
-        epoch_data = data[samp_i + epoch_shift_left:samp_i + epoch_shift_right].clone()
+        if samp_i > data.shape[0]:
+            raise ValueError(f"epoch point {samp_i} (at idx {i}) is out of bounds")
+
+        # Make sure we don't provide a negative index in left slice.
+        epoch_data_left_idx = samp_i + epoch_shift_left
+        epoch_data = data[max(0, epoch_data_left_idx):samp_i + epoch_shift_right].clone()
+
+        # Pad
+        if epoch_data.shape[0] < epoch_n_samples:
+            # pad with NaNs
+            pad_left = max(0, -epoch_data_left_idx)
+            pad_right = epoch_n_samples - (epoch_data.shape[0] + pad_left)
+            epoch_data = np.pad(epoch_data, ((pad_left, pad_right), (0, 0)),
+                                mode="constant", constant_values=np.nan)
 
         # Baseline
         if baseline:
-            epoch_data -= epoch_data[baseline_window_left:baseline_window_right].mean(axis=0)
-        
-        if epoch_data.shape[0] < epoch_n_samples:
-            # pad with NaNs
-            epoch_data = np.concatenate(
-                [epoch_data,
-                 np.empty((epoch_n_samples - epoch_data.shape[0], n_sensors)) * np.nan],
-                axis=0)
+            # print("Baseline", np.nanmean(epoch_data[baseline_window_left:baseline_window_right], axis=0))
+            epoch_data -= np.nanmean(epoch_data[baseline_window_left:baseline_window_right], axis=0)
 
         epochs[i] = epoch_data
 
@@ -65,12 +75,24 @@ def make_epochs(dataset: BerpDataset, epoch_points: TensorType[float],
     assert int(baseline_tmin * sample_rate) == baseline_tmin * sample_rate
     assert int(baseline_tmax * sample_rate) == baseline_tmax * sample_rate
 
+    epoch_idxs = torch.arange(len(epoch_points))
     epoch_samples = (epoch_points * sample_rate).long()
 
     epoch_shift_left = int(tmin * sample_rate)
     epoch_shift_right = int(tmax * sample_rate)
 
     ts = dataset.Y if ts is None else ts
+
+    # Detect epoch points that exceed time series bounds. Drop and warn.
+    out_of_bounds_mask = epoch_samples > ts.shape[0]
+    if out_of_bounds_mask.any():
+        L.warning(f"dropping {out_of_bounds_mask.sum()} epochs that exceed time series bounds")
+
+        # Track idxs of retained epochs so that they can be matched up
+        # with events.
+        epoch_idxs = epoch_idxs[~out_of_bounds_mask]
+        epoch_samples = epoch_samples[~out_of_bounds_mask]
+
     epochs_df = epoch_ts(
         ts, epoch_samples,
         epoch_shift_left, epoch_shift_right,
@@ -79,6 +101,9 @@ def make_epochs(dataset: BerpDataset, epoch_points: TensorType[float],
         baseline_window_right=int((baseline_tmax - tmin) * sample_rate))
 
     epochs_df["epoch_time"] = epochs_df["sample"] / sample_rate + tmin
+
+    # Map epoch idx onto originating epoch idx
+    epochs_df["epoch"] = epochs_df.epoch.map(dict(enumerate(epoch_idxs.numpy())))
     epochs_df = epochs_df.set_index(["epoch", "sample", "sensor_idx"])
 
     return epochs_df

@@ -26,8 +26,10 @@ TRFResponse = TensorType["n_times", "n_outputs"]
 
 class TemporalReceptiveField(BaseEstimator):
 
-    def __init__(self, tmin, tmax, sfreq, n_outputs,
+    def __init__(self, tmin, tmax, sfreq,
                  optim: Optional[Solver] = None,
+                 n_outputs: Optional[int] = None,
+                 output_names: Optional[List[str]] = None,
                  fit_intercept=False,
                  warm_start=True,
                  alpha=1,
@@ -36,6 +38,7 @@ class TemporalReceptiveField(BaseEstimator):
                  **kwargs):
         self.sfreq = sfreq
         self.n_outputs = n_outputs
+        self.output_names = output_names
 
         self.tmin = tmin
         self.tmax = tmax
@@ -59,6 +62,9 @@ class TemporalReceptiveField(BaseEstimator):
             L.warning(f"Unused arguments: {kwargs}")
 
     def _init_coef(self):
+        if self.n_outputs is None:
+            raise ValueError("n_outputs must be specified before initializing")
+
         self.coef_ = torch.randn(self.n_features_, len(self.delays_),
                                  self.n_outputs) * self.init_scale
 
@@ -75,7 +81,11 @@ class TemporalReceptiveField(BaseEstimator):
         if Y is not None:
             assert X.shape[0] == Y.shape[0]
             assert X.dtype == Y.dtype
-            assert Y.shape[1] == self.n_outputs
+            if self.n_outputs is not None:
+                assert Y.shape[1] == self.n_outputs
+            else:
+                self.n_outputs = Y.shape[1]
+
         # May not be available if we haven't been called with fit() yet.
         if hasattr(self, "n_features_"):
             assert X.shape[1] == self.n_features_
@@ -83,6 +93,8 @@ class TemporalReceptiveField(BaseEstimator):
         else:
             _, self.n_features_, self.n_delays_ = X.shape
         
+        # TODO when there is a dtype mismatch, this creates a copy. shouldn't
+        # we infer ideal coef dtype from X and Y? and follow suit
         if Y is not None:
             return (torch.as_tensor(X, dtype=torch.float32), 
                     torch.as_tensor(Y, dtype=torch.float32))
@@ -120,19 +132,23 @@ class TemporalReceptiveField(BaseEstimator):
         lhs = X_est.T @ X_est
         rhs = X_est.T @ Y
         if self.alpha is None:
-            self.coef_ = torch.linalg.lstsq(lhs, rhs).solution
+            pass
         elif self.alpha.ndim == 0:
             ridge = self.alpha * torch.eye(lhs.shape[0]).to(lhs)
-            self.coef_ = torch.linalg.lstsq(lhs + ridge, rhs).solution
+            lhs += ridge
         else:
             ridge = torch.diag(self.alpha.repeat_interleave(self.n_features_)).to(lhs)
-            self.coef_ = torch.linalg.lstsq(lhs + ridge, rhs).solution
+            lhs += ridge
+            
+        self.coef_ = torch.linalg.lstsq(lhs, rhs, driver="gels").solution
 
         # Reshape resulting coefficients
         self.coef_ = self.coef_.reshape((self.n_features_, self.n_delays_, self.n_outputs))
 
-        Y_pred = self.predict(X)
-        self.residuals_ = Y_pred - Y
+        # DEV we don't actually need this, not using predictive likelihood
+        # Y_pred = self.predict(X)
+        # self.residuals_ = Y_pred - Y
+
         return self
 
     def _loss_fn(self, X, Y: TRFResponse, include_l2=True) -> Union[torch.Tensor, Tuple[torch.Tensor]]:
@@ -220,7 +236,7 @@ class TemporalReceptiveField(BaseEstimator):
 
         with torch.no_grad():
             X = _reshape_for_est(X)
-            coef = self.coef_.reshape((-1, self.n_outputs))
+            coef = self.coef_.reshape((-1, self.n_outputs)).to(X.device)
             Y_pred = X @ coef
 
         if del_coef:

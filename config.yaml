@@ -50,11 +50,64 @@ datasets:
       model: GroNLP/gpt2-small-dutch
       n_candidates: 20000
 
+  heilbron2022:
+
+    subjects:
+      - 1
+      - 2
+      - 3
+      - 4
+      - 5
+      - 6
+      - 7
+      - 8
+      - 9
+      - 10
+      - 11
+      - 12
+      - 13
+      - 14
+      - 15
+      - 16
+      - 17
+      - 18
+      - 19
+    stories:
+      - old-man-and-the-sea
+    runs:
+      - 1
+      - 2
+      - 3
+      - 4
+      - 5
+      - 6
+      - 7
+      - 8
+      - 9
+      - 10
+      - 11
+      - 12
+      - 13
+      - 14
+      - 15
+      - 16
+      - 17
+      - 18
+      - 19
+
+    language_modeling:
+      model: EleutherAI/gpt-neo-2.7B
+      n_candidates: 10000
+
 language_modeling:
   model: distilgpt2
+  n_candidates: 10000
 
 fit:
   cv_strategy:
     trf-berp-fixed: search_alpha_threshold_lambda_priorscatter
     trf-berp-cannon: search_alpha_threshold_lambda_priorscatter
     trf: search_alpha
+    base_trf: search_alpha
+    trf_t1: search_alpha
+    trf-cannon: search_alpha

@@ -7,6 +7,7 @@ from sklearn.model_selection import KFold
 import torch
 
 from berp.datasets.base import BerpDataset, NestedBerpDataset
+from berp.datasets.base import assert_concatenatable, assert_compatible
 from berp.generators.stimulus import RandomStimulusGenerator
 
 
@@ -123,7 +124,17 @@ def test_subset_sensors(sensor_spec):
     assert ds.Y.shape[1] == 3
     assert ds2.Y.shape[1] == 2
     assert ds2.sensor_names == ["a", "c"]
-    torch.testing.assert_allclose(ds2.Y, ds.Y[:, [0, 2]])
+    torch.testing.assert_close(ds2.Y, ds.Y[:, [0, 2]])
+
+
+def test_subset_sensors_missing_str():
+    with pytest.raises(ValueError):
+        make_dataset().subset_sensors(["a", "d"], on_missing="raise")
+    make_dataset().subset_sensors(["a", "d"])
+    make_dataset().subset_sensors(["a", "d"], on_missing="ignore")
+
+    with pytest.raises(ValueError):
+        make_dataset().subset_sensors([])
 
 
 def test_average_sensors():
@@ -136,7 +147,7 @@ def test_average_sensors():
     assert ds.Y.shape[1] == 3
     assert ds2.Y.shape[1] == 1
     assert ds2.sensor_names == ["average_a_b_c"]
-    torch.testing.assert_allclose(ds2.Y, ds.Y.mean(dim=1, keepdim=True))
+    torch.testing.assert_close(ds2.Y, ds.Y.mean(dim=1, keepdim=True))
 
 
 def test_average_unnamed_sensors():
@@ -150,7 +161,7 @@ def test_average_unnamed_sensors():
     assert ds.Y.shape[1] == 3
     assert ds2.Y.shape[1] == 1
     assert ds2.sensor_names == ["average"]
-    torch.testing.assert_allclose(ds2.Y, ds.Y.mean(dim=1, keepdim=True))
+    torch.testing.assert_close(ds2.Y, ds.Y.mean(dim=1, keepdim=True))
 
 
 def test_select_features():
@@ -163,20 +174,37 @@ def test_select_features():
     dataset2.select_features(ts=["ts0"], variable=["var2"])
     dataset2_int = deepcopy(dataset)
     dataset2_int.select_features(ts=[0], variable=[1])
-    torch.testing.assert_allclose(dataset2.X_ts, dataset.X_ts[:, [0]])
-    torch.testing.assert_allclose(dataset2.X_ts, dataset2_int.X_ts)
-    torch.testing.assert_allclose(dataset2.X_variable, dataset.X_variable[:, [1]])
-    torch.testing.assert_allclose(dataset2.X_variable, dataset2_int.X_variable)
+    torch.testing.assert_close(dataset2.X_ts, dataset.X_ts[:, [0]])
+    torch.testing.assert_close(dataset2.X_ts, dataset2_int.X_ts)
+    torch.testing.assert_close(dataset2.X_variable, dataset.X_variable[:, [1]])
+    torch.testing.assert_close(dataset2.X_variable, dataset2_int.X_variable)
 
 
     # Test get_features here too
     ds2_ts, ds2_variable = dataset.get_features(ts=["ts0"], variable=["var2"])
-    torch.testing.assert_allclose(ds2_ts, dataset2.X_ts)
-    torch.testing.assert_allclose(ds2_variable, dataset2.X_variable)
+    torch.testing.assert_close(ds2_ts, dataset2.X_ts)
+    torch.testing.assert_close(ds2_variable, dataset2.X_variable)
 
     ds2_int_ts, ds2_int_variable = dataset.get_features(ts=[0], variable=[1])
-    torch.testing.assert_allclose(ds2_int_ts, dataset2.X_ts)
-    torch.testing.assert_allclose(ds2_int_variable, dataset2.X_variable)
+    torch.testing.assert_close(ds2_int_ts, dataset2.X_ts)
+    torch.testing.assert_close(ds2_int_variable, dataset2.X_variable)
+
+
+def test_select_features_missing():
+    ds = make_dataset()
+    ds.ts_feature_names = None
+    ds.variable_feature_names = None
+    with pytest.raises(ValueError):
+        ds.select_features(ts=["ts0"])
+
+    ds = make_dataset()
+    ds.ts_feature_names = [f"ts{x}" for x in range(ds.n_ts_features)]
+    ds.X_variable = torch.concat([ds.X_variable, 2 * ds.X_variable], dim=1)
+    ds.variable_feature_names = ["var1", "var2"]
+    with pytest.raises(ValueError):
+        ds.select_features(ts=["ts0"], variable=["var3"])
+    with pytest.raises(ValueError):
+        ds.select_features(ts=["ts3"], variable=["var2"])
 
 
 def test_select_features_drop_all_variable():
@@ -187,10 +215,25 @@ def test_select_features_drop_all_variable():
 
     dataset2 = deepcopy(dataset)
     dataset2.select_features(ts=None, variable=[])
-    torch.testing.assert_allclose(dataset2.X_ts, dataset.X_ts)
+    torch.testing.assert_close(dataset2.X_ts, dataset.X_ts)
     assert dataset2.X_variable.shape == (dataset.n_words, 0)
 
     # Test get_features here too
     ds2_ts, ds2_variable = dataset.get_features(ts=None, variable=[])
-    torch.testing.assert_allclose(ds2_ts, dataset2.X_ts)
+    torch.testing.assert_close(ds2_ts, dataset2.X_ts)
     assert ds2_variable.shape == (dataset.n_words, 0)
+
+
+def test_nested_different_sensors():
+    ds = make_dataset()
+
+    ds2 = make_dataset()
+    ds2.Y = ds2.Y[:, 1:]
+    ds2.sensor_names = ["c", "d"]
+
+    assert_compatible(ds, ds2)
+    with pytest.raises(AssertionError):
+        assert_concatenatable(ds, ds2)
+
+    # Shouldn't bork.
+    nested = NestedBerpDataset([ds, ds2])

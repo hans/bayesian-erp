@@ -54,5 +54,12 @@ class BaselinedScorer(Generic[Score]):
             score = score - baseline_score
             log_scores(X, score, tag="score/delta")
 
+        if score.ndim == 2:
+            # Aggregate over sensor axis
+            score = self.aggregation_fn(score, axis=-1)
+
+        # Mean over dataset folds
+        score = np.mean(score)
+
         tb_global_step()
-        return self.aggregation_fn(score)
+        return score

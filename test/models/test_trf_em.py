@@ -1,6 +1,7 @@
 from copy import deepcopy
 from dataclasses import replace
 import pickle
+import re
 from typing import List, Tuple
 
 import numpy as np
@@ -24,6 +25,9 @@ from berp.util import time_to_sample
 
 # Avoid saving lots of spurious tensorboard events files
 Tensorboard.disable()
+
+
+subject_re = re.compile(r"DKZ_\d/([^/]+)")
 
 
 @pytest.fixture(scope="session")
@@ -111,7 +115,6 @@ def trf(dataset: BerpDataset, optim):
         tmin=0,
         tmax=0.55,
         sfreq=dataset.sample_rate,
-        n_outputs=dataset.n_sensors,
         optim=optim,
         alpha=1e-2)
 
@@ -141,7 +144,8 @@ def group_em_estimator(synth_params: ModelParameters, dataset: BerpDataset,
                        model_param_grid: List[ModelParameters]):
     pipeline = GroupBerpTRFForwardPipeline(trf, params=model_param_grid,
         ts_feature_names=dataset.ts_feature_names,
-        variable_feature_names=dataset.variable_feature_names)
+        variable_feature_names=dataset.variable_feature_names,
+        encoder_key_re=subject_re)
     ret = BerpTRFEMEstimator(pipeline)
 
     # Prime the pipeline with two datasets.
@@ -162,6 +166,7 @@ def group_fixed_estimator(synth_params: ModelParameters, dataset: BerpDataset,
         trf,
         ts_feature_names=dataset.ts_feature_names,
         variable_feature_names=dataset.variable_feature_names,
+        encoder_key_re=subject_re,
         threshold=synth_params.threshold,
         confusion=synth_params.confusion,
         lambda_=synth_params.lambda_,
@@ -180,6 +185,7 @@ def group_cannon_estimator(synth_params: ModelParameters, dataset: BerpDataset,
         trf,
         ts_feature_names=dataset.ts_feature_names,
         variable_feature_names=dataset.variable_feature_names,
+        encoder_key_re=subject_re,
         threshold=synth_params.threshold,
         confusion=synth_params.confusion,
         lambda_=synth_params.lambda_,
@@ -204,6 +210,7 @@ def test_variable_trf_zero_overflow(trf: TemporalReceptiveField, dataset: BerpDa
             trf,
             ts_feature_names=dataset.ts_feature_names,
             variable_feature_names=dataset.variable_feature_names,
+            encoder_key_re=subject_re,
             params=[PartiallyObservedModelParameters()],
             variable_trf_zero_left=left_zero,
             variable_trf_zero_right=right_zero
@@ -343,6 +350,7 @@ class TestGroupCannon:
         Test that the Cannon pipeline works
         """
         params = group_cannon_estimator.params[0]
+        group_cannon_estimator._fit_recognition_quantiles(NestedBerpDataset([dataset]))
         quantiles = group_cannon_estimator._get_recognition_quantiles(dataset, params)
 
         assert quantiles.min() >= 0
@@ -370,16 +378,33 @@ class TestGroupCannon:
                 expected_features
             )
 
+    def test_fit(self,
+                 group_cannon_estimator: trf_em.GroupBerpCannonTRFForwardPipeline,
+                 dataset: BerpDataset):
+        dataset.name = "DKZ_1/subj1"
+        group_cannon_estimator.prime(dataset)
+
+        assert not hasattr(group_cannon_estimator, "recognition_quantile_edges_")
+        group_cannon_estimator.fit(NestedBerpDataset([dataset]))
+        assert group_cannon_estimator.recognition_quantile_edges_ is not None
+        edges = group_cannon_estimator.recognition_quantile_edges_.clone()
+
+        dataset.phoneme_onsets = dataset.phoneme_onsets + 0.1
+        group_cannon_estimator.predict(dataset)
+        torch.testing.assert_allclose(edges, group_cannon_estimator.recognition_quantile_edges_,
+            msg="Quantile edges should not be re-fit when predicting")
 
 
 class TestGroupVanilla:
 
     def _make_trf_pipe(self, nested: NestedBerpDataset, **kwargs):
         kwargs = dict(tmin=0, tmax=2, sfreq=nested.sample_rate,
-                      alpha=0, n_outputs=nested.n_sensors) | kwargs
+                      alpha=0) | kwargs
         trf = TemporalReceptiveField(**kwargs)
-        trf_pipe = GroupVanillaTRFForwardPipeline(encoder=trf, ts_feature_names=nested.ts_feature_names,
-                                                  variable_feature_names=nested.variable_feature_names)
+        trf_pipe = GroupVanillaTRFForwardPipeline(
+            encoder=trf, ts_feature_names=nested.ts_feature_names,
+            encoder_key_re=subject_re,
+            variable_feature_names=nested.variable_feature_names)
         trf_pipe.prime(nested)
         return trf_pipe
 

@@ -1,0 +1,796 @@
+from collections import defaultdict
+from pathlib import Path
+import itertools
+import re
+import yaml
+
+from snakemake.remote.HTTP import RemoteProvider as HTTPRemoteProvider
+HTTP = HTTPRemoteProvider()
+
+# TODO config schema?
+
+# Project root directory
+root_dir = Path(workflow.basedir).parent
+meg_masc_dir = workflow.current_basedir
+
+model = config["language_modeling"]["model"]
+montage = "biosemi128"
+
+
+# # Glossary
+#
+# Task = stimulus = story. Tasks are indexed by integers and are ordered the same
+# across subjects/sessions.
+# TODO double-check this for all subjects+sessions
+#
+# # Other notes
+#
+# - NB that the general variable order for naming files here is
+#   `task`, `subject`, `session`. This matches the Berp standard, where subject-session-level
+#   data are categorized within stimulus.
+
+SUBJECTS, STORIES, RUNS = config['subjects'], config['stories'], config['runs']
+
+
+wildcard_constraints:
+    subject = "\d+",
+    story_name = "[^./]+",
+    run = "\d+",
+    model = "[^/]+(?:/[^/]+){0,1}",
+    n_candidates = "\d+",
+
+    results_paradigm_label = "[\w_]*"
+
+
+def take_first(expr, **wildcards):
+    """
+    Produce inputs drawing the first element of each of the given `wildcards`.
+    This is useful when using denormalized data and we don't care which of the inputs we
+    use -- we just need some reference.
+    """
+    return expand(expr, **{wildcard: values[0] for wildcard, values in wildcards.items()})
+
+
+def f(*args, **kwargs):
+    print(args)
+    print(kwargs)
+    sys.exit(1)
+
+
+rule tokenize:
+    input: "data/raw-text/{story_name}.txt"
+    output: "data/tokenized/{model}/{story_name}.txt"
+    shell:
+        """
+        papermill --log-output \
+            scripts/heilbron2022/tokenize.ipynb /dev/null \
+            -p model {wildcards.model} \
+            -p input_path {input} \
+            -p output_path {output}
+        """
+
+
+# Match up force-aligned corpus with model-tokenized corpus.
+# This will allow us to use token-level features computed on the latter corpus
+# together with the presentation data from the former.
+rule align_with_tokens:
+    input:
+        presentation_words = "data/presentation/{story_name}/word.csv",
+        presentation_phonemes = "data/presentation/{story_name}/phoneme.csv",
+        tokenized = "data/tokenized/{model}/{story_name}.txt"
+    output:
+        aligned_directory = directory("data/aligned/{model}/{story_name}"),
+        aligned_words = "data/aligned/{model}/{story_name}/word.csv",
+        aligned_phonemes = "data/aligned/{model}/{story_name}/phoneme.csv"
+    shell:
+        """
+        papermill --log-output \
+            scripts/heilbron2022/align_with_tokens.ipynb /dev/null \
+            -p presentation_words_path {input.presentation_words} \
+            -p presentation_phonemes_path {input.presentation_phonemes} \
+            -p tokenized_path {input.tokenized} \
+            -p story_name {wildcards.story_name} \
+            -p output_dir {output.aligned_directory}
+        """
+
+
+rule fetch_frequency_data:
+    input:
+        HTTP.remote("ugent.be/pp/experimentele-psychologie/en/research/documents/subtlexus/subtlexus2.zip")
+    output:
+        "data/frequency/subtlexus2.csv"
+    shell:
+        "unzip -p {input} SUBTLEXus74286wordstextversion.txt > {output}"
+
+
+# Prepare IPA pronunciation dictionary by loading CMUdict and performing an automatic
+# conversion.
+rule fetch_and_convert_cmudict:
+    input:
+        HTTP.remote("raw.githubusercontent.com/Alexir/CMUdict/master/cmudict-0.7b")
+    output:
+        "data/cmudict_ipa.csv"
+    shell:
+        """
+        papermill --log-output \
+            scripts/heilbron2022/convert_cmudict.ipynb /dev/null \
+            -p input_path {input} \
+            -p output_path {output}
+        """
+
+
+# Fetch raw confusion data from
+# Cutler, A., Weber, A., Smits, R. & Cooper, N. (2004).
+# Patterns of English phoneme confusions by native and non-native listeners.
+# Journal of the Acoustical Society of America, 116, 3668-3678.
+rule fetch_confusion_data:
+    input:
+        consonants = HTTP.remote("www.mpi.nl/world/persons/private/anne/AEcons.zip"),
+        vowels = HTTP.remote("www.mpi.nl/world/persons/private/anne/AEvowel.zip")
+    output:
+        consonants = "data/confusion_cutler2004/consonants.xls",
+        vowels = "data/confusion_cutler2004/vowels.xls"
+    shell:
+        """
+        unzip -p {input.consonants} AECons.xls > {output.consonants}
+        unzip -p {input.vowels} AEVowe.xls > {output.vowels}
+        """
+
+
+# Run a language model on the resulting aligned text inputs and generate a
+# NaturalLanguageStimulus, representing word- and phoneme-level prior predictive
+# distributions.
+rule run_language_modeling:
+    input:
+        tokenized = "data/tokenized/{model}/{story_name}.txt",
+        aligned_words = "data/aligned/{model}/{story_name}/word.csv",
+        aligned_phonemes = "data/aligned/{model}/{story_name}/phoneme.csv",
+
+        cmu_ipa_dict = "data/cmudict_ipa.csv",
+        frequency_data = "data/frequency/subtlexus2.csv"
+    output:
+        stimulus_dir = directory("data/stimulus/{model}/n{n_candidates}/{story_name}"),
+        stimuli = expand("data/stimulus/{{model}}/n{{n_candidates}}/{{story_name}}/run{run}.pkl", run=RUNS)
+    shell:
+        """
+        papermill --log-output \
+            scripts/heilbron2022/run_language_model.ipynb /dev/null \
+            -p tokenized_path {input.tokenized} \
+            -p aligned_words_path {input.aligned_words} \
+            -p aligned_phonemes_path {input.aligned_phonemes} \
+            -p cmu_ipa_dict_path {input.cmu_ipa_dict} \
+            -p vocab_path {input.frequency_data} \
+            -p story_name {wildcards.story_name} \
+            -p model {wildcards.model} \
+            -p n_candidates {wildcards.n_candidates} \
+            -p output_dir {output.stimulus_dir}
+        """
+
+
+# Produce a BerpDataset from the aligned corpora for a single subject/run.
+rule produce_dataset:
+    input:
+        aligned_words = "data/aligned/{model}/{story_name}/word.csv",
+        aligned_phonemes = "data/aligned/{model}/{story_name}/phoneme.csv",
+
+        stimulus = "data/stimulus/{model}/n{n_candidates}/{story_name}/run{run}.pkl",
+
+        run_Xy = "data/run_Xy/{story_name}/sub{subject}/run{run}.h5"
+    output:
+        dataset = "data/dataset/{model}/n{n_candidates}/{story_name}/sub{subject}/run{run}.pkl"
+
+    shell:
+        """
+        papermill --log-output \
+            scripts/heilbron2022/produce_dataset.ipynb /dev/null \
+            -p story_name {wildcards.story_name} \
+            -p subject {wildcards.subject} \
+            -p run {wildcards.run} \
+            -p aligned_words {input.aligned_words} \
+            -p aligned_phonemes {input.aligned_phonemes} \
+            -p stimulus {input.stimulus} \
+            -p run_Xy {input.run_Xy} \
+            -p output_path {output.dataset}
+        """
+
+def hydra_param(obj):
+    """
+    Prepare the given object for use as a Hydra CLI / YAML override.
+    """
+    if isinstance(obj, snakemake.io.Namedlist):
+        obj = list(obj)
+    return yaml.safe_dump(obj, default_flow_style=True, width=float("inf")).strip()
+
+
+def make_stimulus_dict(stimulus_paths, include_parent=False):
+    """
+    Generate stimulus dict mapping stimulus name -> stimulus path
+    from the given stimulus paths.
+    """
+    return {
+        (f"{Path(stimulus).parent.name}/{Path(stimulus).stem}" if include_parent
+         else f"{Path(stimulus).stem}"): stimulus
+        for stimulus in stimulus_paths
+    }
+
+
+# Produce a single BerpDataset per subject, concatenating runs.
+# Hack, we do this in a single rule execution per model/story because
+# the script writes to a single shared output stimulus, and snakemake doesn't
+# like that, and I don't have the time to restructure things right now.
+rule produce_concatenated_datasets:
+    input:
+        datasets = expand(
+            "data/dataset/{{model}}/{{story_name}}/sub{subject}/run{run}.pkl",
+            subject=SUBJECTS, run=RUNS, allow_missing=True),
+        stimuli = expand(
+            "data/stimulus/{{model}}/{{story_name}}/run{run}.pkl",
+            run=RUNS, allow_missing=True)
+
+    output:
+        merged_dataset = expand(
+            "data/dataset/{{model}}/{{story_name}}/sub{subject}.pkl",
+            subject=SUBJECTS),
+        merged_stimulus = "data/stimulus/{model}/{story_name}.pkl"
+
+    run:
+        run_re = re.compile(r"run(\d+)")
+        subject_re = re.compile(r"sub(\d+)")
+        grouped_datasets = defaultdict(list)
+        for dataset in input.datasets:
+            subject = int(subject_re.search(dataset).group(1))
+            run = int(run_re.search(dataset).group(1))
+            grouped_datasets[subject].append((run, dataset))
+
+        # Sort by run number
+        grouped_datasets = {s: sorted(rds) for s, rds in grouped_datasets.items()}
+
+        # Check that we have the same number of runs for each subject
+        assert len(set(len(rds) for rds in grouped_datasets.values())) == 1
+
+        base_params = {
+            "datasets": None,
+            "stimuli": make_stimulus_dict(input.stimuli, include_parent=True),
+            "target_dataset_name": None,
+            "target_stimulus_name": wildcards.story_name,
+
+            "out_dataset": None,
+            "out_stimulus": output.merged_stimulus,
+            "check_stimulus": Path(output.merged_stimulus).exists(),
+            "save_stimulus": True,
+        }
+
+        for subject, datasets in grouped_datasets.items():
+            params = base_params | {
+                "datasets": [ds for _, ds in datasets],
+                "target_dataset_name": f"{wildcards.story_name}/sub{subject}",
+
+                "out_dataset": next(iter(path for path in output.merged_dataset if f"sub{subject}" in path)),
+            }
+
+            shell(f"""
+            papermill --log-output \
+                scripts/heilbron2022/concatenate_datasets.ipynb /dev/null \
+                -y "{yaml.safe_dump(params)}"
+            """)
+
+
+# Fit a "base baseline" model which does not include any variable-onset features (no
+# word surprisal or word frequency).
+def run_base_baseline(input, wildcards, params, output, add_stimuli_parent_dir=False, dataset_spec="heilbron"):
+    dataset_path_str = hydra_param(input.datasets)
+
+    stimulus_dict = make_stimulus_dict(input.stimuli, include_parent=add_stimuli_parent_dir)
+    stimulus_dict_str = hydra_param(stimulus_dict)
+
+    cv_spec = config["fit"]["cv_strategy"][params.berp_model]
+
+    shell("""
+    export PYTHONPATH=.
+    python scripts/fit_em.py \
+        model={params.berp_model} \
+        features=heilbron \
+        'features.variable_feature_names=[]' \
+        dataset={dataset_spec} \
+        'dataset.paths={dataset_path_str}' \
+        +dataset.stimulus_paths='{stimulus_dict_str}' \
+        cv={cv_spec} \
+        solver=adam \
+        hydra.run.dir={output.trace} \
+        model.device=cuda dataset.device=cuda
+    """)
+
+
+rule fit_base_baseline_model_concatenated:
+    input:
+        datasets = expand(
+            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}.pkl",
+            subject=SUBJECTS, story_name=STORIES, allow_missing=True),
+        stimuli = expand(
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}.pkl",
+            story_name=STORIES, allow_missing=True)
+
+    params:
+        berp_model = "trf"
+    output:
+        trace = directory("results_concatenated/{model}/n{n_candidates}/base_trf")
+
+    run:
+        run_base_baseline(input, wildcards, params, output, add_stimuli_parent_dir=False)
+
+
+rule fit_base_baseline_model:
+    input:
+        datasets = expand(
+            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
+        stimuli = expand(
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            story_name=STORIES, run=RUNS, allow_missing=True)
+
+    params:
+        berp_model = "trf"
+    output:
+        trace = directory("results/{model}/n{n_candidates}/base_trf")
+
+    run:
+        run_base_baseline(input, wildcards, params, output, add_stimuli_parent_dir=True)
+
+
+rule fit_base_baseline_model_wide:
+    input:
+        datasets = expand(
+            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
+        stimuli = expand(
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            story_name=STORIES, run=RUNS, allow_missing=True),
+
+    params:
+        berp_model = "trf"
+    output:
+        trace = directory("results_wide/{model}/n{n_candidates}/base_trf")
+
+    run:
+        run_base_baseline(input, wildcards, params, output, add_stimuli_parent_dir=True, dataset_spec="heilbron_wide")
+
+
+rule fit_base_baseline_model_vart:
+    input:
+        datasets = expand(
+            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
+        stimuli = expand(
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            story_name=STORIES, run=RUNS, allow_missing=True)
+
+    params:
+        berp_model = "trf_t{tmax}"
+    output:
+        trace = directory("results/{model}/n{n_candidates}/base_trf_t{tmax}")
+
+    run:
+        run_base_baseline(input, wildcards, params, output, add_stimuli_parent_dir=True)
+
+
+def run_baseline(input, wildcards, params, output, add_stimuli_parent_dir=False, dataset_spec="heilbron"):
+    dataset_path_str = hydra_param(input.datasets)
+
+    stimulus_dict = make_stimulus_dict(input.stimuli, include_parent=add_stimuli_parent_dir)
+    stimulus_dict_str = hydra_param(stimulus_dict)
+
+    cv_spec = config["fit"]["cv_strategy"][params.berp_model]
+
+    shell("""
+    export PYTHONPATH=.
+    python scripts/fit_em.py \
+        model={params.berp_model} \
+        features=heilbron \
+        'features.variable_feature_names=[word_frequency, word_surprisal]' \
+        dataset={dataset_spec} \
+        'dataset.paths={dataset_path_str}' \
+        +dataset.stimulus_paths='{stimulus_dict_str}' \
+        cv={cv_spec} \
+        solver=adam \
+        hydra.run.dir={output.trace} \
+        model.device=cuda dataset.device=cuda
+    """)
+
+
+rule fit_baseline_model_concatenated:
+    input:
+        datasets = expand(
+            "data/dataset/{{model}}/{story_name}/sub{subject}.pkl",
+            subject=SUBJECTS, story_name=STORIES, allow_missing=True),
+        stimuli = expand(
+            "data/stimulus/{{model}}/{story_name}.pkl",
+            story_name=STORIES, allow_missing=True),
+
+        baseline_model = "results_concatenated/{model}/base_trf"
+
+    params:
+        berp_model = "trf"
+    output:
+        trace = directory("results_concatenated/{model}/trf")
+
+    run:
+        run_baseline(input, wildcards, params, output, add_stimuli_parent_dir=False)
+
+
+rule fit_baseline_model:
+    input:
+        datasets = expand(
+            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
+        stimuli = expand(
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            story_name=STORIES, run=RUNS, allow_missing=True),
+
+        baseline_model = "results/{model}/n{n_candidates}/base_trf"
+
+    params:
+        berp_model = "trf"
+    output:
+        trace = directory("results/{model}/n{n_candidates}/trf")
+
+    run:
+        run_baseline(input, wildcards, params, output, add_stimuli_parent_dir=True)
+
+
+rule fit_baseline_model_wide:
+    input:
+        datasets = expand(
+            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
+        stimuli = expand(
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            story_name=STORIES, run=RUNS, allow_missing=True),
+
+        baseline_model = "results_wide/{model}/n{n_candidates}/base_trf"
+
+    params:
+        berp_model = "trf"
+    output:
+        trace = directory("results_wide/{model}/n{n_candidates}/trf")
+
+    run:
+        run_baseline(input, wildcards, params, output, add_stimuli_parent_dir=True, dataset_spec="heilbron_wide")
+
+
+rule fit_baseline_model_vart:
+    input:
+        datasets = expand(
+            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
+        stimuli = expand(
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            story_name=STORIES, run=RUNS, allow_missing=True),
+
+        baseline_model = "results/{model}/n{n_candidates}/base_trf_t{tmax}"
+
+    params:
+        berp_model = "trf_t{tmax}"
+    output:
+        trace = directory("results/{model}/n{n_candidates}/trf_t{tmax}")
+
+    run:
+        run_baseline(input, wildcards, params, output, add_stimuli_parent_dir=True)
+
+
+def validate_wildcards_for_confusion(wildcards):
+    if wildcards.model != config["language_modeling"]["model"]:
+        raise ValueError(f"config.language_modeling.model is {config['language_modeling']['model']}, but wildcards.model is {wildcards.model}. "
+                          "Change YAML config or wildcards to match.")
+
+
+rule prepare_confusion:
+    input:
+        stimulus = lambda _: take_first(
+            "data/stimulus/{model}/n{n_candidates}/{story_name}/run{run}.pkl",
+            story_name=STORIES, run=RUNS,
+            model=[config["language_modeling"]["model"]],
+            n_candidates=[config["language_modeling"]["n_candidates"]]),
+
+        confusion_consonants = "data/confusion_cutler2004/consonants.xls",
+        confusion_vowels = "data/confusion_cutler2004/vowels.xls"
+    output:
+        confusion = "data/confusion.npz"
+
+    shell:
+        """
+        export PYTHONPATH=.
+        papermill --log-output \
+            scripts/heilbron2022/prepare_confusion.ipynb /dev/null \
+            -p stimulus_path {input.stimulus} \
+            -p data_consonants {input.confusion_consonants} \
+            -p data_vowels {input.confusion_vowels} \
+            -p output_path {output.confusion}
+        """
+
+
+def run_berp(input, wildcards, params, output, add_stimuli_parent_dir=False, dataset_spec="heilbron"):
+    dataset_path_str = hydra_param(input.datasets)
+
+    stimulus_dict = make_stimulus_dict(input.stimuli, include_parent=add_stimuli_parent_dir)
+    stimulus_dict_str = hydra_param(stimulus_dict)
+
+    cv_spec = config["fit"]["cv_strategy"][wildcards.berp_model]
+
+    shell("""
+    export PYTHONPATH=.
+    python scripts/fit_em.py \
+        model={wildcards.berp_model} \
+        features=heilbron \
+        'features.variable_feature_names=[recognition_onset, word_frequency, word_surprisal]' \
+        dataset={dataset_spec} \
+        'dataset.paths={dataset_path_str}' \
+        +dataset.stimulus_paths='{stimulus_dict_str}' \
+        model.confusion_path={input.confusion} \
+        cv={cv_spec} \
+        solver=adam \
+        hydra.run.dir={output.trace} \
+        model.device=cuda dataset.device=cuda
+    """)
+
+
+rule fit_model_concatenated:
+    input:
+        datasets = expand(
+            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}.pkl",
+            subject=SUBJECTS, story_name=STORIES, allow_missing=True),
+        stimuli = expand(
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}.pkl",
+            story_name=STORIES, allow_missing=True),
+
+        baseline_model = "results_concatenated/{model}/n{n_candidates}/trf",
+
+        confusion = "data/confusion.npz"
+
+    params:
+        # HACK: enforce consistency between wildcards and config
+        # I know this is un-Snakemake-y but it's the way things are for now
+        validate_wildcards_for_confusion
+
+    output:
+        trace = directory("results_concatenated/{model}/n{n_candidates}/{berp_model}")
+
+    run:
+        run_berp(input, wildcards, params, output, add_stimuli_parent_dir=False)
+
+
+rule fit_model:
+    input:
+        datasets = expand(
+            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
+        stimuli = expand(
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            story_name=STORIES, run=RUNS, allow_missing=True),
+
+        baseline_model = "results/{model}/n{n_candidates}/trf",
+
+        confusion = "data/confusion.npz"
+
+    params:
+        # HACK: enforce consistency between wildcards and config
+        # I know this is un-Snakemake-y but it's the way things are for now
+        validate_wildcards_for_confusion
+
+    output:
+        trace = directory("results/{model}/n{n_candidates}/{berp_model}")
+
+    run:
+        run_berp(input, wildcards, params, output, add_stimuli_parent_dir=True)
+
+
+rule fit_model_wide:
+    input:
+        datasets = expand(
+            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
+        stimuli = expand(
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            story_name=STORIES, run=RUNS, allow_missing=True),
+
+        confusion = "data/confusion.npz"
+
+    params:
+        # HACK: enforce consistency between wildcards and config
+        # I know this is un-Snakemake-y but it's the way things are for now
+        validate_wildcards_for_confusion
+
+    output:
+        trace = directory("results_wide/{model}/n{n_candidates}/{berp_model}")
+
+    run:
+        run_berp(input, wildcards, params, output, add_stimuli_parent_dir=True, dataset_spec="heilbron_wide")
+
+
+def run_berp_cannon(input, wildcards, params, output, add_stimuli_parent_dir=False, dataset_spec="heilbron"):
+    dataset_path_str = hydra_param(input.datasets)
+
+    stimulus_dict = make_stimulus_dict(input.stimuli, include_parent=add_stimuli_parent_dir)
+    stimulus_dict_str = hydra_param(stimulus_dict)
+
+    cv_spec = config["fit"]["cv_strategy"][wildcards.berp_model]
+
+    shell("""
+    export PYTHONPATH=.
+    python scripts/fit_em.py \
+        model={wildcards.berp_model} \
+        model.n_quantiles={wildcards.n_quantiles} \
+        features=heilbron \
+        'features.variable_feature_names=[recognition_onset, word_frequency, word_surprisal]' \
+        dataset={dataset_spec} \
+        'dataset.paths={dataset_path_str}' \
+        +dataset.stimulus_paths='{stimulus_dict_str}' \
+        model.confusion_path={input.confusion} \
+        cv={cv_spec} \
+        solver=adam \
+        hydra.run.dir={output.trace} \
+        model.device=cuda dataset.device=cuda
+    """)
+
+
+rule fit_cannon_model:
+    input:
+        datasets = expand(
+            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
+        stimuli = expand(
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            story_name=STORIES, run=RUNS, allow_missing=True),
+
+        confusion = "data/confusion.npz"
+
+    params:
+        # HACK: enforce consistency between wildcards and config
+        # I know this is un-Snakemake-y but it's the way things are for now
+        validate_wildcards_for_confusion
+
+    output:
+        trace = directory("results_cannon/{model}/n{n_candidates}/{berp_model}_{n_quantiles}quantiles")
+
+    run:
+        run_berp_cannon(input, wildcards, params, output, add_stimuli_parent_dir=True)
+
+
+# Can't figure out why `fit_cannon_model` won't apply to this, just forcing it for now
+rule fit_vanilla_cannon_model:
+    input:
+        datasets = expand(
+            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
+        stimuli = expand(
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            story_name=STORIES, run=RUNS, allow_missing=True),
+
+        confusion = "data/confusion.npz"
+
+    params:
+        # HACK: enforce consistency between wildcards and config
+        # I know this is un-Snakemake-y but it's the way things are for now
+        validate_wildcards_for_confusion
+
+    output:
+        trace = directory("results_cannon/{model}/n{n_candidates}/trf-cannon_{n_quantiles}quantiles")
+
+    run:
+        wildcards.berp_model = "trf-cannon"
+        run_berp_cannon(input, wildcards, params, output, add_stimuli_parent_dir=True)
+
+
+rule fit_cannon_model_wide:
+    input:
+        datasets = expand(
+            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
+        stimuli = expand(
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            story_name=STORIES, run=RUNS, allow_missing=True),
+
+        confusion = "data/confusion.npz"
+
+    params:
+        # HACK: enforce consistency between wildcards and config
+        # I know this is un-Snakemake-y but it's the way things are for now
+        validate_wildcards_for_confusion
+
+    output:
+        trace = directory("results_cannon_wide/{model}/n{n_candidates}/{berp_model}_{n_quantiles}quantiles")
+
+    run:
+        run_berp_cannon(input, wildcards, params, output, add_stimuli_parent_dir=True, dataset_spec="heilbron_wide")
+
+
+rule fit_vanilla_cannon_model_wide:
+    input:
+        datasets = expand(
+            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
+        stimuli = expand(
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            story_name=STORIES, run=RUNS, allow_missing=True),
+
+        confusion = "data/confusion.npz"
+
+    params:
+        # HACK: enforce consistency between wildcards and config
+        # I know this is un-Snakemake-y but it's the way things are for now
+        validate_wildcards_for_confusion
+
+    output:
+        trace = directory("results_cannon_wide/{model}/n{n_candidates}/trf-cannon_{n_quantiles}quantiles")
+
+    run:
+        wildcards.berp_model = "trf-cannon"
+        run_berp_cannon(input, wildcards, params, output, add_stimuli_parent_dir=True, dataset_spec="heilbron_wide")
+
+
+#############
+
+
+rule evaluate_significance:
+    input:
+        "results{results_paradigm_label}/{model}/n{n_candidates}/{model_run_name}"
+
+    output:
+        "stats/{results_paradigm_label}/{model}/n{n_candidates}/{model_run_name}/significance.ipynb"
+
+    shell:
+        """
+        papermill --log-output \
+            "scripts/stats/test coef significance.ipynb" \
+            {output} \
+            -p model_dir {input} \
+            -p montage biosemi128
+        """
+
+
+# TODO too fancy for right now whatever
+# # Evaluate vs a baseline cannon model with matched stimulus data and matched paradigm
+# rule evaluate_cannon:
+#     input:
+#         model_dir = "results{results_paradigm_label}/{model}/n{n_candidates}/trf-berp-cannon_{model_run_name}",
+#         base_model_dir = "results{results_paradigm_label}/{model}/n{n_candidates}/{base_model}"
+
+#     output:
+#         "stats/{results_paradigm_label}/{model}/n{n_candidates}/trf-berp-cannon_{model_run_name}/generalization_{base_model}.ipynb"
+
+#     run:
+#         paradigm = wildcards.results_paradigm_label.lstrip("_")
+
+#         shell("""
+#         papermill --log-output \
+#             "scripts/evaluate cannon.ipynb \
+#             {output} \
+#             -p workflow heilbron2022 \
+#             -p model {wildcards.model}/n{wildcards.n_candidates} \
+#             -p base_model [{paradigm}, {base_model}] \
+#             -p full_model [{paradigm}, trf-berp-cannon_{model_run_name}]
+#             -p device cpu
+#         """)
+
+
+# # Evaluate vs a baseline model with matched stimulus data and matched paradigm
+# rule evaluate_cannon_baseline:
+#     input:
+#         model_dir = "results{results_paradigm_label}/{model}/n{n_candidates}/{model_run_name}",
+#         base_model_dir = "results_wide/{model}/n{n_candidates}/{base_model}"
+
+#     output:
+#         "stats/{results_paradigm_label}/{model}/n{n_candidates}/{model_run_name}/generalization_{base_model}.ipynb"
+
+#     run:
+#         paradigm = wildcards.results_paradigm_label.lstrip("_")
+
+#         shell("""
+#         papermill --log-output \
+#             "scripts/evaluate cannon.ipynb \
+#             {output} \
+#             -p workflow heilbron2022 \
+#             -p model {wildcards.model}/n{wildcards.n_candidates} \
+#             -p base_model [{paradigm}, {base_model}] \
+#             -p full_model [{paradigm}, trf-berp-cannon_{model_run_name}]
+#             -p device cpu
+#         """)

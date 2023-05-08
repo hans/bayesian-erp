@@ -20,3 +20,11 @@ module gillis2021:
     prefix: "workflow/gillis2021"
 
 use rule * from gillis2021 as gillis2021_*
+
+
+module heilbron2022:
+    snakefile: "workflow/heilbron2022/Snakefile"
+    config: make_merged_config("heilbron2022")
+    prefix: "workflow/heilbron2022"
+
+use rule * from heilbron2022 as heilbron2022_*
