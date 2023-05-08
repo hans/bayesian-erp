@@ -375,7 +375,7 @@ class BerpDataset:
                     sensor_idx = self.sensor_names.index(sensor)
                 except ValueError:
                     if on_missing == "warn":
-                        L.warn(f"Sensor name {sensor} not found.")
+                        L.warning(f"Sensor name {sensor} not found.")
                     elif on_missing == "raise":
                         raise ValueError(f"Sensor name {sensor} not found.")
                     elif on_missing == "ignore":
