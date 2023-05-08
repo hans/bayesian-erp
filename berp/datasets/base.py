@@ -12,7 +12,7 @@ from torchtyping import TensorType
 from typeguard import typechecked
 
 from berp.datasets import NaturalLanguageStimulus
-from berp.typing import DIMS, is_log_probability, is_positive, is_nonnegative
+from berp.typing import DIMS, floating, is_log_probability, is_positive, is_nonnegative
 
 L = logging.getLogger(__name__)
 
@@ -54,30 +54,30 @@ class BerpDataset:
 
     sample_rate: int
 
-    word_onsets: TensorType[B, float, is_nonnegative]
+    word_onsets: TensorType[B, floating, is_nonnegative]
     """
     Onset of each word in seconds, relative to the start of the sequence.
     """
 
-    word_offsets: TensorType[B, float, is_nonnegative]
+    word_offsets: TensorType[B, floating, is_nonnegative]
     """
     Offset of each word in seconds, relative to the start of the sequence.
     """
 
-    phoneme_onsets: TensorType[B, N_P, float, is_nonnegative]
+    phoneme_onsets: TensorType[B, N_P, floating, is_nonnegative]
     """
     Onset of each phoneme within each word in seconds, relative to the start of
     the corresponding word. Column axis should be padded with 0s.
     """
 
-    X_ts: TensorType[T, N_F_T, float]
+    X_ts: TensorType[T, N_F_T, floating]
 
-    X_variable: TensorType[B, N_F, float]
+    X_variable: TensorType[B, N_F, floating]
     """
     Word-level features whose onset is to be determined by the model.
     """
 
-    Y: TensorType[T, S, float]
+    Y: TensorType[T, S, floating]
     """
     Response data.
     """
@@ -189,7 +189,7 @@ class BerpDataset:
         return self.p_candidates.shape[1]
     
     @property
-    def phoneme_onsets_global(self) -> TensorType[B, N_P, float, is_nonnegative]:
+    def phoneme_onsets_global(self) -> TensorType[B, N_P, floating, is_nonnegative]:
         """
         Onset of each phoneme within each word in seconds, relative to the start of
         the time series.
@@ -197,7 +197,7 @@ class BerpDataset:
         return self.word_onsets[:, None] + self.phoneme_onsets
 
     @property
-    def phoneme_offsets(self) -> TensorType[B, N_P, float, is_nonnegative]:
+    def phoneme_offsets(self) -> TensorType[B, N_P, floating, is_nonnegative]:
         """
         Offset of each phoneme within each word in seconds, relative to the onset of
         the word.
@@ -208,7 +208,7 @@ class BerpDataset:
         ], 1)
 
     @property
-    def phoneme_offsets_global(self) -> TensorType[B, N_P, float, is_nonnegative]:
+    def phoneme_offsets_global(self) -> TensorType[B, N_P, floating, is_nonnegative]:
         """
         Offset of each phoneme within each word in seconds, relative to the start of
         the time series.

@@ -62,6 +62,17 @@ class DIMS:
     """
 
 
+class FloatingDetail(TensorDetail):
+    def check(self, t: torch.Tensor) -> bool:
+        return torch.is_floating_point(t)
+
+    def __repr__(self) -> str:
+        return "FloatingDetail"
+    
+    @classmethod
+    def tensor_repr(cls, t: torch.Tensor) -> str:
+        return repr(t)
+
 class ProbabilityDetail(TensorDetail):
     def check(self, t: torch.Tensor) -> bool:
         return bool(constraints.unit_interval.check(t).all())
@@ -159,6 +170,7 @@ class ConstraintDetail(TensorDetail):
         return repr(t)
 
 
+floating = FloatingDetail()
 is_probability = ProbabilityDetail()
 is_log_probability = LogProbabilityDetail()
 is_positive = ConstraintDetail(constraints.positive)
