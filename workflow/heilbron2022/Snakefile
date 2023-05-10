@@ -40,6 +40,7 @@ wildcard_constraints:
     n_candidates = "\d+",
     evaluation = "([^/]+)",
 
+    evaluation = "[\w_]*",
     results_paradigm_label = "[\w_]*"
 
 

@@ -182,6 +182,7 @@ cmudict_overrides = {
 }
 
 ipa_chars = set(cmu_ipa_mapping.values())
+syllable_stress_chars = {".": 0, "ˈ": 1, "ˌ": 2}
 
 
 class Phonemizer:
@@ -194,16 +195,33 @@ class Phonemizer:
 
     def __init__(self, mapping_df: pd.DataFrame):
         self.mapping: Dict[str, Tuple[str, ...]] = {}
+        # Mapping between word forms and their IPA pronunciations
+
+        self.syllables: Dict[str, Tuple[Tuple[int, int], ...]] = {}
+        # Mapping between word forms and list of syllable descriptors,
+        # each a phoneme index (syllable onset phoneme) and a syllable
+        # type (0 = unstressed, 1 = primary stress, 2 = secondary stress)
 
         # Parse into a sequence of sounds (possibly incorporating
         # IPA dipthongs).
         # Take the first pronunciation idx for each word.
         mapping_df = mapping_df.sort_values(["word", "pronunciation_idx"])
         for word, pronunciation_rows in tqdm(mapping_df.groupby("word")):
-            pronunciation = tuple(pronunciation_rows.pronunciation.iloc[0].split(" "))
+            pronunciation = tuple(pronunciation_rows.pronunciation_syllable.iloc[0].split(" "))
+
+            i = 0
+            syllables = []
+            pronunciation_chars = []
             for phon in pronunciation:
-                assert phon in self.ipa_phonemes, phon
-            self.mapping[word.lower()] = pronunciation
+                if phon in syllable_stress_chars:
+                    syllables.append((i, syllable_stress_chars[phon]))
+                else:
+                    assert phon in self.ipa_phonemes, phon
+                    pronunciation_chars.append(phon)
+                    i += 1
+
+            self.mapping[word.lower()] = tuple(pronunciation_chars)
+            self.syllables[word.lower()] = tuple(syllables)
 
         self.missing_counter = Counter()
 
