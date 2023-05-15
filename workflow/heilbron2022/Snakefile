@@ -747,6 +747,53 @@ rule evaluate_significance:
         """
 
 
+def get_model_dirs_for_evaluation(wildcards):
+    eval_spec = config["evaluations"][wildcards.evaluation]
+    return {
+        "base_model_dir": f"results{eval_spec['base_model']['paradigm']}/{wildcards.model}/n{wildcards.n_candidates}/{eval_spec['base_model']['model']}",
+        "full_model_dir": f"results{eval_spec['full_model']['paradigm']}/{wildcards.model}/n{wildcards.n_candidates}/{eval_spec['full_model']['model']}",
+    }
+
+def get_params_for_evaluation(wildcards):
+    eval_spec = config["evaluations"][wildcards.evaluation]
+    return {
+        "base_model_paradigm": eval_spec['base_model']['paradigm'],
+        "base_model_name": eval_spec['base_model']['model'],
+        "full_model_paradigm": eval_spec['full_model']['paradigm'],
+        "full_model_name": eval_spec['full_model']['model'],
+    }
+
+rule evaluate_test:
+    input:
+        unpack(get_model_dirs_for_evaluation)
+
+    params: 
+        get_params_for_evaluation
+
+    output:
+        outdir = directory("evaluations/{evaluation}/{model}/n{n_candidates}"),
+        nb = "evaluations/{evaluation}/{model}/n{n_candidates}/evaluate.ipynb",
+        scores = "evaluations/{evaluation}/{model}/n{n_candidates}/test_scores.csv",
+        improvement_scores = "evaluations/{evaluation}/{model}/n{n_candidates}/test_improvement_scores.csv"
+
+    shell:
+        """
+        papermill --log-output \
+            scripts/evaluate.ipynb \
+            {output.nb} \
+            -y "
+                output_test_scores: '{output.scores}'
+                output_test_improvement_scores: '{output.improvement_scores}'
+                base_model_paradigm: '{params[0][base_model_paradigm]}'
+                base_model_name: '{params[0][base_model_name]}'
+                full_model_paradigm: '{params[0][full_model_paradigm]}'
+                full_model_name: '{params[0][full_model_name]}'
+                model_dirs:
+                    - '{input.base_model_dir}'
+                    - '{input.full_model_dir}'
+            "
+        """
+
 # TODO too fancy for right now whatever
 # # Evaluate vs a baseline cannon model with matched stimulus data and matched paradigm
 # rule evaluate_cannon:

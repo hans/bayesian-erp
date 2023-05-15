@@ -111,3 +111,37 @@ fit:
     base_trf: search_alpha
     trf_t1: search_alpha
     trf-cannon: search_alpha
+
+evaluations:
+  trf_vs_baseline:
+    base_model:
+      paradigm: _wide
+      model: base_trf
+    full_model: 
+      paradigm: _wide
+      model: trf
+
+  shift_vs_baseline:
+    base_model:
+      paradigm: _wide
+      model: trf
+    full_model:
+      paradigm: _wide
+      model: trf-berp-fixed
+
+  variable_vs_baseline:
+    base_model:
+      paradigm: _wide
+      model: trf
+    full_model: 
+      paradigm: _cannon_wide
+      model: trf-berp-cannon_3quantiles.29720801
+
+  variable_vs_shift:
+    base_model:
+      paradigm: _wide
+      model: trf-berp-fixed
+
+    full_model:
+      paradigm: _cannon_wide
+      model: trf-berp-cannon_3quantiles.29720801
