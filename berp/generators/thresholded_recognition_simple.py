@@ -55,7 +55,7 @@ def response_model(stim: Stimulus,
     recognition_onsets_global_samp = time_to_sample(stim.word_onsets + recognition_onsets, sample_rate)
 
     # Generate continuous signal stream.
-    t_max = stim.phoneme_onsets_global[-1, -1] + right_padding
+    t_max = stim.word_offsets[-1] + right_padding
     Y = torch.normal(0, params.sigma,
                      size=(int(np.ceil(t_max * sample_rate)), num_sensors))
 

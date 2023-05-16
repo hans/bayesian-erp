@@ -28,7 +28,8 @@ def _basic_draw_and_assert(abstract_generator, word_lengths, max_num_phonemes, *
     assert torch.all(word_onsets[1:] >= word_onsets[:-1])
 
     # Test that the phoneme onsets are in the correct order
-    assert torch.all(phoneme_onsets_global[:, 1:] >= phoneme_onsets_global[:, :-1])
+    over_length_mask = torch.arange(max_num_phonemes) >= word_lengths.unsqueeze(1)
+    assert torch.all(over_length_mask[:, 1:] | (phoneme_onsets_global[:, 1:] >= phoneme_onsets_global[:, :-1]))
 
     return phoneme_onsets, phoneme_onsets_global, word_onsets, word_offsets
 

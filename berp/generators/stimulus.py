@@ -85,9 +85,15 @@ class StimulusGenerator(object):
         ], dim=1)
         phoneme_offsets = phoneme_durations.cumsum(dim=1)
 
-        assert (phoneme_offsets[:, :-1] <= phoneme_onsets[:, 1:]).all().item()
-
         word_durations = phoneme_offsets[:, -1] - phoneme_onsets[:, 0]
+
+        # Mask out phonemes past word length
+        phoneme_onsets[torch.arange(max_num_phonemes) >= word_lengths.unsqueeze(1)] = 0.
+        phoneme_offsets[torch.arange(max_num_phonemes) > word_lengths.unsqueeze(1)] = 0.
+
+        out_of_bounds_mask = torch.arange(max_num_phonemes).unsqueeze(0) >= word_lengths.unsqueeze(1)
+        assert (out_of_bounds_mask[:, 1:] | (phoneme_offsets[:, :-1] <= phoneme_onsets[:, 1:])).all().item()
+
         word_onsets = (torch.cat([torch.tensor([self.first_onset]),
                                   word_durations[:-1]])
                                 + word_delays).cumsum(0)

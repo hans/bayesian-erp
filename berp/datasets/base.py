@@ -8,6 +8,7 @@ from typing import List, Optional, Callable, Dict, Tuple, Union, Iterator, cast
 import numpy as np
 import pandas as pd
 import torch
+from torch.nn.functional import pad
 from torchtyping import TensorType
 from typeguard import typechecked
 
@@ -126,6 +127,7 @@ class BerpDataset:
 
     def __post_init__(self):
         self.check_shapes()
+        self.check_preconditions()
 
     @property
     def base_name(self):
@@ -194,7 +196,9 @@ class BerpDataset:
         Onset of each phoneme within each word in seconds, relative to the start of
         the time series.
         """
-        return self.word_onsets[:, None] + self.phoneme_onsets
+        # Add word onset up to respective word length
+        mask = torch.arange(self.max_n_phonemes)[None, :] < self.word_lengths[:, None]
+        return self.word_onsets[:, None] * mask + self.phoneme_onsets
 
     @property
     def phoneme_offsets(self) -> TensorType[B, N_P, floating, is_nonnegative]:
@@ -202,10 +206,17 @@ class BerpDataset:
         Offset of each phoneme within each word in seconds, relative to the onset of
         the word.
         """
-        return torch.cat([
-            self.phoneme_onsets[:, 1:],
-            self.word_offsets[:, None] - self.word_onsets[:, None],
-        ], 1)
+        if self.phoneme_onsets.shape[0] == 0:
+            return self.phoneme_onsets.clone()
+
+        max_num_phonemes = self.phoneme_onsets.shape[1]
+        return torch.stack([
+            pad(torch.cat([
+                self.phoneme_onsets[i, 1:self.word_lengths[i]],
+                torch.tensor([self.word_offsets[i] - self.word_onsets[i]])
+            ]), (0, max_num_phonemes - self.word_lengths[i]), value=0.)
+            for i in range(self.n_words)
+        ])
 
     @property
     def phoneme_offsets_global(self) -> TensorType[B, N_P, floating, is_nonnegative]:
@@ -213,10 +224,9 @@ class BerpDataset:
         Offset of each phoneme within each word in seconds, relative to the start of
         the time series.
         """
-        return torch.cat([
-            self.phoneme_onsets_global[:, 1:],
-            self.word_offsets[:, None]
-        ], 1)
+        # Add word onset up to respective word length
+        mask = torch.arange(self.max_n_phonemes)[None, :] < self.word_lengths[:, None]
+        return self.word_onsets[:, None] * mask + self.phoneme_offsets
 
     @typechecked
     def __getitem__(self, key) -> "BerpDataset":
@@ -309,6 +319,31 @@ class BerpDataset:
             assert len(self.ts_feature_names) == self.n_ts_features
         if self.variable_feature_names is not None:
             assert len(self.variable_feature_names) == self.n_variable_features
+
+    def check_preconditions(self):
+        """
+        Check that assumptions about data array formatting are met.
+        """
+
+        offsets = self.phoneme_offsets
+        out_of_bounds_mask = torch.arange(self.max_n_phonemes).unsqueeze(0) >= self.word_lengths.unsqueeze(1)
+
+        # word offsets should be greater than word onsets
+        assert torch.all(self.word_offsets > self.word_onsets).item()
+
+        # words should not overlap
+        assert torch.all(self.word_onsets[1:] >= self.word_offsets[:-1]).item()
+
+        # phoneme onset data should be zero-padded on the right, and onset data
+        # should agree with length annotation
+        assert torch.all(self.phoneme_onsets >= 0).item()
+        assert torch.all(~out_of_bounds_mask | (self.phoneme_onsets == 0.)).item()
+        assert torch.all((offsets != 0).sum(1).long() == self.word_lengths)
+
+        # phoneme onset and offset data should agree (for appropriate regions of array based
+        # on word length annotation)
+        
+        assert torch.all(out_of_bounds_mask[:, 1:] | (offsets[:, :-1] <= self.phoneme_onsets[:, 1:]))
 
     def ensure_torch(self, device: Optional[str] = None, dtype=torch.float32,
                      ts_dtype=torch.float32) -> BerpDataset:
