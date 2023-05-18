@@ -1,0 +1,113 @@
+---
+title: "n400 gam analysis"
+output: html_document
+params:
+  data_path: "n400_gam_data.csv"
+---
+
+```{r setup, include=FALSE}
+library(data.table)
+library(ggplot2)
+library(lme4)
+library(mgcv)
+library(tidyverse)
+
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+df = read_csv(params$data_path,
+              col_types=list(
+                story=col_factor(),
+                subject=col_factor(),
+                run=col_factor(),
+                word_idx=col_factor()
+              ))
+glimpse(df)
+```
+
+```{r}
+# DEV
+reg_data = df %>%
+  mutate(item=as.factor(paste(run, word_idx)),
+         word_surprisal=c(scale(-word_surprisal, scale=F)),
+         word_frequency=c(scale(word_frequency, scale=F)),
+         baseline=c(scale(baseline, scale=F) / 10))
+nrow(reg_data)
+```
+
+
+```{r}
+linear_model = lmer(n400 ~ baseline + word_surprisal + word_frequency +
+                      (baseline + word_surprisal + word_frequency | subject),# +
+                      #(1 | item),
+                    data=reg_data %>% filter(sensor_name == "B4"), REML=F, control=lmerControl(optimizer="bobyqa"))
+summary(linear_model)
+```
+
+```{r}
+my_gam_predict = function(gm, view) {
+  m1 <- seq(min(gm$var.summary[[view[1]]], na.rm = TRUE), max(gm$var.summary[[view[1]]], na.rm = TRUE), length = 30)
+  cond = list()
+  cond[[view[1]]] <- m1
+  
+  newd = as.data.table(itsadug::get_predictions(gm, cond=cond, se=T, f=1.96, sim.ci=F, rm.ranef=T, print.summary=T))
+  newd[, ul:=fit + CI]
+  newd[, ll:=fit - CI]
+
+  return (newd)
+}
+```
+
+```{r}
+reg_data
+```
+
+```{r}
+gam = bam(n400 ~ s(subject, bs="re") + #s(item, bs="re") +
+            baseline + s(baseline, bs="cr") + s(subject, baseline, bs="re") + #s(item, baseline, bs="re") +
+            word_surprisal + s(word_surprisal, bs="cr") + s(subject, word_surprisal, bs="re") +
+            word_frequency + s(word_frequency, bs="cr") + s(subject, word_frequency, bs="re"),
+          data=reg_data %>% filter(sensor_name == "B4"))
+```
+```{r}
+summary(gam)
+```
+
+```{r}
+plotret = my_gam_predict(gam, "word_surprisal")
+setnames(plotret, "word_surprisal", "pred")
+```
+
+
+```{r}
+ggplot(plotret, aes(x=pred, y=fit, ymin=ll, ymax=ul)) +
+  geom_line() + geom_ribbon(alpha=0.2) +
+  xlab("Surprisal") +
+  ylab("N400 amplitude")
+```
+
+```{r}
+all_gams = reg_data %>%
+  group_by(sensor_name) %>% 
+  nest() %>% 
+    mutate(fit=map(data,
+                   ~bam(n400 ~ s(subject, bs="re") + #s(item, bs="re") +
+                          baseline + s(baseline, bs="cr") + s(subject, baseline, bs="re") + #s(item, baseline, bs="re") +
+                          word_surprisal + s(word_surprisal, bs="cr") + s(subject, word_surprisal, bs="re") +
+                          word_frequency + s(word_frequency, bs="cr") + s(subject, word_frequency, bs="re"),
+                        data=.x)))
+```
+
+```{r fig.width=15, fig.align="center"}
+all_gams %>% mutate(predict=map(fit, ~my_gam_predict(.x, "word_surprisal"))) %>% 
+  select(-fit, -data) %>% 
+  unnest(predict) %>% 
+  ggplot(aes(x=word_surprisal, y=fit, ymin=ll, ymax=ul)) +
+    facet_wrap(~sensor_name, ncol=4) +
+    geom_line() + geom_ribbon(alpha=0.2) +
+    xlab("Surprisal") +
+    ylab("N400 amplitude")
+```
+
+
