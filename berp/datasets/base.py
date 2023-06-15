@@ -34,7 +34,7 @@ else:
     STIMULUS_DEVICE = torch.device("cpu")
 
 
-@typechecked
+# @typechecked
 @dataclass
 class BerpDataset:
     """

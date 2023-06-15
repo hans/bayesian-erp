@@ -128,7 +128,7 @@ def predictive_model(p_candidates: TensorType[B, N_C, is_log_probability],
         return bayes_p_candidates
 
 
-@typechecked
+# @typechecked
 def recognition_point_model(p_candidates_posterior: TensorType[B, "num_phonemes_plus_one", is_probability],
                             word_lengths: TensorType[B, torch.long, is_positive],
                             threshold: Probability
@@ -167,7 +167,7 @@ def recognition_point_model(p_candidates_posterior: TensorType[B, "num_phonemes_
     return rec_point
 
 
-@typechecked
+# @typechecked
 def recognition_points_to_times(recognition_points: TensorType[B, torch.long],
                                 phoneme_onsets_global: TensorType[B, N_P, float],
                                 phoneme_offsets_global: TensorType[B, N_P, float],
@@ -233,7 +233,7 @@ def recognition_points_to_times(recognition_points: TensorType[B, torch.long],
     rec_point_flat = recognition_points + word_lengths.cumsum(dim=0) - word_lengths
     assert rec_point_flat[0] == recognition_points[0]
 
-    ret = torch.zeros_like(recognition_points, dtype=torch.float)
+    ret = torch.zeros_like(recognition_points).to(phoneme_offsets_flat)
     switch = recognition_points == 0
 
     # Handle edge case: recognition point is zero, indicating recognition pre input

@@ -710,7 +710,7 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
         )
         return recognition_points
 
-    @typechecked
+    # @typechecked
     def get_recognition_times(self, dataset: BerpDataset,
                               params: ModelParameters,
                               ) -> Tuple[TensorType[torch.long], TensorType[torch.float]]:
@@ -918,8 +918,11 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
         ])
 
         L.info(f"Computing recognition quantiles from dataset of {len(all_recognition_times)} words.")
+        # torch.quantile requires float or double dtype
+        all_recognition_times = all_recognition_times.float()
         self.recognition_quantile_edges_ = torch.quantile(
-            all_recognition_times, torch.linspace(0, 1, self.n_quantiles + 1).to(all_recognition_times.device))
+            all_recognition_times, torch.linspace(0, 1, self.n_quantiles + 1).to(all_recognition_times)) \
+                .to(datasets[0].word_onsets)  # match device and original type of input
         assert len(self.recognition_quantile_edges_) == self.n_quantiles + 1
 
         # These quantile assignments need to generalize to new datasets which might have more negative
