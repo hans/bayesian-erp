@@ -1,9 +1,9 @@
 import logging
 from typing import Optional
+from typing_extensions import TypeAlias
 
 import numpy as np
 import pandas as pd
-from tqdm.auto import tqdm
 
 import torch
 from torchtyping import TensorType  # type: ignore
@@ -11,6 +11,9 @@ from torchtyping import TensorType  # type: ignore
 from berp.datasets import BerpDataset
 
 L = logging.getLogger(__name__)
+
+
+EpochDataFrame: TypeAlias = pd.DataFrame
 
 
 def epoch_ts(data: TensorType["n_samples", "n_sensors", float],
@@ -28,7 +31,7 @@ def epoch_ts(data: TensorType["n_samples", "n_sensors", float],
     n_sensors = data.shape[1]
 
     epochs = np.empty((len(epoch_points), epoch_n_samples, n_sensors))
-    for i, samp_i in enumerate(tqdm(epoch_points)):
+    for i, samp_i in enumerate(epoch_points):
         if samp_i > data.shape[0]:
             raise ValueError(f"epoch point {samp_i} (at idx {i}) is out of bounds")
 
@@ -72,8 +75,10 @@ def make_epochs(dataset: BerpDataset, epoch_points: TensorType[float],
     sample_rate = dataset.sample_rate
     assert int(tmin * sample_rate) == tmin * sample_rate
     assert int(tmax * sample_rate) == tmax * sample_rate
-    assert int(baseline_tmin * sample_rate) == baseline_tmin * sample_rate
-    assert int(baseline_tmax * sample_rate) == baseline_tmax * sample_rate
+
+    if baseline:
+        assert int(baseline_tmin * sample_rate) == baseline_tmin * sample_rate
+        assert int(baseline_tmax * sample_rate) == baseline_tmax * sample_rate
 
     epoch_idxs = torch.arange(len(epoch_points))
     epoch_samples = (epoch_points * sample_rate).long()
