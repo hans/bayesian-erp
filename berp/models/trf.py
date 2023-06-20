@@ -1,13 +1,14 @@
 import logging
-from typing import Tuple, List, Optional, Any, Union
+from typing import Tuple, List, Optional, Any, Union, cast
+from typing_extensions import TypeAlias
 from uuid import uuid4
 
 import hydra
+from jaxtyping import Float
 import numpy as np
 from sklearn.base import BaseEstimator
 import torch
 import torch.distributions as dist
-from torchtyping import TensorType
 from typeguard import typechecked
 
 from berp.cv import EarlyStopException
@@ -19,9 +20,11 @@ from berp.util import time_to_sample
 L = logging.getLogger(__name__)
 
 
-TRFPredictors = TensorType["n_times", "n_features"]
-TRFDesignMatrix = TensorType["n_times", "n_features", "n_delays"]
-TRFResponse = TensorType["n_times", "n_outputs"]
+T: TypeAlias = torch.Tensor
+FloatScalar: TypeAlias = Float[T, ""]
+TRFPredictors = Float[T, "num_times num_features"]
+TRFDesignMatrix = Float[T, "num_times num_features num_delays"]
+TRFResponse = Float[T, "num_times num_outputs"]
 
 
 class TemporalReceptiveField(BaseEstimator):
@@ -32,7 +35,7 @@ class TemporalReceptiveField(BaseEstimator):
                  output_names: Optional[List[str]] = None,
                  fit_intercept=False,
                  warm_start=True,
-                 alpha=1,
+                 alpha=torch.tensor(1.),
                  init_scale=1e-1,
                  name=None,
                  **kwargs):
@@ -103,10 +106,9 @@ class TemporalReceptiveField(BaseEstimator):
 
     def _validate_params(self):
         # If alpha is a vector, verify it is the right shape.
-        if hasattr(self.alpha, "shape") and self.alpha.ndim > 0:
-            if self.alpha.shape != (self.delays_.shape[0],):
-                raise ValueError(f"For vector alpha, must have one value per delay."
-                                 f"Got {self.alpha.shape} but expected {(self.delays_.shape[0],)}")
+        if self.alpha.ndim > 0 and self.alpha.shape != (self.delays_.shape[0],):
+            raise ValueError(f"For vector alpha, must have one value per delay."
+                             f"Got {self.alpha.shape} but expected {(self.delays_.shape[0],)}")
         
         self.alpha = torch.as_tensor(self.alpha, dtype=torch.float32)
 
@@ -151,16 +153,17 @@ class TemporalReceptiveField(BaseEstimator):
 
         return self
 
-    def _loss_fn(self, X, Y: TRFResponse, include_l2=True) -> Union[torch.Tensor, Tuple[torch.Tensor]]:
+    def _loss_fn(self, X, Y: TRFResponse, include_l2=True
+                 ) -> Union[FloatScalar, Tuple[FloatScalar, FloatScalar]]:
         Y_pred = X @ self.coef_
-        loss = (Y_pred - Y).pow(2).sum(axis=1).mean()
+        loss = cast(T, (Y_pred - Y).pow(2).sum(axis=1).mean())
         if not include_l2:
             return loss
 
         # Add ridge term.
         if self.alpha.ndim == 0:
             # loss += self.alpha * self.coef_.pow(2).sum()
-            l2_loss = self.alpha * torch.norm(self.coef_, p=2)
+            l2_loss = cast(T, self.alpha * torch.norm(self.coef_, p=2))
         else:
             # Compute different alpha per lag. Tile alpha along last axis.
             # TODO hacky to reshape yet again inside loss
@@ -176,6 +179,9 @@ class TemporalReceptiveField(BaseEstimator):
         """
         Update the TRF encoder weights with gradient descent.
         """
+
+        if self.optim is None:
+            raise RuntimeError("no optimizer defined, cannot proceed with partial fit")
 
         self._validate_params()
         X, Y = self._check_shapes_types(X, Y)
@@ -226,7 +232,7 @@ class TemporalReceptiveField(BaseEstimator):
 
     @typechecked
     def predict(self, X: TRFDesignMatrix) -> TRFResponse:
-        X = self._check_shapes_types(X)
+        X = cast(TRFDesignMatrix, self._check_shapes_types(X))
 
         del_coef = False
         if not hasattr(self, "coef_"):

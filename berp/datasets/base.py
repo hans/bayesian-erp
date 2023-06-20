@@ -4,7 +4,9 @@ from dataclasses import dataclass, replace
 import logging
 from pprint import pformat
 from typing import List, Optional, Callable, Dict, Tuple, Union, Iterator, cast
+from typing_extensions import TypeAlias
 
+from jaxtyping import Float, UInt64, UInt
 import numpy as np
 import pandas as pd
 import torch
@@ -12,18 +14,13 @@ from torchtyping import TensorType
 from typeguard import typechecked
 
 from berp.datasets import NaturalLanguageStimulus
-from berp.typing import DIMS, floating, is_log_probability, is_positive, is_nonnegative
+from berp.typing import T, FloatScalar, Probability, ProperProbability, \
+    LogProbability, ProperLogProbability, PositiveFloat, NonNegativeFloat
 
 L = logging.getLogger(__name__)
 
-# Type variables
-B, N_W, N_C, N_F, N_F_T, N_P, V_W = \
-    DIMS.B, DIMS.N_W, DIMS.N_C, DIMS.N_F, DIMS.N_F_T, DIMS.N_P, DIMS.V_W
-T, S = DIMS.T, DIMS.S
-
 # Type aliases
-Phoneme = str
-intQ = Optional[Union[int, np.integer]]
+Phoneme: TypeAlias = str
 
 # Locate the stimulus data on a GPU but not on the first, since this is where
 # some of the model computations are happening.
@@ -54,30 +51,30 @@ class BerpDataset:
 
     sample_rate: int
 
-    word_onsets: TensorType[B, floating, is_nonnegative]
+    word_onsets: NonNegativeFloat[T, "batch"]
     """
     Onset of each word in seconds, relative to the start of the sequence.
     """
 
-    word_offsets: TensorType[B, floating, is_nonnegative]
+    word_offsets: NonNegativeFloat[T, "batch"]
     """
     Offset of each word in seconds, relative to the start of the sequence.
     """
 
-    phoneme_onsets: TensorType[B, N_P, floating, is_nonnegative]
+    phoneme_onsets: NonNegativeFloat[T, "batch num_phonemes"]
     """
     Onset of each phoneme within each word in seconds, relative to the start of
     the corresponding word. Column axis should be padded with 0s.
     """
 
-    X_ts: TensorType[T, N_F_T, floating]
+    X_ts: Float[T, "num_times num_time_series_features"]
 
-    X_variable: TensorType[B, N_F, floating]
+    X_variable: Float[T, "num_words num_variable_features"]
     """
     Word-level features whose onset is to be determined by the model.
     """
 
-    Y: TensorType[T, S, floating]
+    Y: Float[T, "num_times num_sensors"]
     """
     Response data.
     """
@@ -94,19 +91,19 @@ class BerpDataset:
     Phoneme vocabulary.
     """
 
-    p_candidates: Optional[TensorType[B, N_C, is_log_probability]] = None
+    p_candidates: Optional[LogProbability[T, "batch num_candidates"]] = None
     """
     Predictive distribution over expected candidate words at each time step,
     derived from a language model.
     """
 
-    word_lengths: Optional[TensorType[B, int]] = None
+    word_lengths: Optional[UInt[T, "batch"]] = None
     """
     Length of ground-truth words in phonemes. Can be used to unpack padded
     ``N_P`` axes.
     """
 
-    candidate_phonemes: Optional[TensorType[B, N_C, N_P, int]] = None
+    candidate_phonemes: Optional[UInt64[T, "batch num_candidates num_phonemes"]] = None
     """
     Phoneme ID sequence for each word and alternate candidate set.
     """

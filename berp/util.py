@@ -1,6 +1,8 @@
 import logging
 from typing import Union, List, Tuple
+from typing_extensions import TypeAlias
 
+from jaxtyping import Float, UInt64
 import numpy as np
 import scipy.signal
 import torch
@@ -10,21 +12,22 @@ from typeguard import typechecked
 
 L = logging.getLogger(__name__)
 
+T: TypeAlias = torch.Tensor
 
-def sample_to_time(sample_idx: torch.LongTensor,
+def sample_to_time(sample_idx: UInt64[T, "n"],
                    sample_rate: int,
                    t_zero: float = 0
-                   ) -> TensorType[float]:
+                   ) -> Float[T, "n"]:
     """
     Convert sample index representation to time representation (in seconds).
     """
     return t_zero + sample_idx / sample_rate
 
 
-def time_to_sample(time: TensorType[float],
+def time_to_sample(time: Float[T, "*x"],
                    sample_rate: int,
                    t_zero: float = 0
-                   ) -> TensorType[torch.long]:
+                   ) -> UInt64[T, "*x"]:
     """
     Convert time representation (in seconds) to sample index representation.
     """

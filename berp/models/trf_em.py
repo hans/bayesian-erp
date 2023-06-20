@@ -16,14 +16,15 @@ import pickle
 import re
 from typing import Optional, List, Dict, Union, Tuple, \
     TypeVar, Generic, Iterator, Type, cast, Hashable
+from typing_extensions import TypeAlias
 
 from hydra.utils import to_absolute_path
+from jaxtyping import Float, Int, UInt64, Bool
 import numpy as np
 from optuna.distributions import BaseDistribution, UniformDistribution
 from sklearn.base import BaseEstimator, clone
 from sklearn.model_selection import ShuffleSplit
 import torch
-from torchtyping import TensorType  # type: ignore
 from tqdm.auto import tqdm, trange
 from typeguard import typechecked
 
@@ -35,25 +36,22 @@ from berp.models.reindexing_regression import \
     PartiallyObservedModelParameters, ModelParameters
 from berp.models.trf import TemporalReceptiveField, TRFPredictors, \
     TRFDesignMatrix, TRFResponse, TRFDelayer
-from berp.tensorboard import Tensorboard
-from berp.typing import is_probability, DIMS
 from berp.util import time_to_sample, cat
 
 L = logging.getLogger(__name__)
 
 # Type variables
-B, N_C, N_P, N_F, N_F_T, V_P, T, S = \
-    DIMS.B, DIMS.N_C, DIMS.N_P, DIMS.N_F, DIMS.N_F_T, DIMS.V_P, DIMS.T, DIMS.S
+T: TypeAlias = torch.Tensor
+FloatScalar: TypeAlias = Float[T, ""]
 P = "num_params"
-Responsibilities = TensorType[P, is_probability]
-MaskArray = TensorType[torch.bool]
+MaskArray: TypeAlias = Bool[T, "batch"]
 
 
 @typechecked
 def scatter_add(design_matrix: TRFDesignMatrix,
-                target_samples: TensorType[B, torch.long],
-                target_values: TensorType[B, "n_target_features"],
-                lag_mask: Optional[TensorType["n_delays", torch.bool]] = None,
+                target_samples: UInt64[T, "batch"],
+                target_values: Float[T, "batch num_target_features"],
+                lag_mask: Optional[Bool[T, "num_delays"]] = None,
                 add=True) -> None:
     """
     Scatter-add or update values to the given samples of the TRF design matrix,
@@ -91,11 +89,11 @@ def scatter_add(design_matrix: TRFDesignMatrix,
 
 @typechecked
 def scatter_variable(dataset: BerpDataset,
-                     times: TensorType[B, float],
+                     times: Float[T, "batch"],
                      out: TRFDesignMatrix,
                      out_weight: float = 1.,
                      variable_features: Optional[Union[List[int], List[str]]] = None,
-                     lag_mask: Optional[TensorType["n_delays", torch.bool]] = None,
+                     lag_mask: Optional[Bool[T, "num_delays"]] = None,
                      ) -> None:
     """
     Scatter variable-onset predictors into design matrix, which is a
@@ -124,7 +122,7 @@ def scatter_variable(dataset: BerpDataset,
 
 
 def _make_validation_mask(dataset: BerpDataset, validation_fraction: float,
-                          random_state=None) -> TensorType[torch.bool]:
+                          random_state=None) -> MaskArray:
     y = dataset.Y
 
     n_samples = y.shape[0]
@@ -177,7 +175,7 @@ class ForwardPipelineCache:
     features/derived features produced from the features in this list.
     """
 
-    validation_mask: np.ndarray
+    validation_mask: MaskArray
 
     @property
     def n_variable_features(self): return len(self.variable_feature_names)
@@ -497,7 +495,7 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
             ts=self.ts_feature_names, variable=self.variable_feature_names)
         return dataset
 
-    def _get_features(self, dataset: BerpDataset) -> Tuple[TensorType[float], TensorType[float]]:
+    def _get_features(self, dataset: BerpDataset) -> Tuple[Float[T, "..."], Float[T, "..."]]:
         """
         Get the relevant features from the dataset for this model.
         """
@@ -604,14 +602,14 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
 
     @log_likelihood.register
     @typechecked
-    def _(self, dataset: BerpDataset) -> TensorType[B, torch.float]:
+    def _(self, dataset: BerpDataset) -> Float[T, "batch"]:
         enc = self._get_or_create_encoder(dataset)
         design_matrix, _ = self.pre_transform(dataset)
         return enc.log_likelihood(design_matrix, dataset.Y).sum()
 
     @log_likelihood.register
     @typechecked
-    def _(self, dataset: NestedBerpDataset) -> List[TensorType[B, torch.float]]:
+    def _(self, dataset: NestedBerpDataset) -> List[Float[T, "batch"]]:
         return [self.log_likelihood(d) for d in dataset.datasets]
 
     @singledispatchmethod
@@ -620,7 +618,7 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
 
     @log_likelihood_expanded.register
     @typechecked
-    def _(self, dataset: BerpDataset) -> TensorType["param_grid", torch.float]:
+    def _(self, dataset: BerpDataset) -> Float[T, "param_grid"]:
         enc = self._get_or_create_encoder(dataset)
         ret = []
         for design_matrix, _ in self.pre_transform_expanded(dataset):
@@ -630,8 +628,8 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
     @log_likelihood_expanded.register
     @typechecked
     def _(self, dataset: NestedBerpDataset
-          ) -> Union[List[TensorType["param_grid", torch.float]],
-                     List[torch.Tensor]]:
+          ) -> Union[List[Float[T, "param_grid"]],
+                     List[T]]:
         return [self.log_likelihood_expanded(d)
                 for d in dataset.datasets]
 
@@ -646,7 +644,7 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
                  encoder_key_re: Union[str, re.Pattern[str]],
 
                  params: List[ModelParameters],
-                 param_weights: Optional[Responsibilities] = None,
+                 param_weights: Optional[Float[T, "..."]] = None,
 
                  scatter_point: float = 0.0,
                  prior_scatter_index: int = 0,
@@ -698,7 +696,7 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
     @typechecked
     def get_recognition_points(self, dataset: BerpDataset,
                                params: ModelParameters,
-                               ) -> TensorType[torch.long]:
+                               ) -> UInt64[T, "..."]:
         # TODO cache rec point computation?
         # profile and find out if it's worth it
         p_candidates_posterior = predictive_model(
@@ -713,7 +711,7 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
     # @typechecked
     def get_recognition_times(self, dataset: BerpDataset,
                               params: ModelParameters,
-                              ) -> Tuple[TensorType[torch.long], TensorType[torch.float]]:
+                              ) -> Tuple[UInt64[T, "..."], Float[T, "..."]]:
         recognition_points = self.get_recognition_points(dataset, params)
         recognition_times = recognition_points_to_times(
             recognition_points,
@@ -729,7 +727,7 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
     def _pre_transform_single(self, dataset: BerpDataset,
                               params: ModelParameters,
                               out: TRFDesignMatrix,
-                              out_weight: Union[float, TensorType[float]] = 1.,
+                              out_weight: Union[float, FloatScalar] = 1.,
                               ) -> None:
         """
         Run word recognition logic for the given dataset and parameters,
@@ -937,7 +935,7 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
     def _get_recognition_quantiles(self,
                                    dataset: BerpDataset,
                                    params: ModelParameters
-                                   ) -> TensorType[B, torch.long]:
+                                   ) -> UInt64[T, "batch"]:
         """
         Compute assignments mapping each word to a recognition-time quantile.
 
@@ -967,7 +965,7 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
     def _pre_transform_single(self, dataset: BerpDataset,
                               params: ModelParameters,
                               out: TRFDesignMatrix,
-                              out_weight: Union[float, TensorType[torch.float]] = 1.,
+                              out_weight: Union[float, FloatScalar] = 1.,
                               ) -> None:
         """
         Run word recognition logic for the given dataset and parameters,
@@ -1014,7 +1012,7 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
         self._check_shapes(dataset)
         return super().pre_transform(dataset)
     
-    def pre_transform_expanded(self, dataset: BerpDataset) -> Iterator[Tuple[TRFDesignMatrix, np.ndarray]]:
+    def pre_transform_expanded(self, dataset: BerpDataset) -> Iterator[Tuple[TRFDesignMatrix, MaskArray]]:
         self._check_shapes(dataset)
         return super().pre_transform_expanded(dataset)
 
@@ -1048,7 +1046,7 @@ class GroupVanillaTRFForwardPipeline(GroupTRFForwardPipeline):
                     X_variable,
                     add=False)
 
-    def pre_transform(self, dataset: BerpDataset) -> Tuple[TRFDesignMatrix, np.ndarray]:
+    def pre_transform(self, dataset: BerpDataset) -> Tuple[TRFDesignMatrix, MaskArray]:
         primed = self._get_cache_for_dataset(dataset)
 
         # Ensure variable-onset features are zeroed out.
@@ -1095,7 +1093,7 @@ class GroupVanillaCannonTRFForwardPipeline(GroupBerpCannonTRFForwardPipeline):
     def _get_recognition_quantiles(self,
                                    dataset: BerpDataset,
                                    params: ModelParameters
-                                   ) -> TensorType[B, torch.long]:
+                                   ) -> UInt64[T, "batch"]:
         """
         Compute assignments mapping each word to a recognition-time quantile.
 
@@ -1118,181 +1116,6 @@ class GroupVanillaCannonTRFForwardPipeline(GroupBerpCannonTRFForwardPipeline):
             recognition_bins.bincount(minlength=self.n_quantiles).cpu().numpy())
 
         return recognition_bins
-
-
-class BerpTRFEMEstimator(BaseEstimator):
-    """
-    Jointly estimate parameters of a Berp model using expectation maximization.
-    """
-
-    @typechecked
-    def __init__(self, pipeline: GroupBerpTRFForwardPipeline,
-                 n_iter=1, warm_start=True,
-                 early_stopping: Optional[int] = 1,
-                 **kwargs):
-        self.pipeline = pipeline
-        self.param_resp_ = self.pipeline.param_weights
-
-        self.n_iter = n_iter
-        self.warm_start = warm_start
-        self.early_stopping = early_stopping
-
-        self._best_val_score_ = -np.inf
-        self._no_improvement_count_ = 0
-        
-        if kwargs:
-            L.warning(f"Unused kwargs: {kwargs}")
-
-    def set_param_resp(self, resp: Responsibilities):
-        self._param_resp_ = resp
-        self.pipeline.param_weights = resp
-    def get_param_resp(self):
-        return self._param_resp_
-    param_resp_: Responsibilities = property(get_param_resp, set_param_resp)
-
-    @typechecked
-    def _e_step(self, dataset: NestedBerpDataset) -> Responsibilities:
-        """
-        Compute responsibility values for each parameter in the grid for the
-        given dataset.
-        """
-        # n_pipelines * n_param_options
-        log_liks = self.pipeline.log_likelihood_expanded(dataset)
-        # Compute joint probability of params, treating subject pipelines as independent
-        resp = torch.stack(log_liks).sum(0)
-
-        # Convert to probabilities
-        resp -= resp.max()
-        resp = resp.exp()
-        resp = resp / resp.sum()
-        return resp
-
-    def _m_step(self, dataset: NestedBerpDataset):
-        """
-        Re-estimate TRF model conditioned on the current parameter weights.
-
-        May raise `EarlyStopException`.
-        """
-        self.pipeline.partial_fit(dataset)
-
-    def _reset_pipeline_early_stopping(self):
-        if hasattr(self.pipeline, "reset_early_stopping"):
-            self.pipeline.reset_early_stopping()
-
-    def prime(self, dataset):
-        return self.pipeline.prime(dataset)
-
-    def _tb_update(self, X: NestedBerpDataset):
-        """
-        Update Tensorboard with current state.
-        """
-        tb = Tensorboard.instance()
-
-        # TODO this is all coupled with the current inference setup.
-        # It pulls out param properties from the pipeline, and constructs
-        # its own param representations. Not exactly sustainable.
-
-        # Compute expected threshold value.
-        threshold = (self.param_resp_ * torch.stack([p.threshold for p in self.pipeline.params])).sum()
-        tb.add_scalar("threshold", threshold.item())
-
-        # Compute recognition points.
-        # HACK Construct new parameter representation with the above threshold.
-        params = replace(self.pipeline.params[0], threshold=threshold)
-        recog_points = torch.cat([
-            self.pipeline.get_recognition_points(dataset, params)
-            for dataset in X.datasets
-        ])
-        tb.add_histogram("recognition_points", recog_points)
-
-    def partial_fit(self, X: NestedBerpDataset, y=None,
-                    X_val: Optional[NestedBerpDataset] = None,
-                    use_tqdm=False,
-                    ) -> "BerpTRFEMEstimator":
-        if X_val is None and self.early_stopping is not None:
-            L.warning("Early stopping requested, but no validation set provided.")
-
-        tb = Tensorboard.instance()
-
-        m_step_did_early_stop = False
-        with trange(self.n_iter, desc="EM", disable=not use_tqdm) as pbar:
-            postfix = {"train_score": self.score(X)}
-            tb.add_scalar("em/train_score", postfix["train_score"])
-            if X_val is not None:
-                val_score = self._check_validation_score(X_val)
-                postfix["val_score"] = val_score
-                tb.add_scalar("em/val_score", val_score)
-            pbar.set_postfix(**postfix)
-
-            for _ in pbar:
-                tb.global_step += 1
-
-                self.param_resp_ = self._e_step(X)
-                L.info("E-step finished")
-
-                # HACK: print inferred threshold value
-                print(self.param_resp_.numpy().round(3))
-                self._tb_update(X)
-
-                # Re-estimate encoder parameters
-                try:
-                    self._m_step(X)
-                except EarlyStopException:
-                    m_step_did_early_stop = True
-                    L.info("M-step early stopped. Will run at least one more E-step")
-                    self._reset_pipeline_early_stopping()
-                else:
-                    m_step_did_early_stop = False
-                L.info("M-step finished")
-
-                # Calculate scores
-                postfix = {"train_score": self.score(X)}
-                tb.add_scalar("em/train_score", postfix["train_score"])
-                if X_val is not None:
-                    try:
-                        val_score = self._check_validation_score(X_val)
-                    except EarlyStopException:
-                        if m_step_did_early_stop:
-                            L.info("EM early stopping")
-                            break
-                        else:
-                            L.info("Val score halted, but M-step did not early stop. Will run at least one more M-step")
-
-                    postfix["val_score"] = val_score
-                    tb.add_scalar("em/val_score", val_score)
-                pbar.set_postfix(**postfix)
-
-        return self
-
-    def _check_validation_score(self, X_val: NestedBerpDataset) -> float:
-        """
-        Evaluate validation score and update early stopping tracker.
-        May raise EarlyStopException.
-        """
-
-        val_score = self.score(X_val)
-        L.info("Val score: %f", val_score)
-        if val_score > self._best_val_score_:
-            self._best_val_score_ = val_score
-            self._no_improvement_count_ = 0
-        elif self.early_stopping is not None and self._no_improvement_count_ >= self.early_stopping:
-            raise EarlyStopException()
-        else:
-            self._no_improvement_count_ += 1
-
-        return val_score
-
-    def fit(self, *args, **kwargs) -> "BerpTRFEMEstimator":
-        return self.partial_fit(*args, **kwargs)
-
-    def predict(self, dataset: NestedBerpDataset) -> TRFResponse:
-        return self.pipeline.predict(dataset)
-
-    def score(self, dataset: NestedBerpDataset, y=None):
-        return self.pipeline.score(dataset)
-
-    def log_likelihood(self, dataset: NestedBerpDataset, y=None) -> torch.Tensor:
-        return self.pipeline.log_likelihood(dataset)
 
 
 def load_confusion_parameters(
@@ -1467,40 +1290,6 @@ def VanillaCannonTRF(trf: TemporalReceptiveField,
         pipeline = update_with_pretrained_paths(pipeline, pretrained_pipeline_paths)
 
     return pipeline
-
-
-def BerpTRFEM(trf: TemporalReceptiveField,
-              latent_params: Dict[str, Dict[str, BaseDistribution]],
-              n_outputs: int, phonemes: List[str], 
-              confusion_path: Optional[str] = None,
-              pretrained_pipeline_paths: Optional[List[str]] = None,
-              **kwargs):
-    trf.set_params(n_outputs=n_outputs)
-
-    # TODO lol complicated
-    params = []
-    base_params = PartiallyObservedModelParameters(
-        lambda_=torch.tensor(1.),
-        confusion=prepare_or_create_confusion(confusion_path, phonemes),
-        threshold=torch.tensor(0.5),
-    )
-    for _ in range(20):  # DEV
-        rands = torch.rand(len(latent_params))
-        param_updates = {}
-        for param_name, param_dist in latent_params.items():
-            # TODO this structure is dumb
-            param_dist = next(iter(param_dist.values()))
-
-            if isinstance(param_dist, UniformDistribution):
-                param_updates[param_name] = (rands * (param_dist.high - param_dist.low) + param_dist.low).squeeze()
-            else:
-                raise NotImplementedError(f"Unsupported distribution {param_dist} for {param_name}")
-
-        params.append(replace(base_params, **param_updates))
-
-    pipeline = make_pipeline(trf, params, pretrained_pipeline_paths, **kwargs)
-
-    return BerpTRFEMEstimator(pipeline, **kwargs)
 
 
 def BasicTRF(trf, features: FeatureConfig, **kwargs):

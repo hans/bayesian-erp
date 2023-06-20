@@ -5,33 +5,34 @@ are a deterministic function of data and these three parameters.
 
 from dataclasses import dataclass
 from typing import NamedTuple, Tuple, Callable, List, Optional, Union
+from typing_extensions import TypeAlias
 
 from icecream import ic
+from jaxtyping import Float, Integer, UInt64, UInt
 import numpy as np
 import torch
-from torchtyping import TensorType
 from typeguard import typechecked
 
 from berp.datasets import BerpDataset
-from berp.typing import Probability, is_probability, is_log_probability, is_positive, DIMS
 from berp.util import sample_to_time, time_to_sample
 
 
-# Define TensorType axis labels
-B, N_C, N_P, N_F, N_F_T, V_P, T, S = \
-    DIMS.B, DIMS.N_C, DIMS.N_P, DIMS.N_F, DIMS.N_F_T, DIMS.V_P, DIMS.T, DIMS.S
+T: TypeAlias = torch.Tensor
+FloatScalar: TypeAlias = Float[T, ""]
+Probability: TypeAlias = FloatScalar
+ConfusionMatrix: TypeAlias = Float[T, "vocab_phonemes vocab_phonemes"]
 
 
 @dataclass
 class ModelParameters:
-    lambda_: TensorType[float]
-    confusion: TensorType[V_P, V_P, float]
-    threshold: TensorType[float]
+    lambda_: FloatScalar
+    confusion: ConfusionMatrix
+    threshold: FloatScalar
 
-    a: TensorType[float]
-    b: TensorType[float]
-    coef: TensorType[N_F, float]
-    sigma: TensorType[float]
+    a: FloatScalar
+    b: FloatScalar
+    coef: Float[T, "num_variable_features"]
+    sigma: FloatScalar
 
 
 def PartiallyObservedModelParameters(*args, **kwargs):
@@ -47,24 +48,15 @@ def PartiallyObservedModelParameters(*args, **kwargs):
         **kwargs)
 
 
-class RRResult(NamedTuple):
-
-    params: ModelParameters
-    dataset: BerpDataset
-
-    q_pred: TensorType[B, T, S, float]
-    q_obs: TensorType[B, T, S, float]
-
-
 # @typechecked
-def predictive_model(p_candidates: TensorType[B, N_C, is_log_probability],
-                     phonemes: TensorType[B, N_C, N_P, int],
-                     confusion: TensorType[V_P, V_P, is_probability],
-                     lambda_: TensorType[float],
+def predictive_model(p_candidates: Float[T, "batch num_candidates"],
+                     phonemes: UInt64[T, "batch num_candidates num_phonemes"],
+                     confusion: ConfusionMatrix,
+                     lambda_: Float[T, ""],
                      ground_truth_word_idx=0,
                      return_gt_only=True,
-                     ) -> Union[TensorType[B, "num_phonemes_plus_one", is_probability],
-                                TensorType[B, N_C, "num_phonemes_plus_one", is_probability]]:
+                     ) -> Union[Float[T, "num_phonemes+1"],
+                                Float[T, "batch num_candidates num_phonemes+1"]]:
     r"""
     Computes the next-word probability estimate
 
@@ -107,9 +99,9 @@ def predictive_model(p_candidates: TensorType[B, N_C, is_log_probability],
 
     # Compute likelihood for each candidate and each phoneme position.
     ground_truth_phonemes = phonemes[:, ground_truth_word_idx, :].unsqueeze(1)
-    phoneme_likelihoods: TensorType[B, N_C, N_P, is_log_probability] = \
+    phoneme_likelihoods: Float[T, "batch num_candidates num_phonemes"] = \
         confusion[phonemes, ground_truth_phonemes].log()
-    incremental_word_likelihoods: TensorType[B, N_C, N_P, is_log_probability] = \
+    incremental_word_likelihoods: Float[T, "batch num_candidates num_phonemes"] = \
         phoneme_likelihoods.cumsum(dim=2)
 
     # Add an initial column of zeros corresponding to likelihood prior to input.
@@ -129,10 +121,10 @@ def predictive_model(p_candidates: TensorType[B, N_C, is_log_probability],
 
 
 # @typechecked
-def recognition_point_model(p_candidates_posterior: TensorType[B, "num_phonemes_plus_one", is_probability],
-                            word_lengths: TensorType[B, torch.long, is_positive],
+def recognition_point_model(p_candidates_posterior: Float[T, "batch num_phonemes+1"],
+                            word_lengths: UInt64[T, "batch"],
                             threshold: Probability
-                            ) -> TensorType[B, torch.long]:
+                            ) -> UInt64[T, "batch"]:
     """
     Computes the recognition point of the ground-truth word for each example,
     given incremental posterior probabilities over the ground-truth word as
@@ -168,14 +160,14 @@ def recognition_point_model(p_candidates_posterior: TensorType[B, "num_phonemes_
 
 
 # @typechecked
-def recognition_points_to_times(recognition_points: TensorType[B, torch.long],
-                                phoneme_onsets_global: TensorType[B, N_P, float],
-                                phoneme_offsets_global: TensorType[B, N_P, float],
-                                word_lengths: TensorType[B, int],
+def recognition_points_to_times(recognition_points: UInt64[T, "batch"],
+                                phoneme_onsets_global: Float[T, "batch num_phonemes"],
+                                phoneme_offsets_global: Float[T, "batch num_phonemes"],
+                                word_lengths: UInt[T, "batch"],
                                 scatter_point: float = 0.0,
                                 prior_scatter_index: int = 0,
                                 prior_scatter_point: float = 0.0,
-                                ) -> TensorType[B, float]:
+                                ) -> Float[T, "batch"]:
     """
     Convert integer recognition point indices to continuous times using phoneme
     onset data. Configurably scatters recognition points within a phoneme's
