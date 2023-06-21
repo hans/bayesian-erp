@@ -1,0 +1,16 @@
+defaults:
+  - base_trf_berp_fixed
+
+type: trf-berp-fixed
+
+trf:
+  tmin: 0
+  tmax: 0.75
+  sfreq: 128
+  alpha: 1
+
+threshold: 0.5
+
+scatter_point: 0.5
+prior_scatter_index: 0
+prior_scatter_point: 0.5
