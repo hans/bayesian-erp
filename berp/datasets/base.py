@@ -87,6 +87,12 @@ class BerpDataset:
     Names of sensors (columns of `Y`).
     """
 
+    retain_stim_word_ids: Optional[TensorType[B, intQ]] = None
+    """
+    Retain just these indices into `stimulus.word_ids` for analysis. By default,
+    all words are retained.
+    """
+
     ### Stimulus data shared between subjects, may be saved separately
 
     phonemes: Optional[List[str]] = None
@@ -297,6 +303,9 @@ class BerpDataset:
         assert self.X_variable.shape == (self.n_words, self.n_variable_features)
         assert self.Y.shape == (self.n_samples, self.n_sensors)
 
+        if self.retain_stim_word_ids is not None:
+            assert self.retain_stim_word_ids.shape == (self.n_words,)
+
         if self.sensor_names is not None:
             assert self.Y.shape[1] == len(self.sensor_names)
 
@@ -344,9 +353,16 @@ class BerpDataset:
         # Reference tensor for dtype/device
         ref_tensor = self.word_onsets
 
-        self.p_candidates = stimulus.p_candidates.to(STIMULUS_DEVICE, dtype=ref_tensor.dtype)
-        self.word_lengths = stimulus.word_lengths.to(STIMULUS_DEVICE)
-        self.candidate_phonemes = stimulus.candidate_phonemes
+        p_candidates, word_lengths, candidate_phonemes = stimulus.p_candidates, stimulus.word_lengths, \
+            stimulus.candidate_phonemes
+        if self.retain_stim_word_ids is not None:
+            p_candidates = p_candidates[self.retain_stim_word_ids]
+            word_lengths = word_lengths[self.retain_stim_word_ids]
+            candidate_phonemes = candidate_phonemes[self.retain_stim_word_ids]
+
+        self.p_candidates = p_candidates.to(STIMULUS_DEVICE, dtype=ref_tensor.dtype)
+        self.word_lengths = word_lengths.to(STIMULUS_DEVICE)
+        self.candidate_phonemes = candidate_phonemes
 
     def subset_sensors(self, sensors: Union[List[int], List[str]], on_missing="warn") -> None:
         """
