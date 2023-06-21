@@ -39,6 +39,7 @@ wildcard_constraints:
     model = "[^/]+(?:/[^/]+){0,1}",
     n_candidates = "\d+",
     evaluation = "([^/]+)",
+    other_data_spec = ".{0}|_onset-([^_]+)",
 
     evaluation = "[\w_]*",
     results_paradigm_label = "[\w_]*"
@@ -179,10 +180,16 @@ rule produce_dataset:
 
         run_Xy = "data/run_Xy/{story_name}/sub{subject}/run{run}.h5"
     output:
-        dataset = "data/dataset/{model}/n{n_candidates}/{story_name}/sub{subject}/run{run}.pkl"
+        dataset = "data/dataset/{model}/n{n_candidates}{other_data_spec}/{story_name}/sub{subject}/run{run}.pkl"
 
-    shell:
-        """
+    run:
+        word_onset_event = "word"
+        if other_data_spec != "":
+            onset_spec = re.findall(r"_onset-([^_]+)", other_data_spec)
+            if onset_spec:
+                word_onset_event = onset_spec[0]
+
+        shell("""
         papermill --log-output \
             scripts/heilbron2022/produce_dataset.ipynb /dev/null \
             -p story_name {wildcards.story_name} \
@@ -192,8 +199,9 @@ rule produce_dataset:
             -p aligned_phonemes {input.aligned_phonemes} \
             -p stimulus {input.stimulus} \
             -p run_Xy {input.run_Xy} \
+            -p word_onset_event {word_onset_event} \
             -p output_path {output.dataset}
-        """
+        """)
 
 def hydra_param(obj):
     """
@@ -306,16 +314,16 @@ def run_base_baseline(input, wildcards, params, output, add_stimuli_parent_dir=F
 rule fit_base_baseline_model_concatenated:
     input:
         datasets = expand(
-            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}.pkl",
+            "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}.pkl",
             subject=SUBJECTS, story_name=STORIES, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}.pkl",
             story_name=STORIES, allow_missing=True)
 
     params:
         berp_model = "trf"
     output:
-        trace = directory("results_concatenated/{model}/n{n_candidates}/base_trf")
+        trace = directory("results_concatenated/{model}/n{n_candidates}{other_data_spec}/base_trf")
 
     run:
         run_base_baseline(input, wildcards, params, output, add_stimuli_parent_dir=False)
@@ -324,16 +332,16 @@ rule fit_base_baseline_model_concatenated:
 rule fit_base_baseline_model:
     input:
         datasets = expand(
-            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}/run{run}.pkl",
             subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True)
 
     params:
         berp_model = "trf"
     output:
-        trace = directory("results/{model}/n{n_candidates}/base_trf")
+        trace = directory("results/{model}/n{n_candidates}{other_data_spec}/base_trf")
 
     run:
         run_base_baseline(input, wildcards, params, output, add_stimuli_parent_dir=True)
@@ -342,16 +350,16 @@ rule fit_base_baseline_model:
 rule fit_base_baseline_model_wide:
     input:
         datasets = expand(
-            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}/run{run}.pkl",
             subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True),
 
     params:
         berp_model = "trf"
     output:
-        trace = directory("results_wide/{model}/n{n_candidates}/base_trf")
+        trace = directory("results_wide/{model}/n{n_candidates}{other_data_spec}/base_trf")
 
     run:
         run_base_baseline(input, wildcards, params, output, add_stimuli_parent_dir=True, dataset_spec="heilbron_wide")
@@ -360,16 +368,16 @@ rule fit_base_baseline_model_wide:
 rule fit_base_baseline_model_back:
     input:
         datasets = expand(
-            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}/run{run}.pkl",
             subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True),
 
     params:
         berp_model = "trf"
     output:
-        trace = directory("results_back/{model}/n{n_candidates}/base_trf")
+        trace = directory("results_back/{model}/n{n_candidates}{other_data_spec}/base_trf")
 
     run:
         run_base_baseline(input, wildcards, params, output, add_stimuli_parent_dir=True, dataset_spec="heilbron_back")
@@ -378,16 +386,16 @@ rule fit_base_baseline_model_back:
 rule fit_base_baseline_model_vart:
     input:
         datasets = expand(
-            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}/run{run}.pkl",
             subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True)
 
     params:
         berp_model = "trf_t{tmax}"
     output:
-        trace = directory("results/{model}/n{n_candidates}/base_trf_t{tmax}")
+        trace = directory("results/{model}/n{n_candidates}{other_data_spec}/base_trf_t{tmax}")
 
     run:
         run_base_baseline(input, wildcards, params, output, add_stimuli_parent_dir=True)
@@ -440,18 +448,18 @@ rule fit_baseline_model_concatenated:
 rule fit_baseline_model:
     input:
         datasets = expand(
-            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}/run{run}.pkl",
             subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True),
 
-        baseline_model = "results/{model}/n{n_candidates}/base_trf"
+        baseline_model = "results/{model}/n{n_candidates}{other_data_spec}/base_trf"
 
     params:
         berp_model = "trf"
     output:
-        trace = directory("results/{model}/n{n_candidates}/trf")
+        trace = directory("results/{model}/n{n_candidates}{other_data_spec}/trf")
 
     run:
         run_baseline(input, wildcards, params, output, add_stimuli_parent_dir=True)
@@ -460,18 +468,18 @@ rule fit_baseline_model:
 rule fit_baseline_model_wide:
     input:
         datasets = expand(
-            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}/run{run}.pkl",
             subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True),
 
-        baseline_model = "results_wide/{model}/n{n_candidates}/base_trf"
+        baseline_model = "results_wide/{model}/n{n_candidates}{other_data_spec}/base_trf"
 
     params:
         berp_model = "trf"
     output:
-        trace = directory("results_wide/{model}/n{n_candidates}/trf")
+        trace = directory("results_wide/{model}/n{n_candidates}{other_data_spec}/trf")
 
     run:
         run_baseline(input, wildcards, params, output, add_stimuli_parent_dir=True, dataset_spec="heilbron_wide")
@@ -480,18 +488,18 @@ rule fit_baseline_model_wide:
 rule fit_baseline_model_back:
     input:
         datasets = expand(
-            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}/run{run}.pkl",
             subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True),
 
-        baseline_model = "results_back/{model}/n{n_candidates}/base_trf"
+        baseline_model = "results_back/{model}/n{n_candidates}{other_data_spec}/base_trf"
 
     params:
         berp_model = "trf"
     output:
-        trace = directory("results_back/{model}/n{n_candidates}/trf")
+        trace = directory("results_back/{model}/n{n_candidates}{other_data_spec}/trf")
 
     run:
         run_baseline(input, wildcards, params, output, add_stimuli_parent_dir=True, dataset_spec="heilbron_back")
@@ -500,18 +508,18 @@ rule fit_baseline_model_back:
 rule fit_baseline_model_vart:
     input:
         datasets = expand(
-            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}/run{run}.pkl",
             subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True),
 
-        baseline_model = "results/{model}/n{n_candidates}/base_trf_t{tmax}"
+        baseline_model = "results/{model}/n{n_candidates}{other_data_spec}/base_trf_t{tmax}"
 
     params:
         berp_model = "trf_t{tmax}"
     output:
-        trace = directory("results/{model}/n{n_candidates}/trf_t{tmax}")
+        trace = directory("results/{model}/n{n_candidates}{other_data_spec}/trf_t{tmax}")
 
     run:
         run_baseline(input, wildcards, params, output, add_stimuli_parent_dir=True)
@@ -576,13 +584,13 @@ def run_berp(input, wildcards, params, output, add_stimuli_parent_dir=False, dat
 rule fit_model_concatenated:
     input:
         datasets = expand(
-            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}.pkl",
+            "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}.pkl",
             subject=SUBJECTS, story_name=STORIES, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}.pkl",
             story_name=STORIES, allow_missing=True),
 
-        baseline_model = "results_concatenated/{model}/n{n_candidates}/trf",
+        baseline_model = "results_concatenated/{model}/n{n_candidates}{other_data_spec}/trf",
 
         confusion = "data/confusion.npz"
 
@@ -592,7 +600,7 @@ rule fit_model_concatenated:
         validate_wildcards_for_confusion
 
     output:
-        trace = directory("results_concatenated/{model}/n{n_candidates}/{berp_model}")
+        trace = directory("results_concatenated/{model}/n{n_candidates}{other_data_spec}/{berp_model}")
 
     run:
         run_berp(input, wildcards, params, output, add_stimuli_parent_dir=False)
@@ -601,13 +609,13 @@ rule fit_model_concatenated:
 rule fit_model:
     input:
         datasets = expand(
-            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}/run{run}.pkl",
             subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True),
 
-        baseline_model = "results/{model}/n{n_candidates}/trf",
+        baseline_model = "results/{model}/n{n_candidates}{other_data_spec}/trf",
 
         confusion = "data/confusion.npz"
 
@@ -617,7 +625,7 @@ rule fit_model:
         validate_wildcards_for_confusion
 
     output:
-        trace = directory("results/{model}/n{n_candidates}/{berp_model}")
+        trace = directory("results/{model}/n{n_candidates}{other_data_spec}/{berp_model}")
 
     run:
         run_berp(input, wildcards, params, output, add_stimuli_parent_dir=True)
@@ -626,10 +634,10 @@ rule fit_model:
 rule fit_model_wide:
     input:
         datasets = expand(
-            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}/run{run}.pkl",
             subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True),
 
         confusion = "data/confusion.npz"
@@ -640,7 +648,7 @@ rule fit_model_wide:
         validate_wildcards_for_confusion
 
     output:
-        trace = directory("results_wide/{model}/n{n_candidates}/{berp_model}")
+        trace = directory("results_wide/{model}/n{n_candidates}{other_data_spec}/{berp_model}")
 
     run:
         run_berp(input, wildcards, params, output, add_stimuli_parent_dir=True, dataset_spec="heilbron_wide")
@@ -649,10 +657,10 @@ rule fit_model_wide:
 rule fit_model_back:
     input:
         datasets = expand(
-            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}/run{run}.pkl",
             subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True),
 
         confusion = "data/confusion.npz"
@@ -663,7 +671,7 @@ rule fit_model_back:
         validate_wildcards_for_confusion
 
     output:
-        trace = directory("results_back/{model}/n{n_candidates}/{berp_model}")
+        trace = directory("results_back/{model}/n{n_candidates}{other_data_spec}/{berp_model}")
 
     run:
         run_berp(input, wildcards, params, output, add_stimuli_parent_dir=True, dataset_spec="heilbron_back")
@@ -698,10 +706,10 @@ def run_berp_cannon(input, wildcards, params, output, add_stimuli_parent_dir=Fal
 rule fit_cannon_model:
     input:
         datasets = expand(
-            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}/run{run}.pkl",
             subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True),
 
         confusion = "data/confusion.npz"
@@ -712,7 +720,7 @@ rule fit_cannon_model:
         validate_wildcards_for_confusion
 
     output:
-        trace = directory("results_cannon/{model}/n{n_candidates}/{berp_model}_{n_quantiles}quantiles")
+        trace = directory("results_cannon/{model}/n{n_candidates}{other_data_spec}/{berp_model}_{n_quantiles}quantiles")
 
     run:
         run_berp_cannon(input, wildcards, params, output, add_stimuli_parent_dir=True)
@@ -722,10 +730,10 @@ rule fit_cannon_model:
 rule fit_vanilla_cannon_model:
     input:
         datasets = expand(
-            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}/run{run}.pkl",
             subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True),
 
         confusion = "data/confusion.npz"
@@ -736,7 +744,7 @@ rule fit_vanilla_cannon_model:
         validate_wildcards_for_confusion
 
     output:
-        trace = directory("results_cannon/{model}/n{n_candidates}/trf-cannon_{n_quantiles}quantiles")
+        trace = directory("results_cannon/{model}/n{n_candidates}{other_data_spec}/trf-cannon_{n_quantiles}quantiles")
 
     run:
         wildcards.berp_model = "trf-cannon"
@@ -746,10 +754,10 @@ rule fit_vanilla_cannon_model:
 rule fit_cannon_model_wide:
     input:
         datasets = expand(
-            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}/run{run}.pkl",
             subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True),
 
         confusion = "data/confusion.npz"
@@ -760,7 +768,7 @@ rule fit_cannon_model_wide:
         validate_wildcards_for_confusion
 
     output:
-        trace = directory("results_cannon_wide/{model}/n{n_candidates}/{berp_model}_{n_quantiles}quantiles")
+        trace = directory("results_cannon_wide/{model}/n{n_candidates}{other_data_spec}/{berp_model}_{n_quantiles}quantiles")
 
     run:
         run_berp_cannon(input, wildcards, params, output, add_stimuli_parent_dir=True, dataset_spec="heilbron_wide")
@@ -769,10 +777,10 @@ rule fit_cannon_model_wide:
 rule fit_cannon_model_back:
     input:
         datasets = expand(
-            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}/run{run}.pkl",
             subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True),
 
         confusion = "data/confusion.npz"
@@ -783,7 +791,7 @@ rule fit_cannon_model_back:
         validate_wildcards_for_confusion
 
     output:
-        trace = directory("results_cannon_back/{model}/n{n_candidates}/{berp_model}_{n_quantiles}quantiles")
+        trace = directory("results_cannon_back/{model}/n{n_candidates}{other_data_spec}/{berp_model}_{n_quantiles}quantiles")
 
     run:
         run_berp_cannon(input, wildcards, params, output, add_stimuli_parent_dir=True, dataset_spec="heilbron_back")
@@ -792,10 +800,10 @@ rule fit_cannon_model_back:
 rule fit_vanilla_cannon_model_wide:
     input:
         datasets = expand(
-            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}/run{run}.pkl",
             subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True),
 
         confusion = "data/confusion.npz"
@@ -806,7 +814,7 @@ rule fit_vanilla_cannon_model_wide:
         validate_wildcards_for_confusion
 
     output:
-        trace = directory("results_cannon_wide/{model}/n{n_candidates}/trf-cannon_{n_quantiles}quantiles")
+        trace = directory("results_cannon_wide/{model}/n{n_candidates}{other_data_spec}/trf-cannon_{n_quantiles}quantiles")
 
     run:
         wildcards.berp_model = "trf-cannon"
@@ -816,10 +824,10 @@ rule fit_vanilla_cannon_model_wide:
 rule fit_vanilla_cannon_model_back:
     input:
         datasets = expand(
-            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}/run{run}.pkl",
             subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True),
 
         confusion = "data/confusion.npz"
@@ -830,7 +838,7 @@ rule fit_vanilla_cannon_model_back:
         validate_wildcards_for_confusion
 
     output:
-        trace = directory("results_cannon_back/{model}/n{n_candidates}/trf-cannon_{n_quantiles}quantiles")
+        trace = directory("results_cannon_back/{model}/n{n_candidates}{other_data_spec}/trf-cannon_{n_quantiles}quantiles")
 
     run:
         wildcards.berp_model = "trf-cannon"
@@ -842,10 +850,10 @@ rule fit_vanilla_cannon_model_back:
 
 rule evaluate_significance:
     input:
-        "results{results_paradigm_label}/{model}/n{n_candidates}/{model_run_name}"
+        "results{results_paradigm_label}/{model}/n{n_candidates}{other_data_spec}/{model_run_name}"
 
     output:
-        "stats/{results_paradigm_label}/{model}/n{n_candidates}/{model_run_name}/significance.ipynb"
+        "stats/{results_paradigm_label}/{model}/n{n_candidates}{other_data_spec}/{model_run_name}/significance.ipynb"
 
     shell:
         """
@@ -860,8 +868,8 @@ rule evaluate_significance:
 def get_model_dirs_for_evaluation(wildcards):
     eval_spec = config["evaluations"][wildcards.evaluation]
     return {
-        "base_model_dir": f"results{eval_spec['base_model']['paradigm']}/{wildcards.model}/n{wildcards.n_candidates}/{eval_spec['base_model']['model']}",
-        "full_model_dir": f"results{eval_spec['full_model']['paradigm']}/{wildcards.model}/n{wildcards.n_candidates}/{eval_spec['full_model']['model']}",
+        "base_model_dir": f"results{eval_spec['base_model']['paradigm']}/{wildcards.model}/n{wildcards.n_candidates}{wildcards.other_data_spec}/{eval_spec['base_model']['model']}",
+        "full_model_dir": f"results{eval_spec['full_model']['paradigm']}/{wildcards.model}/n{wildcards.n_candidates}{wildcards.other_data_spec}/{eval_spec['full_model']['model']}",
     }
 
 def get_params_for_evaluation(wildcards):
@@ -881,10 +889,10 @@ rule evaluate_test:
         get_params_for_evaluation
 
     output:
-        outdir = directory("evaluations/{evaluation}/{model}/n{n_candidates}"),
-        nb = "evaluations/{evaluation}/{model}/n{n_candidates}/evaluate.ipynb",
-        scores = "evaluations/{evaluation}/{model}/n{n_candidates}/test_scores.csv",
-        improvement_scores = "evaluations/{evaluation}/{model}/n{n_candidates}/test_improvement_scores.csv"
+        outdir = directory("evaluations/{evaluation}/{model}/n{n_candidates}{other_data_spec}"),
+        nb = "evaluations/{evaluation}/{model}/n{n_candidates}{other_data_spec}/evaluate.ipynb",
+        scores = "evaluations/{evaluation}/{model}/n{n_candidates}{other_data_spec}/test_scores.csv",
+        improvement_scores = "evaluations/{evaluation}/{model}/n{n_candidates}{other_data_spec}/test_improvement_scores.csv"
 
     shell:
         """
