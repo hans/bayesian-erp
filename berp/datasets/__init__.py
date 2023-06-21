@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from functools import cached_property
 import logging
-from typing import List, Iterator, Tuple
+from typing import List, Iterator, Tuple, Dict, Optional
 
 import numpy as np
 import torch
@@ -126,6 +126,14 @@ class NaturalLanguageStimulus:
     Vocabulary of candidate words referred to by `candidate_ids`.
     """
 
+    word_events: Optional[Dict[str, List[List[int]]]] = None
+    """
+    For each word in the dataset, a list of lists of phoneme indices
+    corresponding to some word-internal event (e.g. syllable boundary).
+
+    String keys denote the event type.
+    """
+
     def __eq__(self, other):
         if not isinstance(other, NaturalLanguageStimulus):
             return False
@@ -147,6 +155,7 @@ class NaturalLanguageStimulus:
             and torch.allclose(self.p_candidates, other.p_candidates)
             and torch.all(self.candidate_ids == other.candidate_ids)
             and self.candidate_vocabulary == other.candidate_vocabulary
+            and self.word_events == other.word_events
         )
 
     @property
