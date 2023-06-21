@@ -3,6 +3,7 @@ Defines data and utilities for English processing.
 """
 
 from typing import List, Dict, Tuple
+from typing_extensions import TypeAlias
 
 from collections import Counter
 from functools import cache
@@ -10,6 +11,8 @@ import re
 
 import pandas as pd
 from tqdm.auto import tqdm
+
+Phoneme: TypeAlias = str
 
 
 # Maps CMU dict pronunciation elements to IPA as used in Heilbron 2022 annotations.
@@ -331,10 +334,10 @@ class IPASyllableTokenizer(TokenizerI):
                 else:
                     valid_syllables.append(syllable)
 
-        return valid_syllables
+        return [tuple(phoneme_seq) for phoneme_seq in valid_syllables]
 
 
-    def tokenize(self, token):
+    def tokenize(self, token) -> List[Tuple[Phoneme, ...]]:
         """
         Apply the SSP to return a list of syllables.
         Note: Sentence/text has to be tokenized first.
@@ -342,14 +345,13 @@ class IPASyllableTokenizer(TokenizerI):
         :param token: Single word or token
         :type token: str
         :return syllable_list: Single word or token broken up into syllables.
-        :rtype: list(str)
         """
         # assign values from hierarchy
         syllables_values = self.assign_values(token)
 
         # if only one vowel return word
         if sum(token.count(x) for x in self.vowels) <= 1:
-            return [token]
+            return [tuple(token)]
 
         syllable_list = []
         syllable = [syllables_values[0][0]]  # start syllable with first phoneme
