@@ -38,6 +38,7 @@ wildcard_constraints:
     run = "\d+",
     model = "[^/]+(?:/[^/]+){0,1}",
     n_candidates = "\d+",
+    evaluation = "([^/]+)",
 
     results_paradigm_label = "[\w_]*"
 
