@@ -41,7 +41,6 @@ wildcard_constraints:
     evaluation = "([^/]+)",
     other_data_spec = ".{0}|_onset-([^_]+)",
 
-    evaluation = "[\w_]*",
     results_paradigm_label = "[\w_]*"
 
 
@@ -184,8 +183,8 @@ rule produce_dataset:
 
     run:
         word_onset_event = "word"
-        if other_data_spec != "":
-            onset_spec = re.findall(r"_onset-([^_]+)", other_data_spec)
+        if wildcards.other_data_spec != "":
+            onset_spec = re.findall(r"_onset-([^_]+)", wildcards.other_data_spec)
             if onset_spec:
                 word_onset_event = onset_spec[0]
 
@@ -317,7 +316,7 @@ rule fit_base_baseline_model_concatenated:
             "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}.pkl",
             subject=SUBJECTS, story_name=STORIES, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}.pkl",
             story_name=STORIES, allow_missing=True)
 
     params:
@@ -335,7 +334,7 @@ rule fit_base_baseline_model:
             "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}/run{run}.pkl",
             subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/run{run}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True)
 
     params:
@@ -353,7 +352,7 @@ rule fit_base_baseline_model_wide:
             "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}/run{run}.pkl",
             subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/run{run}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True),
 
     params:
@@ -371,7 +370,7 @@ rule fit_base_baseline_model_back:
             "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}/run{run}.pkl",
             subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/run{run}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True),
 
     params:
@@ -389,7 +388,7 @@ rule fit_base_baseline_model_vart:
             "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}/run{run}.pkl",
             subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/run{run}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True)
 
     params:
@@ -451,7 +450,7 @@ rule fit_baseline_model:
             "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}/run{run}.pkl",
             subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/run{run}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True),
 
         baseline_model = "results/{model}/n{n_candidates}{other_data_spec}/base_trf"
@@ -471,7 +470,7 @@ rule fit_baseline_model_wide:
             "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}/run{run}.pkl",
             subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/run{run}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True),
 
         baseline_model = "results_wide/{model}/n{n_candidates}{other_data_spec}/base_trf"
@@ -491,7 +490,7 @@ rule fit_baseline_model_back:
             "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}/run{run}.pkl",
             subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/run{run}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True),
 
         baseline_model = "results_back/{model}/n{n_candidates}{other_data_spec}/base_trf"
@@ -511,7 +510,7 @@ rule fit_baseline_model_vart:
             "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}/run{run}.pkl",
             subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/run{run}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True),
 
         baseline_model = "results/{model}/n{n_candidates}{other_data_spec}/base_trf_t{tmax}"
@@ -587,7 +586,7 @@ rule fit_model_concatenated:
             "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}.pkl",
             subject=SUBJECTS, story_name=STORIES, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}.pkl",
             story_name=STORIES, allow_missing=True),
 
         baseline_model = "results_concatenated/{model}/n{n_candidates}{other_data_spec}/trf",
@@ -612,7 +611,7 @@ rule fit_model:
             "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}/run{run}.pkl",
             subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/run{run}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True),
 
         baseline_model = "results/{model}/n{n_candidates}{other_data_spec}/trf",
@@ -637,7 +636,7 @@ rule fit_model_wide:
             "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}/run{run}.pkl",
             subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/run{run}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True),
 
         confusion = "data/confusion.npz"
@@ -660,7 +659,7 @@ rule fit_model_back:
             "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}/run{run}.pkl",
             subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/run{run}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True),
 
         confusion = "data/confusion.npz"
@@ -709,7 +708,7 @@ rule fit_cannon_model:
             "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}/run{run}.pkl",
             subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/run{run}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True),
 
         confusion = "data/confusion.npz"
@@ -733,7 +732,7 @@ rule fit_vanilla_cannon_model:
             "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}/run{run}.pkl",
             subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/run{run}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True),
 
         confusion = "data/confusion.npz"
@@ -757,7 +756,7 @@ rule fit_cannon_model_wide:
             "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}/run{run}.pkl",
             subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/run{run}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True),
 
         confusion = "data/confusion.npz"
@@ -780,7 +779,7 @@ rule fit_cannon_model_back:
             "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}/run{run}.pkl",
             subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/run{run}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True),
 
         confusion = "data/confusion.npz"
@@ -803,7 +802,7 @@ rule fit_vanilla_cannon_model_wide:
             "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}/run{run}.pkl",
             subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/run{run}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True),
 
         confusion = "data/confusion.npz"
@@ -827,7 +826,7 @@ rule fit_vanilla_cannon_model_back:
             "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}/run{run}.pkl",
             subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
         stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/run{run}.pkl",
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True),
 
         confusion = "data/confusion.npz"
