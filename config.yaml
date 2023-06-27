@@ -112,6 +112,12 @@ datasets:
       cannon_back:
         dataset_spec: heilbron_back
         feature_spec: heilbron
+      back_syllable:
+        dataset_spec: heilbron_back
+        feature_spec: heilbron_syllable
+      cannon_back_syllable:
+        dataset_spec: heilbron_back
+        feature_spec: heilbron_syllable
 
 language_modeling:
   model: distilgpt2
