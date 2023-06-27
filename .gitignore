@@ -4,6 +4,10 @@ __pycache__
 .vscode
 .devcontainer
 
+# Ignore scripts with date markers -- these are dev scripts, not permanent ones which are part of a workflow
+scripts/**/2022*.ipynb
+scripts/**/2023*.ipynb
+
 work
 workflow/*/raw_data
 workflow/*/data
@@ -29,6 +33,9 @@ results
 *.h5
 *.mp4
 *.pdf
+*.zip
+*.tar.gz
+*.tgz
 
 *.sh
 slurm-*.out

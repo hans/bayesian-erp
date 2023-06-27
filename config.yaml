@@ -147,6 +147,22 @@ evaluations:
       paradigm: _cannon_wide
       model: trf-berp-cannon_3quantiles.29720801
 
+  prior_vs_baseline:
+    base_model:
+      paradigm: _wide
+      model: trf
+    full_model:
+      paradigm: _cannon_wide
+      model: trf-cannon_3quantiles
+
+  variable_vs_prior:
+    base_model:
+      paradigm: _cannon_wide
+      model: trf-cannon_3quantiles
+    full_model:
+      paradigm: _cannon_wide
+      model: trf-berp-cannon_3quantiles.29720801
+
   shift075_vs_baseline:
     base_model:
       paradigm: _wide
@@ -192,6 +208,22 @@ evaluations:
     base_model:
       paradigm: _back
       model: trf-berp-fixed-t075
+    full_model:
+      paradigm: _cannon_back
+      model: trf-berp-cannon_3quantiles
+
+  back_prior_vs_baseline:
+    base_model:
+      paradigm: _back
+      model: trf
+    full_model:
+      paradigm: _cannon_back
+      model: trf-cannon_3quantiles
+
+  back_variable_vs_prior:
+    base_model:
+      paradigm: _cannon_back
+      model: trf-cannon_3quantiles
     full_model:
       paradigm: _cannon_back
       model: trf-berp-cannon_3quantiles
