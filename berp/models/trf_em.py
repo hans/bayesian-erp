@@ -583,7 +583,7 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
 
     @singledispatchmethod
     def score_multidimensional(self, dataset, y=None) -> np.ndarray:
-        raise NotImplementedError
+        raise NotImplementedError(str(type(dataset)))
 
     @score_multidimensional.register
     @typechecked
