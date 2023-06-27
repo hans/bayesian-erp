@@ -2,17 +2,20 @@
 Defines data and utilities for English processing.
 """
 
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 from typing_extensions import TypeAlias
 
-from collections import Counter
+from collections import Counter, defaultdict
 from functools import cache
 import re
 
+import numpy as np
 import pandas as pd
 from tqdm.auto import tqdm
 
+
 Phoneme: TypeAlias = str
+WordForm: TypeAlias = Tuple[Phoneme, ...]
 
 
 # Maps CMU dict pronunciation elements to IPA as used in Heilbron 2022 annotations.
@@ -237,6 +240,92 @@ class Phonemizer:
 
             # HACK
             return tuple(self.ipa_phonemes_re.findall(string))
+
+
+class CohortPredictiveModel:
+    """
+    A model of phoneme probabilities which incorporates a lexical frequency prior
+    together with a 0-1 cohort likelihood.
+    """
+
+    def __init__(self, dictionary_df: pd.DataFrame):
+        # Compute a unigram phoneme frequency distribution
+        # Also simultaneously compute cohorts (sets of words compatible with prefix)
+        phoneme_freqs, cohorts = Counter(), defaultdict(set)
+        for word, pronunciation_rows in tqdm(dictionary_df.groupby("word")):
+            ipa_word = tuple(pronunciation_rows.pronunciation.iloc[0].split(" "))
+            freq = pronunciation_rows.freq.iloc[0]
+
+            for phoneme in ipa_word:
+                phoneme_freqs[phoneme] += freq
+            for prefix in range(1, len(ipa_word)):
+                cohorts[tuple(ipa_word[:prefix])].add((ipa_word, freq))
+                
+        self._unigram_phoneme_distribution = pd.Series(phoneme_freqs)
+        self._unigram_phoneme_distribution /= self._unigram_phoneme_distribution.sum()
+        
+        self._cohorts = {prefix: list(cohort) for prefix, cohort in cohorts.items()}
+
+    def cohort_distribution(self, ipa_prefix: WordForm, pad_phoneme="_") -> Optional[pd.DataFrame]:
+        """
+        Compute a distribution over words compatible with the given prefix.
+        """
+        if ipa_prefix not in self._cohorts:
+            return None
+
+        cohort = pd.DataFrame(self._cohorts[ipa_prefix], columns=["phonemes", "freq"])
+        cohort["next_phoneme"] = cohort.phonemes.str[len(ipa_prefix)].fillna(pad_phoneme)
+        cohort["probability"] = cohort.freq / cohort.freq.sum()
+        return cohort
+
+    @cache
+    def cohort_phoneme_distribution(self, ipa_prefix: WordForm, pad_phoneme="_") -> pd.Series:
+        """
+        Compute a distribution over next phonemes conditioned on the given prefix.
+        """
+        df = self.cohort_distribution(ipa_prefix, pad_phoneme=pad_phoneme)
+        if df is None:
+            # Back off to unigram distribution.
+            return self._unigram_phoneme_distribution
+        
+        # marginalize out word random variable
+        ps = df.groupby("next_phoneme").probability.sum()
+        # backoff-smooth with phoneme unigram distribution
+        gamma = 0.1  # TODO parameterize
+        ps = (1 - gamma) * ps
+        ps = ps.add(gamma * self._unigram_phoneme_distribution, fill_value=0)
+        ps /= ps.sum()
+        return ps
+
+    def phoneme_surprisal_entropy(self, ipa_prefix: WordForm, phoneme: Phoneme) -> Tuple[float, float]:
+        """
+        Compute the entropy of the predictive phoneme distribution conditioned on the prefix,
+        and the surprisal of the given phoneme in that distribution.
+        """
+        dist = self.cohort_phoneme_distribution(ipa_prefix)
+        surprisals = -np.log2(dist)
+        return surprisals.loc[phoneme], (dist * surprisals).sum()
+
+    def word_phoneme_info(self, ipa_word: WordForm) -> List[Tuple[float, float]]:
+        """
+        Compute phoneme surprisal and entropy values for each phoneme of the
+        given IPA word.
+
+        Surprisal here is the negative log conditional of phoneme p_i
+
+            -log_2 p(p_i | p_1,...p_{i-1})
+
+        and entropy is the expected surprisal of the phoneme distribution before
+        consuming phoneme p_i
+
+            H(word | p_1, ... p_{i-1})
+        """
+        ret = []
+        for prefix_length, phoneme in enumerate(ipa_word):
+            prefix = ipa_word[:prefix_length]
+            surp_t, entr_t = self.phoneme_surprisal_entropy(prefix, phoneme)
+            ret.append((surp_t, entr_t))
+        return ret
 
 
 from nltk.tokenize.api import TokenizerI
