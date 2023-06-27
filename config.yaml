@@ -99,6 +99,20 @@ datasets:
       model: EleutherAI/gpt-neo-2.7B
       n_candidates: 10000
 
+    paradigms:
+      wide:
+        dataset_spec: heilbron_wide
+        feature_spec: heilbron
+      back:
+        dataset_spec: heilbron_back
+        feature_spec: heilbron
+      cannon_wide:
+        dataset_spec: heilbron_wide
+        feature_spec: heilbron
+      cannon_back:
+        dataset_spec: heilbron_back
+        feature_spec: heilbron
+
 language_modeling:
   model: distilgpt2
   n_candidates: 10000
