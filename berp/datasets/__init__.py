@@ -206,5 +206,6 @@ from berp.datasets.base import BerpDataset, NestedBerpDataset, assert_concatenat
 
 __all__ = [
     "NaturalLanguageStimulusProcessor",
+    "NaturalLanguageStimulus", "Vocabulary",
     "BerpDataset", "NestedBerpDataset",
 ]

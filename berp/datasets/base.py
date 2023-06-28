@@ -252,6 +252,8 @@ class BerpDataset:
             word_offsets = self.word_offsets[keep_word_indices]
             phoneme_onsets = self.phoneme_onsets[keep_word_indices]
             X_variable = self.X_variable[keep_word_indices]
+            retain_stim_word_ids = self.retain_stim_word_ids[keep_word_indices] \
+                 if self.retain_stim_word_ids is not None else None
 
             # Subtract onset data so that t=0 -> sample 0.
             # NB phoneme_onsets is relative to word onset, so we don't subtract here.
@@ -285,6 +287,7 @@ class BerpDataset:
 
                 Y=self.Y[key],
 
+                retain_stim_word_ids=retain_stim_word_ids,
                 global_slice_indices=global_slice_indices,
             )
 

@@ -107,6 +107,8 @@ def rand_unif(low, high, *shape) -> torch.Tensor:
 
 class RandomStimulusGenerator(StimulusGenerator):
 
+    PAD_PHONEME = "_"
+
     def __init__(self,
                  num_words: int = 100,
                  num_candidates: int = 10,
@@ -136,7 +138,7 @@ class RandomStimulusGenerator(StimulusGenerator):
                                            self.num_phonemes))
         # Use padding token when word length exceeded.
         # TODO can have candidates with different lengths
-        pad_idx = self.phoneme2idx["_"]
+        pad_idx = self.phoneme2idx[self.PAD_PHONEME]
         pad_mask = (torch.arange(self.num_phonemes) >= word_lengths[:, :, None])
         candidate_phonemes[pad_mask] = pad_idx
 
@@ -157,6 +159,10 @@ class RandomStimulusGenerator(StimulusGenerator):
         return Stimulus(gt_word_lengths, phoneme_onsets, phoneme_onsets_global,
                         word_onsets, word_offsets,
                         word_surprisals, p_candidates, candidate_phonemes)
+    
+    @property
+    def pad_phoneme_id(self):
+        return self.phoneme2idx[self.PAD_PHONEME]
 
 
 class NaturalLanguageStimulusGenerator(StimulusGenerator):

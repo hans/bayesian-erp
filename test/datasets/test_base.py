@@ -6,6 +6,7 @@ import pytest
 from sklearn.model_selection import KFold
 import torch
 
+from berp.datasets import NaturalLanguageStimulus, Vocabulary
 from berp.datasets.base import BerpDataset, NestedBerpDataset
 from berp.datasets.base import assert_concatenatable, assert_compatible
 from berp.generators.stimulus import RandomStimulusGenerator
@@ -45,6 +46,77 @@ def make_dataset():
         Y=Y,
         sensor_names=sensor_names,
     )
+
+
+def make_filtered_dataset():
+    """
+    Generate a decoupled filtered dataset which marks that only some of the words in the
+    stimulus representation are present in the dataset.
+    """
+    stim_gen = RandomStimulusGenerator()
+    stim = stim_gen()
+
+    t_max = stim.phoneme_onsets_global[-1, -1]
+    sfreq = 48
+    sigma = 1.
+    num_sensors = 3
+    sensor_names = ["a", "b", "c"]
+    num_ts_features = 3
+    num_variable_features = 3
+
+    Y = torch.normal(0, sigma, size=(int(np.ceil(t_max * sfreq)), num_sensors))
+    X_ts = Y * 0.01 + torch.normal(0, 1, size=(Y.shape[0], num_ts_features))
+    X_variable = torch.normal(0, 1, size=(stim.word_lengths.shape[0], num_variable_features))
+
+    # Filter random word subset
+    retain_word_ids = torch.sort(torch.randperm(stim.word_lengths.shape[0])[:stim.word_lengths.shape[0] // 2]).values
+
+    # Decompose the above into a natural language stimulus and a BerpDataset.
+
+    # Spoof a vocabulary with unique ID for every single phoneme sequence
+    vocabulary = Vocabulary()
+    candidate_ids = torch.zeros(stim.candidate_phonemes.shape[:2], dtype=torch.int64)
+    for word_id, word_len in enumerate(stim.word_lengths):
+        for cand_id in range(stim.candidate_phonemes.shape[1]):
+            # HACK assume all same length as ground truth word
+            cand_phonemes = [stim_gen.phonemes[p] for p in stim.candidate_phonemes[word_id, cand_id, :word_len]]
+            candidate_ids[word_id, cand_id] = vocabulary.add(tuple(cand_phonemes))
+
+    nl_stim = NaturalLanguageStimulus(
+        name=uuid.uuid4().hex,
+        phonemes=stim_gen.phonemes.tolist(),
+        pad_phoneme_id=stim_gen.pad_phoneme_id,
+        word_ids=torch.arange(len(stim.word_lengths)),
+        word_lengths=stim.word_lengths,
+        word_features=stim.word_surprisals[:, None],
+        word_feature_names=["word_surprisal"],
+        phoneme_features=[torch.zeros((word_len_i.item(), 0)) for word_len_i in stim.word_lengths],
+        phoneme_feature_names=[],
+        p_candidates=stim.p_candidates,
+        candidate_ids=candidate_ids,
+        candidate_vocabulary=vocabulary,
+    )
+
+    ds = BerpDataset(
+        name=uuid.uuid4().hex,
+        stimulus_name=nl_stim.name,
+        sample_rate=sfreq,
+        phonemes=nl_stim.phonemes,
+
+        word_onsets=stim.word_onsets[retain_word_ids],
+        word_offsets=stim.word_offsets[retain_word_ids],
+        phoneme_onsets=stim.phoneme_onsets[retain_word_ids],
+
+        X_ts=X_ts,
+        X_variable=X_variable[retain_word_ids],
+        Y=Y,
+        sensor_names=sensor_names,
+
+        retain_stim_word_ids=retain_word_ids,
+    )
+
+    return nl_stim, ds
+    
 
 
 def test_offsets():
@@ -237,3 +309,12 @@ def test_nested_different_sensors():
 
     # Shouldn't bork.
     nested = NestedBerpDataset([ds, ds2])
+
+
+def test_slice_filtered_dataset():
+    nl_stim, ds = make_filtered_dataset()
+    ds.add_stimulus(nl_stim)
+    assert ds.global_slice_indices is None
+
+    ds2 = ds[39:96]
+    ds2.check_shapes()
