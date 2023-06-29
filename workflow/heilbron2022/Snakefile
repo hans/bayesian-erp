@@ -522,6 +522,25 @@ rule fit_model:
 #############
 
 
+rule visualize_coefficients:
+    input:
+        model_trace = "results{paradigm}/{model}/n{n_candidates}{other_data_spec}/{berp_model}"
+
+    output:
+        "visualizations/{paradigm}/{model}/n{n_candidates}{other_data_spec}/{berp_model}/coefficients.ipynb"
+
+    shell:
+        """
+        papermill --log-output \
+            "scripts/visualizations/viz coefficients.ipynb" \
+            {output} \
+            -p workflow heilbron2022 \
+            -p model "{wildcards.model}/n{wildcards.n_candidates}{wildcards.other_data_spec}" \
+            -p paradigm "{wildcards.paradigm}" \
+            -p trf_run_name {wildcards.berp_model}
+        """
+
+
 rule evaluate_significance:
     input:
         "results{results_paradigm_label}/{model}/n{n_candidates}{other_data_spec}/{model_run_name}"
