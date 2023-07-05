@@ -247,3 +247,11 @@ evaluations:
     full_model:
       paradigm: _cannon_back
       model: trf-berp-cannon_3quantiles
+
+  back_syllable_trf_vs_baseline:
+    base_model:
+      paradigm: _back_syllable
+      model: base_trf
+    full_model:
+      paradigm: _back_syllable
+      model: trf
