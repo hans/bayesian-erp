@@ -326,24 +326,6 @@ def run_base_baseline(input, wildcards, params, output, add_stimuli_parent_dir=F
     """)
 
 
-rule fit_base_baseline_model:
-    input:
-        datasets = expand(
-            "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}/run{run}.pkl",
-            subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
-        stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
-            story_name=STORIES, run=RUNS, allow_missing=True)
-
-    params:
-        berp_model = "trf"
-    output:
-        trace = directory("results{paradigm}/{model}/n{n_candidates}{other_data_spec}/base_trf")
-
-    run:
-        run_base_baseline(input, wildcards, params, output, add_stimuli_parent_dir=True)
-
-
 def run_baseline(input, wildcards, params, output, add_stimuli_parent_dir=False,
                  paradigm=None):
     dataset_path_str = hydra_param(input.datasets)
@@ -373,26 +355,6 @@ def run_baseline(input, wildcards, params, output, add_stimuli_parent_dir=False,
         hydra.run.dir={output.trace} \
         model.device=cuda dataset.device=cuda
     """)
-
-
-rule fit_baseline_model:
-    input:
-        datasets = expand(
-            "data/dataset/{{model}}/n{{n_candidates}}{{other_data_spec}}/{story_name}/sub{subject}/run{run}.pkl",
-            subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
-        stimuli = expand(
-            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
-            story_name=STORIES, run=RUNS, allow_missing=True),
-
-        baseline_model = "results{paradigm}/{model}/n{n_candidates}{other_data_spec}/base_trf"
-
-    params:
-        berp_model = "trf"
-    output:
-        trace = directory("results{paradigm}/{model}/n{n_candidates}{other_data_spec}/trf")
-
-    run:
-        run_baseline(input, wildcards, params, output, add_stimuli_parent_dir=True)
 
 
 def validate_wildcards_for_confusion(wildcards):
@@ -515,7 +477,17 @@ rule fit_model:
         trace = directory("results{paradigm}/{model}/n{n_candidates}{other_data_spec}/{berp_model}")
 
     run:
-        run_fn = run_berp_cannon if "cannon" in wildcards.berp_model else run_berp
+        run_fn = None
+        # TODO can these run functions just be merged?
+        if wildcards.berp_model == "base_trf":
+            run_fn = run_base_baseline
+        elif wildcards.berp_model == "trf":
+            run_fn = run_baseline
+        elif "cannon" in wildcards.berp_model:
+            run_fn = run_berp_cannon
+        else:
+            run_fn = run_berp
+
         run_fn(input, wildcards, params, output, add_stimuli_parent_dir=True)
 
 
