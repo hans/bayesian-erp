@@ -36,7 +36,7 @@ from berp.models.reindexing_regression import \
 from berp.models.trf import TemporalReceptiveField, TRFPredictors, \
     TRFDesignMatrix, TRFResponse, TRFDelayer
 from berp.tensorboard import Tensorboard
-from berp.typing import is_probability, DIMS
+from berp.typing import is_probability, DIMS, Phoneme
 from berp.util import time_to_sample, cat
 
 L = logging.getLogger(__name__)
@@ -646,6 +646,7 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
                  encoder_key_re: Union[str, re.Pattern[str]],
 
                  params: List[ModelParameters],
+                 phonemes: List[Phoneme],
                  param_weights: Optional[Responsibilities] = None,
 
                  scatter_point: float = 0.0,
@@ -677,6 +678,7 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
                          **kwargs)
 
         self.params = params
+        self.phonemes = phonemes
         self.param_weights = param_weights if param_weights is not None else \
             torch.ones(len(self.params), dtype=torch.float) / len(self.params)
         
@@ -803,6 +805,7 @@ class GroupBerpFixedTRFForwardPipeline(GroupBerpTRFForwardPipeline):
                  threshold: torch.Tensor,
                  confusion: torch.Tensor,
                  lambda_: torch.Tensor,
+                 phonemes: List[Phoneme],
 
                  scatter_point: float = 0,
                  prior_scatter_index: int = 0,
@@ -819,6 +822,7 @@ class GroupBerpFixedTRFForwardPipeline(GroupBerpTRFForwardPipeline):
             ts_feature_names, variable_feature_names,
             encoder_key_re,
             self.params,
+            phonemes,
             scatter_point=scatter_point,
             prior_scatter_index=prior_scatter_index,
             prior_scatter_point=prior_scatter_point,
@@ -859,6 +863,7 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
                  threshold: torch.Tensor,
                  confusion: torch.Tensor,
                  lambda_: torch.Tensor,
+                 phonemes: List[Phoneme],
 
                  n_quantiles: int = 3,
 
@@ -872,6 +877,7 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
         super().__init__(encoder, ts_feature_names, variable_feature_names,
                          encoder_key_re,
                          threshold, confusion, lambda_,
+                         phonemes,
                          scatter_point=scatter_point,
                          prior_scatter_index=prior_scatter_index,
                          prior_scatter_point=prior_scatter_point,
@@ -1406,6 +1412,7 @@ def BerpTRFFixed(trf: TemporalReceptiveField,
         threshold=torch.as_tensor(threshold),
         confusion=prepare_or_create_confusion(confusion_path, phonemes),
         lambda_=torch.tensor(1.),
+        phonemes=phonemes,
         **kwargs,
     )
 
@@ -1431,6 +1438,7 @@ def BerpTRFCannon(trf: TemporalReceptiveField,
         threshold=torch.as_tensor(threshold),
         confusion=prepare_or_create_confusion(confusion_path, phonemes),
         lambda_=lambda_,
+        phonemes=phonemes,
         n_quantiles=n_quantiles,
         **kwargs,
     )
