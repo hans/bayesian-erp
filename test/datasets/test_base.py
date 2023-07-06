@@ -47,12 +47,24 @@ def make_dataset():
     )
 
 
+def test_onsets_global():
+    ds = make_dataset()
+
+    assert ds.phoneme_onsets_global.shape == ds.phoneme_onsets.shape
+
+    # nonzero items should reflect word length
+    torch.testing.assert_close((ds.phoneme_onsets_global != 0).sum(1).long(), ds.word_lengths)
+
+
 def test_offsets():
     ds = make_dataset()
     assert ds.phoneme_offsets_global.shape == ds.phoneme_onsets_global.shape
 
-    assert torch.allclose(ds.phoneme_offsets_global[:, -1], ds.word_offsets)
+    assert torch.allclose(ds.phoneme_offsets_global.max(1)[0], ds.word_offsets)
     assert (ds.word_offsets[:-1] <= ds.word_onsets[1:]).all(), "No overlapping words"
+
+    torch.testing.assert_close((ds.phoneme_offsets != 0).sum(1).long(), ds.word_lengths)
+    torch.testing.assert_close((ds.phoneme_offsets_global != 0).sum(1).long(), ds.word_lengths)
 
 
 def test_slice_name():
