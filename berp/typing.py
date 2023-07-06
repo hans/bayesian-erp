@@ -1,9 +1,13 @@
 from typing import NamedTuple
+from typing_extensions import TypeAlias
 import torch
 from torch.distributions import constraints
 from torchtyping import TensorType, TensorDetail, patch_typeguard
 
 patch_typeguard()
+
+
+Phoneme: TypeAlias = str
 
 
 class DIMS:

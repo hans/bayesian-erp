@@ -143,6 +143,7 @@ def group_em_estimator(synth_params: ModelParameters, dataset: BerpDataset,
                        trf: TemporalReceptiveField,
                        model_param_grid: List[ModelParameters]):
     pipeline = GroupBerpTRFForwardPipeline(trf, params=model_param_grid,
+        phonemes=dataset.phonemes,
         ts_feature_names=dataset.ts_feature_names,
         variable_feature_names=dataset.variable_feature_names,
         encoder_key_re=subject_re)
@@ -170,6 +171,7 @@ def group_fixed_estimator(synth_params: ModelParameters, dataset: BerpDataset,
         threshold=synth_params.threshold,
         confusion=synth_params.confusion,
         lambda_=synth_params.lambda_,
+        phonemes=dataset.phonemes,
         scatter_point=np.random.random(),
         prior_scatter_index=np.random.choice([-3, -2, -1, 0]),
         prior_scatter_point=np.random.random(),
@@ -189,6 +191,7 @@ def group_cannon_estimator(synth_params: ModelParameters, dataset: BerpDataset,
         threshold=synth_params.threshold,
         confusion=synth_params.confusion,
         lambda_=synth_params.lambda_,
+        phonemes=dataset.phonemes,
         n_quantiles=3,
         scatter_point=np.random.random(),
         prior_scatter_index=np.random.choice([-3, -2, -1, 0]).item(),
@@ -212,6 +215,7 @@ def test_variable_trf_zero_overflow(trf: TemporalReceptiveField, dataset: BerpDa
             variable_feature_names=dataset.variable_feature_names,
             encoder_key_re=subject_re,
             params=[PartiallyObservedModelParameters()],
+            phonemes=dataset.phonemes,
             variable_trf_zero_left=left_zero,
             variable_trf_zero_right=right_zero
         )
@@ -266,7 +270,7 @@ def test_alpha_scatter(group_em_estimator):
     np.testing.assert_approx_equal(ret, alpha)
 
 
-@pytest.mark.usefixtures("group_fixed_estimator")
+@pytest.mark.usefixtures("group_fixed_estimator", "dataset")
 class TestGroupBerpFixed:
 
     check_params = [
@@ -280,6 +284,13 @@ class TestGroupBerpFixed:
             torch.testing.assert_close(a, b)
         else:
             assert a == b
+
+    def test_phoneme_mismatch(self, group_fixed_estimator: GroupBerpFixedTRFForwardPipeline,
+                              dataset: BerpDataset):
+        from dataclasses import replace
+        ds = replace(dataset, name="DKZ_1/subj1", phonemes=dataset.phonemes[::-1])
+        with pytest.raises(ValueError):
+            group_fixed_estimator.fit(NestedBerpDataset([ds]))
 
     @pytest.mark.parametrize("param", check_params)
     def test_parameters_distribute(self, group_fixed_estimator: GroupBerpFixedTRFForwardPipeline, param: str):
@@ -334,7 +345,7 @@ class TestGroupBerpFixed:
             "Words recognized at prior should have recognition times before word onset"
 
 
-@pytest.mark.usefixtures("group_cannon_estimator")
+@pytest.mark.usefixtures("group_cannon_estimator", "dataset")
 class TestGroupCannon:
 
     def test_recognition_quantiles(self,
@@ -342,6 +353,15 @@ class TestGroupCannon:
                                    dataset: BerpDataset):
         # TODO
         pass
+
+    def test_phoneme_mismatch(self, group_fixed_estimator: trf_em.GroupBerpCannonTRFForwardPipeline,
+                              dataset: BerpDataset):
+        # Reorder phonemes
+        from dataclasses import replace
+        ds = replace(dataset, name="DKZ_1/subj1", phonemes=dataset.phonemes[::-1])
+        
+        with pytest.raises(ValueError):
+            group_fixed_estimator.fit(NestedBerpDataset([ds]))
 
     def test_pre_transform(self,
                            group_cannon_estimator: trf_em.GroupBerpCannonTRFForwardPipeline,

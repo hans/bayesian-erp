@@ -36,7 +36,7 @@ from berp.models.reindexing_regression import \
 from berp.models.trf import TemporalReceptiveField, TRFPredictors, \
     TRFDesignMatrix, TRFResponse, TRFDelayer
 from berp.tensorboard import Tensorboard
-from berp.typing import is_probability, DIMS
+from berp.typing import is_probability, DIMS, Phoneme
 from berp.util import time_to_sample, cat
 
 L = logging.getLogger(__name__)
@@ -390,11 +390,19 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
         else:
             return cache.get_cache_for(dataset)
 
+    def _check_dataset(self, dataset: Dataset):
+        """
+        Check that the given dataset is compatible with this model.
+        """
+        pass
+
     def prime(self, dataset: Dataset):
         """
         Prepare caching pipelines for each subdataset of the given dataset.
         """
         datasets = dataset.datasets if isinstance(dataset, NestedBerpDataset) else [dataset]
+        self._check_dataset(dataset)
+
         for d in datasets:
             if d.global_slice_indices is not None:
                 raise ValueError(
@@ -525,6 +533,8 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
             encoder.fit(design_matrix, Y)
 
     def fit(self, dataset: NestedBerpDataset, y=None) -> "GroupTRFForwardPipeline":
+        self._check_dataset(dataset)
+
         # Group datasets by encoder and fit jointly.
         grouped_datasets = defaultdict(list)
         for ds_i in dataset.datasets:
@@ -543,6 +553,8 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
                             dataset_tag=dataset.name)
 
     def partial_fit(self, dataset: NestedBerpDataset, y=None) -> "GroupTRFForwardPipeline":
+        self._check_dataset(dataset)
+
         n_early_stops = 0
 
         encs = self._get_or_create_encoders(dataset)
@@ -560,6 +572,8 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
 
     @typechecked
     def predict(self, dataset: BerpDataset) -> TRFResponse:
+        self._check_dataset(dataset)
+
         enc = self._get_or_create_encoder(dataset)
         design_matrix, _ = self.pre_transform(dataset)
         return enc.predict(design_matrix)
@@ -571,6 +585,8 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
     @score.register
     @typechecked
     def _(self, dataset: BerpDataset, y=None) -> float:
+        self._check_dataset(dataset)
+
         enc = self._get_or_create_encoder(dataset)
         design_matrix, _ = self.pre_transform(dataset)
         return enc.score(design_matrix, dataset.Y)
@@ -578,6 +594,8 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
     @score.register
     @typechecked
     def _(self, dataset: NestedBerpDataset, y=None) -> float:
+        self._check_dataset(dataset)
+
         scores = [self.score(d) for d in dataset.datasets]
         return np.mean(scores)
 
@@ -588,6 +606,8 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
     @score_multidimensional.register
     @typechecked
     def _(self, dataset: BerpDataset, y=None) -> np.ndarray:
+        self._check_dataset(dataset)
+
         enc = self._get_or_create_encoder(dataset)
         design_matrix, _ = self.pre_transform(dataset)
         return enc.score_multidimensional(design_matrix, dataset.Y)
@@ -595,6 +615,8 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
     @score_multidimensional.register
     @typechecked
     def _(self, dataset: NestedBerpDataset, y=None) -> np.ndarray:
+        self._check_dataset(dataset)
+
         scores = [self.score_multidimensional(d) for d in dataset.datasets]
         return np.array(scores)
 
@@ -605,6 +627,8 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
     @log_likelihood.register
     @typechecked
     def _(self, dataset: BerpDataset) -> TensorType[B, torch.float]:
+        self._check_dataset(dataset)
+
         enc = self._get_or_create_encoder(dataset)
         design_matrix, _ = self.pre_transform(dataset)
         return enc.log_likelihood(design_matrix, dataset.Y).sum()
@@ -612,6 +636,8 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
     @log_likelihood.register
     @typechecked
     def _(self, dataset: NestedBerpDataset) -> List[TensorType[B, torch.float]]:
+        self._check_dataset(dataset)
+
         return [self.log_likelihood(d) for d in dataset.datasets]
 
     @singledispatchmethod
@@ -621,6 +647,8 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
     @log_likelihood_expanded.register
     @typechecked
     def _(self, dataset: BerpDataset) -> TensorType["param_grid", torch.float]:
+        self._check_dataset(dataset)
+
         enc = self._get_or_create_encoder(dataset)
         ret = []
         for design_matrix, _ in self.pre_transform_expanded(dataset):
@@ -632,6 +660,8 @@ class GroupTRFForwardPipeline(ScatterParamsMixin, BaseEstimator, Generic[Encoder
     def _(self, dataset: NestedBerpDataset
           ) -> Union[List[TensorType["param_grid", torch.float]],
                      List[torch.Tensor]]:
+        self._check_dataset(dataset)
+
         return [self.log_likelihood_expanded(d)
                 for d in dataset.datasets]
 
@@ -646,6 +676,7 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
                  encoder_key_re: Union[str, re.Pattern[str]],
 
                  params: List[ModelParameters],
+                 phonemes: List[Phoneme],
                  param_weights: Optional[Responsibilities] = None,
 
                  scatter_point: float = 0.0,
@@ -677,6 +708,7 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
                          **kwargs)
 
         self.params = params
+        self.phonemes = phonemes
         self.param_weights = param_weights if param_weights is not None else \
             torch.ones(len(self.params), dtype=torch.float) / len(self.params)
         
@@ -695,10 +727,29 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
         self.variable_trf_zero_left = variable_trf_zero_left
         self.variable_trf_zero_right = variable_trf_zero_right
 
+    def _check_dataset(self, dataset: Dataset):
+        """
+        Check that the given dataset is compatible with this model.
+        """
+        datasets = [dataset] if isinstance(dataset, BerpDataset) else dataset.datasets
+        for ds in datasets:
+            if self.phonemes is None:
+                # Legacy models may not have this property set. Absorb from this first dataset
+                # and require that subsequent datasets agree.
+                # NB this leaves open the option that the phonemes may mismatch the model's
+                # confusion data. This was a legacy mistake -- too bad. We are separately
+                # enforcing that the phonemes are ordered the same as they used to be in the
+                # legacy models to guard against this. See issue #13.
+                self.phonemes = ds.phonemes
+            elif ds.phonemes != self.phonemes:
+                raise ValueError("Dataset phonemes do not match model phonemes. %s" % ds.name)
+
     @typechecked
     def get_recognition_points(self, dataset: BerpDataset,
                                params: ModelParameters,
                                ) -> TensorType[torch.long]:
+        self._check_dataset(dataset)
+
         # TODO cache rec point computation?
         # profile and find out if it's worth it
         p_candidates_posterior = predictive_model(
@@ -714,6 +765,8 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
     def get_recognition_times(self, dataset: BerpDataset,
                               params: ModelParameters,
                               ) -> Tuple[TensorType[torch.long], TensorType[torch.float]]:
+        self._check_dataset(dataset)
+        
         recognition_points = self.get_recognition_points(dataset, params)
         recognition_times = recognition_points_to_times(
             recognition_points,
@@ -754,6 +807,8 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
                     lag_mask=lag_mask)
     
     def pre_transform(self, dataset: BerpDataset) -> Tuple[TRFDesignMatrix, MaskArray]:
+        self._check_dataset(dataset)
+        
         primed = self._get_cache_for_dataset(dataset)
         # acc = primed.design_matrix.clone()
         acc = clone_count(primed.design_matrix)
@@ -768,6 +823,8 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
         return acc, primed.validation_mask
 
     def pre_transform_expanded(self, dataset: BerpDataset) -> Iterator[Tuple[TRFDesignMatrix, MaskArray]]:
+        self._check_dataset(dataset)
+        
         primed = self._get_cache_for_dataset(dataset)
         feature_start_idx = self.n_ts_features
 
@@ -803,6 +860,7 @@ class GroupBerpFixedTRFForwardPipeline(GroupBerpTRFForwardPipeline):
                  threshold: torch.Tensor,
                  confusion: torch.Tensor,
                  lambda_: torch.Tensor,
+                 phonemes: List[Phoneme],
 
                  scatter_point: float = 0,
                  prior_scatter_index: int = 0,
@@ -819,6 +877,7 @@ class GroupBerpFixedTRFForwardPipeline(GroupBerpTRFForwardPipeline):
             ts_feature_names, variable_feature_names,
             encoder_key_re,
             self.params,
+            phonemes,
             scatter_point=scatter_point,
             prior_scatter_index=prior_scatter_index,
             prior_scatter_point=prior_scatter_point,
@@ -859,6 +918,7 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
                  threshold: torch.Tensor,
                  confusion: torch.Tensor,
                  lambda_: torch.Tensor,
+                 phonemes: List[Phoneme],
 
                  n_quantiles: int = 3,
 
@@ -872,6 +932,7 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
         super().__init__(encoder, ts_feature_names, variable_feature_names,
                          encoder_key_re,
                          threshold, confusion, lambda_,
+                         phonemes,
                          scatter_point=scatter_point,
                          prior_scatter_index=prior_scatter_index,
                          prior_scatter_point=prior_scatter_point,
@@ -892,14 +953,12 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
         ]
         return ts_predictor_names, variable_predictor_names
 
-    def _check_shapes(self, dataset: Dataset):
-        if not hasattr(self.encoder, "n_features_"):
-            return
-
+    def _check_dataset(self, dataset: Dataset):
         datasets = [dataset] if isinstance(dataset, BerpDataset) else dataset.datasets
-        for ds in datasets:
-            assert self.encoder.n_features_ == dataset.n_ts_features + (self.n_quantiles + 1) * dataset.n_variable_features, \
-                "Encoder should have N + 1 sets of variable-onset features, for N quantiles"
+        if hasattr(self.encoder, "n_features_"):
+            for ds in datasets:
+                assert self.encoder.n_features_ == dataset.n_ts_features + (self.n_quantiles + 1) * dataset.n_variable_features, \
+                    "Encoder should have N + 1 sets of variable-onset features, for N quantiles"
 
     def _fit_recognition_quantiles(self, dataset: Dataset) -> None:
         """
@@ -1011,14 +1070,16 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
                         lag_mask=lag_mask)
 
     def pre_transform(self, dataset: BerpDataset) -> Tuple[TRFDesignMatrix, MaskArray]:
-        self._check_shapes(dataset)
+        self._check_dataset(dataset)
         return super().pre_transform(dataset)
     
     def pre_transform_expanded(self, dataset: BerpDataset) -> Iterator[Tuple[TRFDesignMatrix, np.ndarray]]:
-        self._check_shapes(dataset)
+        self._check_dataset(dataset)
         return super().pre_transform_expanded(dataset)
 
     def fit(self, dataset: NestedBerpDataset, y=None) -> "GroupBerpCannonTRFForwardPipeline":
+        self._check_dataset(dataset)
+
         # First re-estimate recognition quantiles on the union of all datasets.
         self._fit_recognition_quantiles(dataset)
         super().fit(dataset, y=y)
@@ -1406,6 +1467,7 @@ def BerpTRFFixed(trf: TemporalReceptiveField,
         threshold=torch.as_tensor(threshold),
         confusion=prepare_or_create_confusion(confusion_path, phonemes),
         lambda_=torch.tensor(1.),
+        phonemes=phonemes,
         **kwargs,
     )
 
@@ -1431,6 +1493,7 @@ def BerpTRFCannon(trf: TemporalReceptiveField,
         threshold=torch.as_tensor(threshold),
         confusion=prepare_or_create_confusion(confusion_path, phonemes),
         lambda_=lambda_,
+        phonemes=phonemes,
         n_quantiles=n_quantiles,
         **kwargs,
     )
