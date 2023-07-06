@@ -727,6 +727,14 @@ class GroupBerpTRFForwardPipeline(GroupTRFForwardPipeline):
         self.variable_trf_zero_left = variable_trf_zero_left
         self.variable_trf_zero_right = variable_trf_zero_right
 
+    def __setstate__(self, state):
+        """
+        Support loading legacy models.
+        """
+        if "phonemes" not in state:
+            state["phonemes"] = None
+        super().__setstate__(state)
+
     def _check_dataset(self, dataset: Dataset):
         """
         Check that the given dataset is compatible with this model.
