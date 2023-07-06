@@ -197,7 +197,8 @@ class BerpDataset:
         the time series.
         """
         # Add word onset up to respective word length
-        mask = torch.arange(self.max_n_phonemes)[None, :] < self.word_lengths[:, None]
+        mask = torch.arange(self.max_n_phonemes)[None, :].to(self.word_lengths) \
+            < self.word_lengths[:, None]
         return self.word_onsets[:, None] * mask + self.phoneme_onsets
 
     @property
@@ -213,7 +214,7 @@ class BerpDataset:
         return torch.stack([
             pad(torch.cat([
                 self.phoneme_onsets[i, 1:self.word_lengths[i]],
-                torch.tensor([self.word_offsets[i] - self.word_onsets[i]])
+                torch.tensor([self.word_offsets[i] - self.word_onsets[i]]).to(self.phoneme_onsets)
             ]), (0, max_num_phonemes - self.word_lengths[i]), value=0.)
             for i in range(self.n_words)
         ])
@@ -225,7 +226,8 @@ class BerpDataset:
         the time series.
         """
         # Add word onset up to respective word length
-        mask = torch.arange(self.max_n_phonemes)[None, :] < self.word_lengths[:, None]
+        mask = torch.arange(self.max_n_phonemes)[None, :].to(self.word_lengths) \
+            < self.word_lengths[:, None]
         return self.word_onsets[:, None] * mask + self.phoneme_offsets
 
     @typechecked
@@ -326,7 +328,8 @@ class BerpDataset:
         """
 
         offsets = self.phoneme_offsets
-        out_of_bounds_mask = torch.arange(self.max_n_phonemes).unsqueeze(0) >= self.word_lengths.unsqueeze(1)
+        out_of_bounds_mask = torch.arange(self.max_n_phonemes).unsqueeze(0).to(self.word_lengths) \
+            >= self.word_lengths.unsqueeze(1)
 
         # word offsets should be greater than word onsets
         assert torch.all(self.word_offsets > self.word_onsets).item()
