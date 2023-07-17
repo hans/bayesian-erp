@@ -1530,6 +1530,7 @@ def VanillaCannonTRF(trf: TemporalReceptiveField,
         threshold=torch.as_tensor(threshold),
         confusion=prepare_or_create_confusion(confusion_path, phonemes),
         lambda_=lambda_,
+        phonemes=phonemes,
         n_quantiles=n_quantiles,
         **kwargs,
     )

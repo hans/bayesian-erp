@@ -1,7 +1,10 @@
+import contextlib
 import logging
+import os
 from pathlib import Path
 import sys
-from typing import Callable, List, Optional
+from tempfile import TemporaryDirectory
+from typing import Callable, List, Optional, Dict, cast, Tuple
 import yaml
 
 import hydra
@@ -150,7 +153,9 @@ class Trainer:
             param_distributions.update(hydra.utils.call(dist_cfg, name=name))
 
         sampler = hydra.utils.instantiate(cv_cfg.param_sampler)
-        study = optuna.create_study(sampler=sampler, direction="maximize")
+        study = optuna.create_study(
+            storage=f"sqlite:///{self.params_dir}/optuna.db",
+            sampler=sampler, direction="maximize")
 
         aggregation_fn = getattr(np, cv_cfg.sensor_aggregation_fn)
         scoring = BaselinedScorer(self.baseline_model, aggregation_fn=aggregation_fn)
@@ -229,3 +234,19 @@ def load_trainers_from_checkpoints(checkpoint_dirs: List[str],
         trainers.append(trainer)
 
     return trainers
+
+
+def make_trainer(trace_dir=None, config_path="../conf", overrides: List[str] = []) -> Tuple[str, Trainer]:
+    """
+    Prepare a Hydra config and initialize a Trainer programmatically in a
+    temporary directory. This is useful for test runs.
+    """
+    ctx = TemporaryDirectory() if trace_dir is None else contextlib.nullcontext(trace_dir)
+    with ctx as tmpd:
+        os.chdir(tmpd)
+
+        with hydra.initialize(version_base=None, config_path=config_path):
+            cfg: Config = cast(Config, hydra.compose(config_name="config.yaml", overrides=overrides))
+            print(OmegaConf.to_yaml(cfg))
+
+            return tmpd, Trainer(cfg)

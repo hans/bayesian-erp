@@ -58,7 +58,7 @@ class BaselinedScorer(Generic[Score]):
             # Aggregate over sensor axis
             score = self.aggregation_fn(score, axis=-1)
 
-        # Mean over dataset folds
+        # Mean over dataset runs and subjects (flattened along first axis)
         score = np.mean(score)
 
         tb_global_step()
