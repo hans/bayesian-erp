@@ -1,6 +1,7 @@
 ---
 title: "n400 gam analysis"
-output: html_document
+output:
+  html_notebook: default
 params:
   data_path: "n400_gam_data.csv"
 ---
@@ -11,6 +12,7 @@ library(ggplot2)
 library(lme4)
 library(mgcv)
 library(tidyverse)
+library(broom)
 
 knitr::opts_chunk$set(echo = TRUE)
 ```
@@ -32,17 +34,17 @@ reg_data = df %>%
   mutate(item=as.factor(paste(run, word_idx)),
          word_surprisal=c(scale(-word_surprisal, scale=F)),
          word_frequency=c(scale(word_frequency, scale=F)),
-         baseline=c(scale(baseline, scale=F) / 10))
+         baseline=c(scale(baseline, scale=F)))
 nrow(reg_data)
 ```
 
 
 ```{r}
-linear_model = lmer(n400 ~ baseline + word_surprisal + word_frequency +
-                      (baseline + word_surprisal + word_frequency | subject),# +
-                      #(1 | item),
-                    data=reg_data %>% filter(sensor_name == "B4"), REML=F, control=lmerControl(optimizer="bobyqa"))
-summary(linear_model)
+# linear_model = lmer(n400 ~ baseline + word_surprisal + word_frequency +
+#                       (baseline + word_surprisal + word_frequency | subject),# +
+#                       #(1 | item),
+#                     data=reg_data %>% filter(sensor_name == "B4"), REML=F, control=lmerControl(optimizer="bobyqa"))
+# summary(linear_model)
 ```
 
 ```{r}
@@ -60,14 +62,10 @@ my_gam_predict = function(gm, view) {
 ```
 
 ```{r}
-reg_data
-```
-
-```{r}
 gam = bam(n400 ~ s(subject, bs="re") + #s(item, bs="re") +
-            baseline + s(baseline, bs="cr") + s(subject, baseline, bs="re") + #s(item, baseline, bs="re") +
-            word_surprisal + s(word_surprisal, bs="cr") + s(subject, word_surprisal, bs="re") +
-            word_frequency + s(word_frequency, bs="cr") + s(subject, word_frequency, bs="re"),
+            baseline + s(baseline, bs="cr", m=c(2, 0)) + s(subject, baseline, bs="re") + #s(item, baseline, bs="re") +
+            word_surprisal + s(word_surprisal, bs="cr", m=c(2, 0)) + s(subject, word_surprisal, bs="re") +
+            word_frequency + s(word_frequency, bs="cr", m=c(2, 0)) + s(subject, word_frequency, bs="re"),
           data=reg_data %>% filter(sensor_name == "B4"))
 ```
 ```{r}
@@ -93,11 +91,23 @@ all_gams = reg_data %>%
   nest() %>% 
     mutate(fit=map(data,
                    ~bam(n400 ~ s(subject, bs="re") + #s(item, bs="re") +
-                          baseline + s(baseline, bs="cr") + s(subject, baseline, bs="re") + #s(item, baseline, bs="re") +
-                          word_surprisal + s(word_surprisal, bs="cr") + s(subject, word_surprisal, bs="re") +
-                          word_frequency + s(word_frequency, bs="cr") + s(subject, word_frequency, bs="re"),
+                          baseline + s(baseline, bs="cr", m=c(2, 0)) + s(subject, baseline, bs="re") + #s(item, baseline, bs="re") +
+                          word_surprisal + s(word_surprisal, bs="cr", m=c(2, 0)) + s(subject, word_surprisal, bs="re") +
+                          word_frequency + s(word_frequency, bs="cr", m=c(2, 0)) + s(subject, word_frequency, bs="re"),
                         data=.x)))
 ```
+
+```{r}
+gam_smooth_results = all_gams %>%
+  mutate(tidied=map(fit, tidy)) %>% 
+  select(-data, -fit) %>% 
+  unnest(tidied)
+gam_smooth_results %>%
+  filter(term == "s(word_surprisal)") %>% 
+  arrange(p.value) %>% 
+  mutate(sig=p.value < 0.01)
+```
+
 
 ```{r fig.width=15, fig.align="center"}
 all_gams %>% mutate(predict=map(fit, ~my_gam_predict(.x, "word_surprisal"))) %>% 
