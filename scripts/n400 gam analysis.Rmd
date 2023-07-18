@@ -32,8 +32,9 @@ glimpse(df)
 # DEV
 reg_data = df %>%
   mutate(item=as.factor(paste(run, word_idx)),
-         word_surprisal=c(scale(-word_surprisal, scale=F)),
-         word_frequency=c(scale(word_frequency, scale=F)),
+         # word_surprisal=c(scale(-word_surprisal, scale=F)),
+         word_surprisal=-word_surprisal,
+         # word_frequency=c(scale(word_frequency, scale=F)),
          baseline=c(scale(baseline, scale=F)))
 nrow(reg_data)
 ```
