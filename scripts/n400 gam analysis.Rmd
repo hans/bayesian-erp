@@ -120,6 +120,39 @@ all_gams %>% mutate(predict=map(fit, ~my_gam_predict(.x, "word_surprisal"))) %>%
 
 See if we can get the output to match the piecewise linear analysis ..
 
+```{r}
+all_gams.mod = reg_data %>%
+  group_by(sensor_name) %>% 
+  nest() %>% 
+    mutate(fit=map(data,
+                   ~bam(n400 ~ s(subject, bs="re") + #s(item, bs="re") +
+                          baseline + s(baseline, bs="cr", m=c(2, 0)) + s(subject, baseline, bs="re") + #s(item, baseline, bs="re") +
+                          word_surprisal + s(word_surprisal, bs="cr", m=c(2, 0)) + s(subject, word_surprisal, bs="re") +
+                          word_frequency + s(word_frequency, bs="cr", m=c(2, 0)) + s(subject, word_frequency, bs="re"),
+                        data=.x, gamma=0.1, nthreads=2)))
+
+all_gams.mod %>% 
+  mutate(predict=map(fit, ~my_gam_predict(.x, "word_surprisal"))) %>% 
+  select(-fit, -data) %>% 
+  unnest(predict) %>% 
+  ggplot(aes(x=word_surprisal, y=fit, ymin=ll, ymax=ul)) +
+    facet_wrap(~sensor_name, ncol=4) +
+    geom_line() + geom_ribbon(alpha=0.2) +
+    xlab("Surprisal") +
+    ylab("N400 amplitude")
+```
+
+```{r}
+gam_smooth_results.mod = all_gams.mod %>%
+  mutate(tidied=map(fit, tidy)) %>% 
+  select(-data, -fit) %>% 
+  unnest(tidied)
+gam_smooth_results.mod %>%
+  filter(term == "s(word_surprisal)") %>% 
+  arrange(p.value) %>% 
+  mutate(sig=p.value < 0.01)
+```
+
 
 
 ## Piecewise linear analysis
