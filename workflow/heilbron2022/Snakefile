@@ -350,7 +350,7 @@ rule fit_base_baseline_model_wide:
     params:
         berp_model = "trf"
     output:
-        trace = directory("results_wide/{model}/n{n_candidates}/base_trf")
+        trace = directory("results_wide2/{model}/n{n_candidates}/base_trf")
 
     run:
         run_base_baseline(input, wildcards, params, output, add_stimuli_parent_dir=True, dataset_spec="heilbron_wide")
@@ -372,6 +372,42 @@ rule fit_base_baseline_model_back:
 
     run:
         run_base_baseline(input, wildcards, params, output, add_stimuli_parent_dir=True, dataset_spec="heilbron_back")
+
+
+rule fit_base_baseline_model_front:
+    input:
+        datasets = expand(
+            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
+        stimuli = expand(
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            story_name=STORIES, run=RUNS, allow_missing=True),
+
+    params:
+        berp_model = "trf"
+    output:
+        trace = directory("results_front/{model}/n{n_candidates}/base_trf")
+
+    run:
+        run_base_baseline(input, wildcards, params, output, add_stimuli_parent_dir=True, dataset_spec="heilbron_front")
+
+
+rule fit_base_baseline_model_frontfront:
+    input:
+        datasets = expand(
+            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
+        stimuli = expand(
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            story_name=STORIES, run=RUNS, allow_missing=True),
+
+    params:
+        berp_model = "trf"
+    output:
+        trace = directory("results_frontfront/{model}/n{n_candidates}/base_trf")
+
+    run:
+        run_base_baseline(input, wildcards, params, output, add_stimuli_parent_dir=True, dataset_spec="heilbron_frontfront")
 
 
 rule fit_base_baseline_model_vart:
@@ -465,12 +501,12 @@ rule fit_baseline_model_wide:
             "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
             story_name=STORIES, run=RUNS, allow_missing=True),
 
-        baseline_model = "results_wide/{model}/n{n_candidates}/base_trf"
+        baseline_model = "results_wide2/{model}/n{n_candidates}/base_trf"
 
     params:
         berp_model = "trf"
     output:
-        trace = directory("results_wide/{model}/n{n_candidates}/trf")
+        trace = directory("results_wide2/{model}/n{n_candidates}/trf")
 
     run:
         run_baseline(input, wildcards, params, output, add_stimuli_parent_dir=True, dataset_spec="heilbron_wide")
@@ -494,6 +530,46 @@ rule fit_baseline_model_back:
 
     run:
         run_baseline(input, wildcards, params, output, add_stimuli_parent_dir=True, dataset_spec="heilbron_back")
+
+
+rule fit_baseline_model_front:
+    input:
+        datasets = expand(
+            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
+        stimuli = expand(
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            story_name=STORIES, run=RUNS, allow_missing=True),
+
+        baseline_model = "results_front/{model}/n{n_candidates}/base_trf"
+
+    params:
+        berp_model = "trf"
+    output:
+        trace = directory("results_front/{model}/n{n_candidates}/trf")
+
+    run:
+        run_baseline(input, wildcards, params, output, add_stimuli_parent_dir=True, dataset_spec="heilbron_front")
+
+
+rule fit_baseline_model_frontfront:
+    input:
+        datasets = expand(
+            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
+        stimuli = expand(
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            story_name=STORIES, run=RUNS, allow_missing=True),
+
+        baseline_model = "results_frontfront/{model}/n{n_candidates}/base_trf"
+
+    params:
+        berp_model = "trf"
+    output:
+        trace = directory("results_frontfront/{model}/n{n_candidates}/trf")
+
+    run:
+        run_baseline(input, wildcards, params, output, add_stimuli_parent_dir=True, dataset_spec="heilbron_frontfront")
 
 
 rule fit_baseline_model_vart:
@@ -639,7 +715,7 @@ rule fit_model_wide:
         validate_wildcards_for_confusion
 
     output:
-        trace = directory("results_wide/{model}/n{n_candidates}/{berp_model}")
+        trace = directory("results_wide2/{model}/n{n_candidates}/{berp_model}")
 
     run:
         run_berp(input, wildcards, params, output, add_stimuli_parent_dir=True, dataset_spec="heilbron_wide")
@@ -666,6 +742,52 @@ rule fit_model_back:
 
     run:
         run_berp(input, wildcards, params, output, add_stimuli_parent_dir=True, dataset_spec="heilbron_back")
+
+
+rule fit_model_front:
+    input:
+        datasets = expand(
+            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
+        stimuli = expand(
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            story_name=STORIES, run=RUNS, allow_missing=True),
+
+        confusion = "data/confusion.npz"
+
+    params:
+        # HACK: enforce consistency between wildcards and config
+        # I know this is un-Snakemake-y but it's the way things are for now
+        validate_wildcards_for_confusion
+
+    output:
+        trace = directory("results_front/{model}/n{n_candidates}/{berp_model}")
+
+    run:
+        run_berp(input, wildcards, params, output, add_stimuli_parent_dir=True, dataset_spec="heilbron_front")
+
+
+rule fit_model_frontfront:
+    input:
+        datasets = expand(
+            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
+        stimuli = expand(
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            story_name=STORIES, run=RUNS, allow_missing=True),
+
+        confusion = "data/confusion.npz"
+
+    params:
+        # HACK: enforce consistency between wildcards and config
+        # I know this is un-Snakemake-y but it's the way things are for now
+        validate_wildcards_for_confusion
+
+    output:
+        trace = directory("results_frontfront/{model}/n{n_candidates}/{berp_model}")
+
+    run:
+        run_berp(input, wildcards, params, output, add_stimuli_parent_dir=True, dataset_spec="heilbron_frontfront")
 
 
 def run_berp_cannon(input, wildcards, params, output, add_stimuli_parent_dir=False, dataset_spec="heilbron"):
@@ -759,7 +881,7 @@ rule fit_cannon_model_wide:
         validate_wildcards_for_confusion
 
     output:
-        trace = directory("results_cannon_wide/{model}/n{n_candidates}/{berp_model}_{n_quantiles}quantiles")
+        trace = directory("results_cannon_wide2/{model}/n{n_candidates}/{berp_model}_{n_quantiles}quantiles")
 
     run:
         run_berp_cannon(input, wildcards, params, output, add_stimuli_parent_dir=True, dataset_spec="heilbron_wide")
@@ -788,6 +910,52 @@ rule fit_cannon_model_back:
         run_berp_cannon(input, wildcards, params, output, add_stimuli_parent_dir=True, dataset_spec="heilbron_back")
 
 
+rule fit_cannon_model_front:
+    input:
+        datasets = expand(
+            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
+        stimuli = expand(
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            story_name=STORIES, run=RUNS, allow_missing=True),
+
+        confusion = "data/confusion.npz"
+
+    params:
+        # HACK: enforce consistency between wildcards and config
+        # I know this is un-Snakemake-y but it's the way things are for now
+        validate_wildcards_for_confusion
+
+    output:
+        trace = directory("results_cannon_front/{model}/n{n_candidates}/{berp_model}_{n_quantiles}quantiles")
+
+    run:
+        run_berp_cannon(input, wildcards, params, output, add_stimuli_parent_dir=True, dataset_spec="heilbron_front")
+
+
+rule fit_cannon_model_frontfront:
+    input:
+        datasets = expand(
+            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
+        stimuli = expand(
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            story_name=STORIES, run=RUNS, allow_missing=True),
+
+        confusion = "data/confusion.npz"
+
+    params:
+        # HACK: enforce consistency between wildcards and config
+        # I know this is un-Snakemake-y but it's the way things are for now
+        validate_wildcards_for_confusion
+
+    output:
+        trace = directory("results_cannon_frontfront/{model}/n{n_candidates}/{berp_model}_{n_quantiles}quantiles")
+
+    run:
+        run_berp_cannon(input, wildcards, params, output, add_stimuli_parent_dir=True, dataset_spec="heilbron_frontfront")
+
+
 rule fit_vanilla_cannon_model_wide:
     input:
         datasets = expand(
@@ -805,7 +973,7 @@ rule fit_vanilla_cannon_model_wide:
         validate_wildcards_for_confusion
 
     output:
-        trace = directory("results_cannon_wide/{model}/n{n_candidates}/trf-cannon_{n_quantiles}quantiles")
+        trace = directory("results_cannon_wide2/{model}/n{n_candidates}/trf-cannon_{n_quantiles}quantiles")
 
     run:
         wildcards.berp_model = "trf-cannon"
@@ -834,6 +1002,54 @@ rule fit_vanilla_cannon_model_back:
     run:
         wildcards.berp_model = "trf-cannon"
         run_berp_cannon(input, wildcards, params, output, add_stimuli_parent_dir=True, dataset_spec="heilbron_back")
+
+
+rule fit_vanilla_cannon_model_front:
+    input:
+        datasets = expand(
+            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
+        stimuli = expand(
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            story_name=STORIES, run=RUNS, allow_missing=True),
+
+        confusion = "data/confusion.npz"
+
+    params:
+        # HACK: enforce consistency between wildcards and config
+        # I know this is un-Snakemake-y but it's the way things are for now
+        validate_wildcards_for_confusion
+
+    output:
+        trace = directory("results_cannon_front/{model}/n{n_candidates}/trf-cannon_{n_quantiles}quantiles")
+
+    run:
+        wildcards.berp_model = "trf-cannon"
+        run_berp_cannon(input, wildcards, params, output, add_stimuli_parent_dir=True, dataset_spec="heilbron_front")
+
+
+rule fit_vanilla_cannon_model_frontfront:
+    input:
+        datasets = expand(
+            "data/dataset/{{model}}/n{{n_candidates}}/{story_name}/sub{subject}/run{run}.pkl",
+            subject=SUBJECTS, story_name=STORIES, run=RUNS, allow_missing=True),
+        stimuli = expand(
+            "data/stimulus/{{model}}/n{{n_candidates}}/{story_name}/run{run}.pkl",
+            story_name=STORIES, run=RUNS, allow_missing=True),
+
+        confusion = "data/confusion.npz"
+
+    params:
+        # HACK: enforce consistency between wildcards and config
+        # I know this is un-Snakemake-y but it's the way things are for now
+        validate_wildcards_for_confusion
+
+    output:
+        trace = directory("results_cannon_frontfront/{model}/n{n_candidates}/trf-cannon_{n_quantiles}quantiles")
+
+    run:
+        wildcards.berp_model = "trf-cannon"
+        run_berp_cannon(input, wildcards, params, output, add_stimuli_parent_dir=True, dataset_spec="heilbron_frontfront")
 
 
 #############
