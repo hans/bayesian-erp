@@ -162,16 +162,18 @@ gam_smooth_results.mod %>%
 surprisal_quantile_breaks = c(0, 1.3311, 3.7081, max(df$word_surprisal) + 1)
 surprisal_quantile_labels = as.factor(c(0, 1, 2))
 
-# Or .. re-estimate quantiles, possibly a different number
-n_quantiles = 5
-surprisal_quantile_breaks = quantile(df$word_surprisal, 0:n_quantiles/n_quantiles)
-surprisal_quantile_labels = as.factor(0:(n_quantiles - 1))
+# # Or .. re-estimate quantiles, possibly a different number
+# n_quantiles = 5
+# surprisal_quantile_breaks = quantile(df$word_surprisal, 0:n_quantiles/n_quantiles)
+# surprisal_quantile_labels = as.factor(0:(n_quantiles - 1))
 
 piecewise_linear_fits = df %>%
-  mutate(quantile=cut(word_surprisal, breaks=surprisal_quantile_breaks, labels=surprisal_quantile_labels, include.lowest = T)) %>% 
+  mutate(quantile=cut(word_surprisal, breaks=surprisal_quantile_breaks, labels=surprisal_quantile_labels, include.lowest = T),
+         n400_baselined=n400 - baseline,
+         n400_baselined_lm=n400 - predict(lm(n400 ~ baseline))) %>% 
   group_by(sensor_name, quantile) %>% 
   nest() %>% 
-    mutate(fit=map(data, ~lm(n400 ~ baseline + word_surprisal + word_frequency, data=.x)))
+    mutate(fit=map(data, ~lm(n400_baselined_lm ~ word_surprisal + word_frequency, data=.x)))
 
 piecewise_linear_estimates = piecewise_linear_fits %>% 
   mutate(tidied=map(fit, tidy)) %>% 
@@ -183,12 +185,10 @@ piecewise_linear_estimates = piecewise_linear_fits %>%
 piecewise_linear_intercepts = piecewise_linear_estimates %>% filter(term == "(Intercept)")
 piecewise_linear_slopes = piecewise_linear_estimates %>% filter(term == "word_surprisal")
 
-piecewise_linear_intercepts %>% filter(is.na(quantile))
-
 data.frame(quantile=surprisal_quantile_labels, quantile_left=head(surprisal_quantile_breaks, n=-1), quantile_right=tail(surprisal_quantile_breaks, n=-1)) %>% 
   mutate(word_surprisal=map2(quantile_left, quantile_right, ~seq(.x, .y, length=2))) %>%
   unnest(word_surprisal) %>% 
-  right_join(piecewise_linear_intercepts[, c("sensor_name", "quantile", "estimate")] %>% rename(intercept="estimate"), by="quantile") %>%
+  full_join(piecewise_linear_intercepts[, c("sensor_name", "quantile", "estimate")] %>% rename(intercept="estimate"), by="quantile") %>%
   left_join(piecewise_linear_slopes[, c("sensor_name", "quantile", "estimate")] %>% rename(slope="estimate"), by=c("quantile", "sensor_name")) %>%
   mutate(y=intercept + slope * word_surprisal) %>% 
   ggplot(aes(x=word_surprisal, y=y, color=quantile)) +
