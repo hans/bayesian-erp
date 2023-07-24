@@ -48,6 +48,8 @@ nrow(reg_data)
 # summary(linear_model)
 ```
 
+## GAM analysis
+
 ```{r}
 my_gam_predict = function(gm, view) {
   m1 <- seq(min(gm$var.summary[[view[1]]], na.rm = TRUE), max(gm$var.summary[[view[1]]], na.rm = TRUE), length = 30)
@@ -63,27 +65,20 @@ my_gam_predict = function(gm, view) {
 ```
 
 ```{r}
-gam = bam(n400 ~ s(subject, bs="re") + #s(item, bs="re") +
-            baseline + s(baseline, bs="cr", m=c(2, 0)) + s(subject, baseline, bs="re") + #s(item, baseline, bs="re") +
-            word_surprisal + s(word_surprisal, bs="cr", m=c(2, 0)) + s(subject, word_surprisal, bs="re") +
-            word_frequency + s(word_frequency, bs="cr", m=c(2, 0)) + s(subject, word_frequency, bs="re"),
-          data=reg_data %>% filter(sensor_name == "B4"))
-```
-```{r}
-summary(gam)
-```
+# gam = bam(n400 ~ s(subject, bs="re") + #s(item, bs="re") +
+#             baseline + s(baseline, bs="cr", m=c(2, 0)) + s(subject, baseline, bs="re") + #s(item, baseline, bs="re") +
+#             word_surprisal + s(word_surprisal, bs="cr", m=c(2, 0)) + s(subject, word_surprisal, bs="re") +
+#             word_frequency + s(word_frequency, bs="cr", m=c(2, 0)) + s(subject, word_frequency, bs="re"),
+#           data=reg_data %>% filter(sensor_name == "B4"))
+# summary(gam)
 
-```{r}
-plotret = my_gam_predict(gam, "word_surprisal")
-setnames(plotret, "word_surprisal", "pred")
-```
+# plotret = my_gam_predict(gam, "word_surprisal")
+# setnames(plotret, "word_surprisal", "pred")
 
-
-```{r}
-ggplot(plotret, aes(x=pred, y=fit, ymin=ll, ymax=ul)) +
-  geom_line() + geom_ribbon(alpha=0.2) +
-  xlab("Surprisal") +
-  ylab("N400 amplitude")
+# ggplot(plotret, aes(x=pred, y=fit, ymin=ll, ymax=ul)) +
+#   geom_line() + geom_ribbon(alpha=0.2) +
+#   xlab("Surprisal") +
+#   ylab("N400 amplitude")
 ```
 
 ```{r}
@@ -119,6 +114,80 @@ all_gams %>% mutate(predict=map(fit, ~my_gam_predict(.x, "word_surprisal"))) %>%
     geom_line() + geom_ribbon(alpha=0.2) +
     xlab("Surprisal") +
     ylab("N400 amplitude")
+```
+
+## Piecewise linear analysis
+
+```{r}
+# Surprisal quantile edges as estimated by prior-split model on the train dataset.
+surprisal_quantile_breaks = c(min(df$word_surprisal) - 1, -3.7081, -1.3311, 0)
+surprisal_quantile_labels = as.factor(c(0, 1, 2))
+
+piecewise_linear_fits = df %>%
+  mutate(quantile=cut(word_surprisal, breaks=surprisal_quantile_breaks, labels=surprisal_quantile_labels),
+         word_surprisal=-word_surprisal) %>% 
+  group_by(sensor_name, quantile) %>% 
+  nest() %>% 
+    mutate(fit=map(data, ~lm(n400 ~ baseline + word_surprisal + word_frequency, data=.x)))
+
+piecewise_linear_estimates = piecewise_linear_fits %>% 
+  mutate(tidied=map(fit, tidy)) %>% 
+  select(-data, -fit) %>% 
+  unnest(tidied)
+```
+
+```{r}
+table(piecewise_linear_estimates$quantile)
+```
+
+
+```{r}
+piecewise_linear_intercepts = piecewise_linear_estimates %>% filter(term == "(Intercept)")
+piecewise_linear_slopes = piecewise_linear_estimates %>% filter(term == "word_surprisal")
+
+data.frame(quantile=surprisal_quantile_labels, quantile_left=head(surprisal_quantile_breaks, n=-1), quantile_right=tail(surprisal_quantile_breaks, n=-1)) %>% 
+  mutate(word_surprisal=map2(quantile_left, quantile_right, ~seq(.x, .y, length=30))) %>%
+  unnest(word_surprisal) %>% 
+  full_join(piecewise_linear_intercepts[, c("sensor_name", "quantile", "estimate")] %>% rename(intercept="estimate"), by="quantile") %>%
+  left_join(piecewise_linear_slopes[, c("sensor_name", "quantile", "estimate")] %>% rename(slope="estimate"), by=c("quantile", "sensor_name")) %>%
+  mutate(y=intercept + slope * word_surprisal) %>% 
+  ggplot(aes(x=word_surprisal, y=y, color=quantile)) +
+    geom_line() +
+    facet_wrap(~sensor_name, ncol=4)
+```
+
+
+```{r}
+piecewise_linear_estimates %>% 
+  filter(term == "word_surprisal") %>% 
+  arrange(p.value)
+```
+
+
+```{r}
+piecewise_linear_estimates %>% 
+  filter(term == "word_surprisal") %>% 
+  group_by(sensor_name, quantile) %>% 
+    summarise(estimate=mean(estimate))
+```
+
+```{r}
+piecewise_linear_fits2 = df %>%
+  mutate(quantile=cut(word_surprisal, breaks=c(-Inf, -3.7081, -1.3311, Inf), labels=c(0, 1, 2)),
+         word_surprisal=scale(-word_surprisal)) %>% 
+  group_by(sensor_name, quantile) %>% 
+  nest() %>% 
+    mutate(fit=map(data, ~lm(n400 ~ baseline + word_surprisal + word_frequency, data=.x)),
+           tidied=map(fit, tidy)) %>% 
+  select(-data, -fit) %>% 
+  unnest(tidied)
+```
+
+```{r}
+piecewise_linear_fits2 %>% 
+  filter(term == "word_surprisal") %>% 
+  group_by(sensor_name, quantile) %>% 
+    summarise(estimate=mean(estimate))
 ```
 
 
