@@ -99,6 +99,7 @@ class BerpCannonTRFModelConfig(BerpTRFModelConfig):
     threshold: float = 0.5
     lambda_: float = 1.0
     n_quantiles: int = 3
+    feature_onset: str = "word_onset"
 
     type: str = "trf-berp-cannon"
     _target_: str = "berp.models.trf_em.BerpTRFCannon"

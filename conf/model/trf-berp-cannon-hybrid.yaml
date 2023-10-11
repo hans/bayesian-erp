@@ -11,7 +11,7 @@ trf:
 
 threshold: 0.5
 n_quantiles: 3
-feature_onset: word_onset
+feature_onset: recognition_onset
 
 scatter_point: 0.5
 prior_scatter_index: 0

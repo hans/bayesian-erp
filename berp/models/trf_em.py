@@ -918,6 +918,11 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
     single characteristic response in a time series.
     """
 
+    # Enum: should word-level features have onset at word onset or at
+    # recognition onset?
+    FEATURE_ONSET_WORD_ONSET = "word_onset"
+    FEATURE_ONSET_RECOGNITION_ONSET = "recognition_onset"
+
     def __init__(self, encoder: Encoder,
                  ts_feature_names: List[str],
                  variable_feature_names: List[str],
@@ -929,6 +934,7 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
                  phonemes: List[Phoneme],
 
                  n_quantiles: int = 3,
+                 feature_onset: str = FEATURE_ONSET_WORD_ONSET,
 
                  scatter_point: float = 0,
                  prior_scatter_index: int = 0,
@@ -950,6 +956,7 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
                          **kwargs)
 
         self.n_quantiles = n_quantiles
+        self.feature_onset = feature_onset
 
     @property
     def encoder_predictor_names(self) -> Tuple[List[str], List[str]]:
@@ -1003,15 +1010,16 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
     @typechecked
     def _get_recognition_quantiles(self,
                                    dataset: BerpDataset,
-                                   params: ModelParameters
+                                   params: ModelParameters,
+                                   recognition_times: Optional[TensorType[torch.float]] = None,
                                    ) -> TensorType[B, torch.long]:
         """
         Compute assignments mapping each word to a recognition-time quantile.
 
         Returns a tensor mapping each word to a quantile index `[0, n_quantiles)`.
         """
-
-        recognition_points, recognition_times = self.get_recognition_times(dataset, params)
+        if recognition_times is None:
+            _, recognition_times = self.get_recognition_times(dataset, params)
         local_recognition_times = recognition_times - dataset.word_onsets
 
         if not hasattr(self, "recognition_quantile_edges_") or self.recognition_quantile_edges_ is None:
@@ -1041,7 +1049,9 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
         producing a regression design matrix. Operates in-place.
         """
         # Get recognition quantile assignments for each word in the dataset.
-        recognition_quantiles = self._get_recognition_quantiles(dataset, params)
+        _, recognition_times = self.get_recognition_times(dataset, params)
+        recognition_quantiles = self._get_recognition_quantiles(
+            dataset, params, recognition_times=recognition_times)
 
         # Generate lag mask given zero-ing rules.
         lag_mask = torch.ones(out.shape[2], dtype=torch.bool)
@@ -1049,7 +1059,14 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
         if self.variable_trf_zero_right != 0:
             lag_mask[-self.variable_trf_zero_right:] = False
 
-        word_onset_samples = time_to_sample(dataset.word_onsets, dataset.sample_rate)
+        # Compute word-level feature onset time => time series sample.
+        if self.feature_onset == self.FEATURE_ONSET_WORD_ONSET:
+            scatter_samples = time_to_sample(dataset.word_onsets, dataset.sample_rate)
+        elif self.feature_onset == self.FEATURE_ONSET_RECOGNITION_ONSET:
+            scatter_samples = time_to_sample(recognition_times, dataset.sample_rate)
+        else:
+            raise ValueError(f"Unknown feature onset mode: {self.feature_onset}")
+
         _, X_variable = self._get_features(dataset)
 
         assert X_variable.shape[1] == len(self.variable_feature_names)
@@ -1058,7 +1075,7 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
         # All bins use the first surprisal feature.
         target_0 = torch.narrow(out, 1, self.n_ts_features, n_variable_features)
         scatter_add(target_0,
-                    target_samples=word_onset_samples,
+                    target_samples=scatter_samples,
                     target_values=X_variable,
                     lag_mask=lag_mask)
 
@@ -1066,7 +1083,7 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
             mask = recognition_quantiles == rec_bin_i
 
             feature_start_idx = self.n_ts_features + (rec_bin_i + 1) * n_variable_features
-            samples, values = word_onset_samples[mask], X_variable[mask]
+            samples, values = scatter_samples[mask], X_variable[mask]
 
             # Pass just the slice of `out` that should be updated. NB `torch.narrow`
             # never returns a copy.
@@ -1095,6 +1112,12 @@ class GroupBerpCannonTRFForwardPipeline(GroupBerpFixedTRFForwardPipeline):
 
     def partial_fit(self, *args, **kwargs):
         raise NotImplementedError()
+
+    def __setstate__(self, state):
+        # Support loading legacy models.
+        if "feature_onset" not in state:
+            state["feature_onset"] = self.FEATURE_ONSET_WORD_ONSET
+        super().__setstate__(state)
 
 
 class GroupVanillaTRFForwardPipeline(GroupTRFForwardPipeline):

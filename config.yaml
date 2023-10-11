@@ -108,6 +108,7 @@ fit:
     trf-berp-fixed: search_alpha_threshold_lambda_priorscatter
     trf-berp-fixed-t075: search_alpha_threshold_lambda_priorscatter
     trf-berp-cannon: search_alpha_threshold_lambda_priorscatter
+    trf-berp-cannon-hybrid: search_alpha_threshold_lambda_priorscatter
     trf: search_alpha
     base_trf: search_alpha
     trf_t1: search_alpha
